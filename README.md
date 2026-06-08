@@ -18,42 +18,54 @@ BEguided is a Python package for designing guide RNAs for Cas9 base editors. It 
 
 ## Installation
 
-Requires Python >= 3.10 and [Pixi](https://pixi.sh) (recommended).
+Requires Python >= 3.10. BEguided can be installed via **pip** (universal) or **Pixi** (recommended for TU Dresden/internal users who have access to BEguidedOFF).
+
+### Option A: pip (any system)
 
 ```bash
-# Clone the repository
+cd BEguided
+pip install -r requirements.txt
+pip install -e .
+```
+
+Core functionality works out of the box. Off-target search requires the separate BEguidedOFF package (install manually if you have access).
+
+### Option B: Pixi (TU Dresden / internal)
+
+```bash
 cd BEguided
 
-# Install dependencies (including BEguidedOFF from GitLab)
+# Install core dependencies
 pixi install
+
+# (Optional) Add CUDA support for GPU-accelerated off-target search
+pixi add pytorch-cuda
 
 # Install BEguided in editable mode
 pip install -e .
 ```
 
-The `beguided` command will then be available:
+### Option C: pip with test dependencies
 
 ```bash
-beguided --help
+pip install -e ".[test]"
 ```
 
-Or run directly via Pixi:
+### Platform support
+
+| Platform | Core features | Off-target search (BEguidedOFF) | GPU acceleration |
+|---|---|---|---|
+| Linux | Yes | Yes (manual install) | Yes |
+| macOS | Yes | Yes (manual install) | CPU only |
+| Windows | Yes | Yes (manual install) | CPU only |
+
+### Optional: Install BEguidedOFF (off-target search)
 
 ```bash
-pixi run beguided --help
+pip install "git+ssh://git@gitlab.mn.tu-dresden.de/buchholzlab/beguidedoff.git"
 ```
 
-### Dependencies
-
-- numpy, biopython, pandas, intervaltree, pyyaml
-- fastapi, uvicorn, jinja2 (web interface)
-- torch, numba, pysam (BEguidedOFF off-target search)
-
-For GPU-accelerated off-target search, additionally install:
-
-```bash
-pixi add pytorch-cuda
-```
+Then provide the path to an encoded genome `.npz` via `--beguidedoff-genome` or `BEGUIDED_BEGUIDEDOFF_GENOME`.
 
 ## Input format
 

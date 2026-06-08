@@ -57,13 +57,25 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     def index():
+        cfg = get_config()
         preset_names = get_preset_display_names()
         html = _render_template(
             "index.html",
             preset_names=preset_names,
             filter_modes=["all", "no_bystanders", "silent"],
+            beguidedoff_available=cfg.has_beguidedoff,
         )
         return HTMLResponse(content=html)
+
+    @app.get("/config")
+    def server_config():
+        """Return server configuration (safe for frontend consumption)."""
+        cfg = get_config()
+        return {
+            "ok": True,
+            "beguidedoff_available": cfg.has_beguidedoff,
+            "max_input_targets": cfg.max_input_targets,
+        }
 
     @app.post("/upload")
     async def upload(file: UploadFile = File(...)):
@@ -176,6 +188,13 @@ def create_app() -> FastAPI:
         groups = load_preset_groups()
         preset_names = groups.get(preset, [preset])
         run_offtargets = search_offtargets.lower() in ("true", "1", "yes", "on")
+
+        # Fast-fail if off-targets requested but unavailable
+        from beguided.web.tasks import _validate_offtarget_config
+        try:
+            _validate_offtarget_config(run_offtargets)
+        except RuntimeError as exc:
+            return {"ok": False, "error": str(exc)}
 
         task = asyncio.create_task(
             run_pipeline_task(

@@ -104,8 +104,17 @@ Pixi configuration lives in `[tool.pixi.*]` sections inside `pyproject.toml`. Th
 
 Dependency sources:
 - `[project.dependencies]` — standard Python dependencies, shared with pip/setuptools.
-- `[project.optional-dependencies]` — optional groups (e.g. `test = ["pytest>=9.0.3"]`).
-- `[tool.pixi.dependencies]` — Conda-specific overrides/additions (e.g. `pytorch-cuda`).
+- `[project.optional-dependencies]` — optional groups (`test = ["pytest>=9.0.3"]`).
+- `[tool.pixi.dependencies]` — Conda-specific overrides/additions.
+- `[tool.pixi.feature.<name>]` — optional Pixi features (e.g. `cuda`, `test`).
+
+### Pixi features
+
+| Feature | Adds | Install |
+|---|---|---|
+| (default) | Core runtime deps only | `pixi install` |
+| `cuda` | `pytorch-cuda>=12.4` | `pixi install --features cuda` |
+| `test` | `pytest>=9.0.3`, `httpx` | `pixi install --features test` |
 
 Pixi resolves the environment by combining `[project.dependencies]` + `[tool.pixi.dependencies]`, locking the result in `pixi.lock`.
 

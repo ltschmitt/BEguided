@@ -43,7 +43,16 @@ class WebConfig:
     remove_guides_score: float = 5.0
     mismatch_tolerance: int = 5
     remove_guides_n_offtargets: int = 100
-    max_input_targets: int = 100
+    max_input_targets: int = 1000
+
+    @property
+    def has_beguidedoff(self) -> bool:
+        """Return True if BEguidedOFF appears to be installed/configured."""
+        try:
+            import beguidedoff  # noqa: F401
+            return True
+        except ImportError:
+            return False
 
 
 # Global singleton – replaced at app startup if CLI args override values

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Pixi
+.pixi/
+pixi.lock
+
+# Local data (mount at runtime)
+genome/
+casoff/
+casoffinput/
+testing/
+results*
+config.yaml
+run_web.sh
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

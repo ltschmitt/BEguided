@@ -27,7 +27,9 @@
     </div>
     <div class="group">
         <label for="offtargetToggle">Off-target</label>
-        <input type="checkbox" id="offtargetToggle" checked title="Run Cas-OFFinder and CFD scoring" />
+        <input type="checkbox" id="offtargetToggle"
+            {% if beguidedoff_available %}checked{% else %}disabled{% endif %}
+            title="{% if beguidedoff_available %}Run BEguidedOFF off-target search{% else %}BEguidedOFF not installed — off-target search unavailable{% endif %}" />
     </div>
     <button id="runBtn" class="btn btn-primary" disabled>Run</button>
     <div class="right">
@@ -38,7 +40,7 @@
 <div class="info-row">
     <span id="fileInfo"></span>
     <span id="compatibilityInfo" class="right"></span>
-    <span class="right">&nbsp;&middot; Genome: GRCh38 &middot; Max targets: 100</span>
+    <span class="right">&nbsp;&middot; Genome: GRCh38 &middot; Max targets: 1000</span>
 </div>
 
 <div class="tabs">

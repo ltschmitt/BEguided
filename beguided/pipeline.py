@@ -156,7 +156,7 @@ def _prepare_beguidedoff_input(df, output_path):
 
 
 def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
-                      count_threshold_score, output_file, batch_size=1500):
+                       count_threshold_score, output_file, batch_size=1500):
     """Run BEguidedOFF off-target search on the filtered guide file.
 
     Guides are loaded explicitly and processed in batches so the pipeline
@@ -164,8 +164,15 @@ def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
 
     Returns the BEguidedOFF result DataFrame.
     """
-    from beguidedoff import beguidedoff
-    from beguidedoff.io import load_guides_from_tsv
+    try:
+        from beguidedoff import beguidedoff
+        from beguidedoff.io import load_guides_from_tsv
+    except ImportError as exc:
+        raise PipelineError(
+            "BEguidedOFF is not installed. Off-target search is unavailable.\n"
+            "Install it from: ssh://git@gitlab.mn.tu-dresden.de/buchholzlab/beguidedoff.git\n"
+            "Or set search_offtargets=false in your config to skip off-target search."
+        ) from exc
 
     finder = beguidedoff(
         genome_path=genome_npz,

@@ -52,6 +52,30 @@ def _build_config(targets_df, preset_names, filter_mode, work_dir, search_offtar
     }
 
 
+def _validate_offtarget_config(search_offtargets: bool):
+    """Raise a clear error if off-target search is requested but unavailable.
+
+    Args:
+        search_offtargets: Whether the UI/user requested off-target search.
+
+    Raises:
+        RuntimeError: If BEguidedOFF is not installed or not configured.
+    """
+    if not search_offtargets:
+        return
+    cfg = get_config()
+    if not cfg.has_beguidedoff:
+        raise RuntimeError(
+            "Off-target search is unavailable because BEguidedOFF is not installed. "
+            "Install it from ssh://git@gitlab.mn.tu-dresden.de/buchholzlab/beguidedoff.git "
+            "or uncheck the Off-target option."
+        )
+    if not cfg.beguidedoff_genome:
+        raise RuntimeError(
+            "Off-target search requires --beguidedoff-genome or BEGUIDED_BEGUIDEDOFF_GENOME."
+        )
+
+
 async def run_pipeline_task(job_id, targets_df, preset_names, filter_mode, sse_handler, search_offtargets=True):
     """Run the pipeline asynchronously and stream logs via SSE.
 
@@ -70,6 +94,7 @@ async def run_pipeline_task(job_id, targets_df, preset_names, filter_mode, sse_h
     q = sse_handler.register_job(job_id)
 
     with tempfile.TemporaryDirectory(prefix="beguided_") as work_dir:
+        _validate_offtarget_config(search_offtargets)
         config = _build_config(targets_df, preset_names, filter_mode, work_dir, search_offtargets)
         final_output = Path(work_dir) / "beguided_results.tsv"
 

@@ -24,6 +24,23 @@ let uploadedRawB64 = null;
 let currentJobId = null;
 let eventSource = null;
 
+// Fetch server config on load (BEguidedOFF availability, limits)
+(async function init() {
+    try {
+        const res = await fetch("/config");
+        const data = await res.json();
+        if (data.ok && !data.beguidedoff_available) {
+            offtargetToggle.checked = false;
+            offtargetToggle.disabled = true;
+            showAlert(checkAlert, "warning",
+                "Off-target search is unavailable: BEguidedOFF is not installed."
+            );
+        }
+    } catch (err) {
+        console.warn("Failed to fetch server config:", err);
+    }
+})();
+
 // Tab switching
 tabButtons.forEach(btn => {
     btn.addEventListener("click", () => {

@@ -277,3 +277,9 @@ pre.log {
     color: #14532d;
     border-color: #bbf7d0;
 }
+
+.alert.warning {
+    background: #fffbeb;
+    color: #78350f;
+    border-color: #fcd34d;
+}
