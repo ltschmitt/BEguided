@@ -1,0 +1,6 @@
+chromosome	position	target_base	desired_base
+guide_rna_sequence	genome_base	pam_sequence	editing_position	strand_used
+chr1	50	T	C	TCTAATGATCGCTAGATCGA	C	AGG	4	-
+chr1	75	A	G	CTAGATAGCTAGCTAGCTAG	G	GGG	5	+
+chr1	75	A	G	GCTAGATAGCTAGCTAGCTA	G	GGG	6	+
+chr1	75	A	G	AGCTAGATAGCTAGCTAGCT	G	AGG	7	+

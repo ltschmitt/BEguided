@@ -1,0 +1,86 @@
+# BEguided Pipeline Configuration Template
+# Copy this file and fill in your local paths before running:
+#   beguided run-pipeline --config your_config.yaml
+
+# =============================================================================
+# INPUT FILES
+# =============================================================================
+input:
+  # Target mutations file (TSV format)
+  # Required columns: chromosome, position, target_base, desired_base
+  targets: "path/to/targets.tsv"
+
+  # Reference genome (FASTA format, optionally bgzipped/FAI-indexed)
+  # Used for guide generation and bystander analysis (steps 1-3)
+  genome: "path/to/genome.fa"
+
+  # Base editor presets (TSV format)
+  # Default: be_presets.tsv in working directory
+  presets: "be_presets.tsv"
+
+  # GFF/GTF annotation file for transcript/CDS information
+  # Required for bystander analysis (unless keep_bystanders=no_bystanders)
+  gff_file: "path/to/annotation.gtf"
+
+# =============================================================================
+# OUTPUT
+# =============================================================================
+# Output directory. All files are written directly into this directory with
+# fixed step filenames (step1_guidefinder.tsv, step2_bystander.tsv, etc.).
+output_prefix: "./pipeline_results/run1"
+
+# Keep intermediate files (step1-4 TSVs)
+keep_intermediates: true
+
+# =============================================================================
+# GUIDEFINDER
+# =============================================================================
+# Which base editor presets to use
+# Options: "all", "all ABEs", "all CBEs", or comma-separated preset names (e.g. "ABE8e,ABE9")
+#   "all"        -> every preset from be_presets.tsv
+#   "all ABEs"   -> only A-to-G / T-to-C presets
+#   "all CBEs"   -> only C-to-T / G-to-A presets
+use_presets: "all"
+
+# =============================================================================
+# FILTERING / BYSTANDERS
+# =============================================================================
+# Filter mode for guide selection:
+#   "all"            -> keep all guides
+#   "no_bystanders"  -> only guides with zero bystander edits (skips bystander scanner)
+#   "silent"         -> guides with silent bystanders or no bystanders
+keep_bystanders: "all"
+
+# On-target score filter (CRISPRater).
+# Guides with guide_score below this value are removed in step 3.
+# Value must be between 0 and 1 (higher = better score).
+# Set to 0 to disable filtering by on-target score.
+guide_score_threshold: 0.5
+
+# =============================================================================
+# OFF-TARGET SCREENING (Steps 4-6)
+# =============================================================================
+# Set to false to skip BEguidedOFF off-target search
+search_offtargets: true
+
+offtargets:
+  # Path to the BEguidedOFF-encoded genome (.npz file)
+  # Encode once with: python -m beguidedoff.cli encode-genome --fasta genome.fa --output genome.npz
+  beguidedoff_genome: "path/to/genome.npz"
+
+  # Maximum mismatches allowed in the 20-nt guide region
+  mismatch_tolerance: 5
+
+  # CCTOP score threshold for COUNTING off-targets.
+  # Only off-targets with score <= this value are included in offtarget_count.
+  # Higher CCTOP = less concerning. Default: 15.0
+  count_threshold_score: 15.0
+
+  # Minimum CCTOP score to KEEP a guide.
+  # Guides whose worst off-target has a score < this value are removed.
+  # Default: 5.0 (guides with very likely off-targets are discarded)
+  remove_guides_score: 5.0
+
+  # Maximum off-target count to KEEP a guide (null = no limit)
+  # Guides with more off-targets than this are removed.
+  remove_guides_n_offtargets: null

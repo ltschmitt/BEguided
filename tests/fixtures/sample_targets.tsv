@@ -1,0 +1,5 @@
+chromosome	position	target_base	desired_base
+chr1	50	T	C
+chr1	75	A	G
+chr2	30	T	C
+chr2	80	A	G

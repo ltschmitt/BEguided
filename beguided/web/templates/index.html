@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}BEguided{% endblock %}
+
+{% block content %}
+<div class="top-bar">
+    <div class="group">
+        <label for="fileInput">Targets</label>
+        <input type="file" id="fileInput" accept=".tsv,.csv,.xlsx,.xls" />
+        <a href="/download/template" class="btn btn-secondary" download>Template</a>
+    </div>
+    <div class="group">
+        <label for="presetSelect">Preset</label>
+        <select id="presetSelect">
+            {% for name in preset_names %}
+            <option value="{{ name }}">{{ name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="group">
+        <label for="filterSelect">Filter</label>
+        <select id="filterSelect">
+            {% for mode in filter_modes %}
+            <option value="{{ mode }}">{{ mode.replace('_', ' ') }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="group">
+        <label for="offtargetToggle">Off-target</label>
+        <input type="checkbox" id="offtargetToggle" checked title="Run Cas-OFFinder and CFD scoring" />
+    </div>
+    <button id="runBtn" class="btn btn-primary" disabled>Run</button>
+    <div class="right">
+        <span id="statusBadge" class="badge">idle</span>
+    </div>
+</div>
+
+<div class="info-row">
+    <span id="fileInfo"></span>
+    <span id="compatibilityInfo" class="right"></span>
+    <span class="right">&nbsp;&middot; Genome: GRCh38 &middot; Max targets: 100</span>
+</div>
+
+<div class="tabs">
+    <button class="tab-button active" data-tab="inputTab">Input</button>
+    <button class="tab-button" data-tab="logTab">Logging</button>
+    <button class="tab-button" data-tab="resultsTab">Results</button>
+</div>
+
+<div id="inputTab" class="tab-panel active">
+    <div id="checkAlert" class="alert info" style="display:none;"></div>
+    <div id="inputAlert" class="alert info" style="display:none;"></div>
+    <div class="panel" id="inputPanel">
+        <p style="color: var(--muted);">Upload a targets file to preview input data.</p>
+    </div>
+</div>
+
+<div id="logTab" class="tab-panel">
+    <div class="panel" style="padding:0;">
+        <pre id="logOutput" class="log"></pre>
+    </div>
+    <div style="margin-top:8px;">
+        <button id="clearLogs" class="btn btn-secondary">Clear</button>
+    </div>
+</div>
+
+<div id="resultsTab" class="tab-panel">
+    <div id="resultsAlert" class="alert info" style="display:none;"></div>
+    <div class="panel" id="resultsPanel" style="padding:0; overflow:auto;">
+        <p style="color: var(--muted); padding:16px;">Results will appear here after the pipeline completes.</p>
+    </div>
+    <div style="margin-top:8px;">
+        <a id="downloadResults" class="btn btn-secondary" href="#" style="display:none;">Download TSV</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/app.js"></script>
+{% endblock %}

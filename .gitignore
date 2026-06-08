@@ -1,0 +1,13 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+opencode.json
+genome/*
+casoff/*
+casoffinput/*
+testing/*
+*__pycache__*
+results*
+config.yaml
+run_web.sh
+pixi.lock
