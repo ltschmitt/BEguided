@@ -57,9 +57,14 @@ beguided/                  # Main package
 
 ```bash
 # Pixi is configured inside pyproject.toml (no separate pixi.toml)
+
+# Core environment (CLI + tests)
 pixi install
 
-# Install BEguided in editable mode
+# + Web server dependencies
+pixi install --features web
+
+# Install BEguided in editable mode (always required)
 pip install -e .
 
 # Run guidefinder
@@ -80,6 +85,7 @@ beguided run-pipeline    --config config.yaml [--from-step 3]
 beguided web             [--host 0.0.0.0] [--port 8000] [--reload] \
                          [--presets-file ...] [--genome-fasta ...] \
                          [--gtf-path ...] [--beguidedoff-genome ...]
+                         # Requires web extra: pixi run --environment web beguided web
 ```
 
 ### Running Tests
@@ -112,17 +118,41 @@ Dependency sources:
 
 | Feature | Adds | Install |
 |---|---|---|
-| (default) | Core runtime deps only | `pixi install` |
+| (default) | Core runtime deps + test | `pixi install` |
+| `web` | `fastapi`, `uvicorn`, `python-multipart`, `jinja2` | `pixi install --features web` |
 | `cuda` | `pytorch-cuda>=12.4` | `pixi install --features cuda` |
-| `test` | `pytest>=9.0.3`, `httpx` | `pixi install --features test` |
+| `test` | `pytest>=9.0.3`, `httpx` | Already in default |
+
+### Docker targets
+
+| Target | Base image | CUDA | Web |
+|---|---|---|---|
+| `base` | `python:3.12-slim-bookworm` | No | No |
+| `web` | extends `base` | No | Yes |
+| `base-gpu` | `nvidia/cuda:12.4.1-runtime-ubuntu22.04` | Yes | No |
+| `cli-cuda` | extends `base-gpu` | Yes | No |
+| `web-cuda` | extends `base-gpu` | Yes | Yes |
 
 Pixi resolves the environment by combining `[project.dependencies]` + `[tool.pixi.dependencies]`, locking the result in `pixi.lock`.
 
+### Environments
+
+| Environment | Features | Use case |
+|---|---|---|
+| `default` | `test` | CLI / pipeline / testing |
+| `web` | `web`, `test` | Web server + testing |
+| `cuda` | `cuda`, `test` | GPU off-target search |
+
+Run a command in a specific environment:
+```bash
+pixi run --environment web beguided web
+```
+
 ### CUDA status
 
-- `pytorch-cuda` is installed by default in the Pixi environment.
-- PyTorch reports `torch.cuda.is_available() == True` and CUDA 12.4.
-- `pytorch-cuda` can be removed manually if a CPU-only environment is needed.
+- `pytorch-cuda` is **not** included in the default environment.
+- Add it with `pixi install --features cuda` for GPU-accelerated off-target search.
+- PyTorch with CUDA reports `torch.cuda.is_available() == True` and CUDA 12.4.
 
 ## Code Style Guidelines
 

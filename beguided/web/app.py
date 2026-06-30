@@ -177,12 +177,18 @@ def create_app() -> FastAPI:
         raw_b64: str = Form(...),
         preset: str = Form(...),
         filter_mode: str = Form(...),
+        guide_score_threshold: str = Form("0.5"),
         search_offtargets: str = Form("true"),
     ):
         """Start pipeline run in background and return job_id."""
         content = base64.b64decode(raw_b64.encode("ascii"))
         df = pd.read_csv(io.BytesIO(content), sep="\t")
         df.columns = df.columns.str.strip()
+
+        try:
+            score_threshold = float(guide_score_threshold)
+        except ValueError:
+            return {"ok": False, "error": f"Invalid guide_score_threshold: {guide_score_threshold!r}"}
 
         job_id = str(uuid.uuid4())
         groups = load_preset_groups()
@@ -202,6 +208,7 @@ def create_app() -> FastAPI:
                 targets_df=df,
                 preset_names=preset_names,
                 filter_mode=filter_mode,
+                guide_score_threshold=score_threshold,
                 sse_handler=get_sse_handler(),
                 search_offtargets=run_offtargets,
             )

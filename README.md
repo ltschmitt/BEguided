@@ -1,6 +1,6 @@
 # BEguided
 
-Cas9 Base Editor Guide RNA Generator
+Cas9 Base Editor Guide RNA Generator and Evaluator
 
 BEguided is a Python package for designing guide RNAs for Cas9 base editors. It generates candidate guides around target mutations, analyses bystander editing effects on protein coding sequences, filters guides by biological criteria, and scores off-target activity using BEguidedOFF with CCTOP scoring.
 
@@ -20,35 +20,45 @@ BEguided is a Python package for designing guide RNAs for Cas9 base editors. It 
 
 Requires Python >= 3.10. BEguided can be installed via **pip** (universal) or **Pixi** (recommended for TU Dresden/internal users who have access to BEguidedOFF).
 
-### Option A: pip (any system)
+### pip (any system)
+
+| What you need | Command |
+|---|---|
+| Core CLI & pipeline only | `pip install -e .` |
+| + Web server | `pip install -e ".[web]"` |
+| + Tests | `pip install -e ".[test]"` |
+| Everything | `pip install -e ".[web,test]"` |
 
 ```bash
 cd BEguided
+
+# 1) Install core dependencies
 pip install -r requirements.txt
+
+# 2) Install BEguided
 pip install -e .
 ```
 
 Core functionality works out of the box. Off-target search requires the separate BEguidedOFF package (install manually if you have access).
 
-### Option B: Pixi (TU Dresden / internal)
+### Pixi (TU Dresden / internal)
 
 ```bash
 cd BEguided
 
-# Install core dependencies
+# Core environment (CLI + tests)
 pixi install
 
-# (Optional) Add CUDA support for GPU-accelerated off-target search
-pixi add pytorch-cuda
+# + Web server
+pixi install --features web
+# or use the dedicated web environment:
+# pixi run --environment web beguided web
+
+# + CUDA support for GPU-accelerated off-target search
+pixi install --features cuda
 
 # Install BEguided in editable mode
 pip install -e .
-```
-
-### Option C: pip with test dependencies
-
-```bash
-pip install -e ".[test]"
 ```
 
 ### Platform support
@@ -66,6 +76,56 @@ pip install "git+ssh://git@gitlab.mn.tu-dresden.de/buchholzlab/beguidedoff.git"
 ```
 
 Then provide the path to an encoded genome `.npz` via `--beguidedoff-genome` or `BEGUIDED_BEGUIDEDOFF_GENOME`.
+
+### Docker
+
+A multi-stage `Dockerfile` is included. It produces four images:
+
+| Target | Tag | CUDA | Web | Use case |
+|---|---|---|---|---|
+| `base` | `beguided:cli` | No | No | CLI / pipeline |
+| `web` (default) | `beguided:web` | No | Yes | Web interface |
+| `cli-cuda` | `beguided:cli-cuda` | Yes | No | CLI + GPU off-target search |
+| `web-cuda` | `beguided:web-cuda` | Yes | Yes | Web + GPU off-target search |
+
+**Build:**
+```bash
+docker build --target base     -t beguided:cli     .
+docker build --target web      -t beguided:web     .
+docker build --target cli-cuda -t beguided:cli-cuda .
+docker build --target web-cuda -t beguided:web-cuda .
+```
+
+**Run CPU CLI:**
+```bash
+docker run -v $(pwd)/data:/app/data beguided:cli guidefinder \
+    --input /app/data/targets.tsv \
+    --output /app/data/results.tsv \
+    --genome /app/data/genome.fa
+```
+
+**Run CPU web server:**
+```bash
+docker run -p 8000:8000 \
+  -v $(pwd)/be_presets.tsv:/app/be_presets.tsv \
+  -v $(pwd)/genome:/app/genome \
+  beguided:web
+```
+
+**Run GPU CLI (requires NVIDIA Container Toolkit):**
+```bash
+docker run --gpus all \
+  -v $(pwd)/data:/app/data \
+  beguided:cli-cuda run-pipeline --config /app/data/config.yaml
+```
+
+**Run GPU web server:**
+```bash
+docker run --gpus all -p 8000:8000 \
+  -v $(pwd)/be_presets.tsv:/app/be_presets.tsv \
+  -v $(pwd)/genome:/app/genome \
+  beguided:web-cuda
+```
 
 ## Input format
 
@@ -166,6 +226,8 @@ python -m beguidedoff.cli encode-genome \
 Then reference `genome_otbe.npz` in your pipeline config under `offtargets.beguidedoff_genome`.
 
 ### Web interface
+
+> **Requires the `web` extra.** Install first: `pip install -e ".[web]"` or `pixi install --features web`.
 
 BEguided includes a FastAPI-based web interface that can be run locally or served on a remote machine.
 

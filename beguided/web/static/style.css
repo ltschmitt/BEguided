@@ -58,7 +58,8 @@ body {
 }
 
 .top-bar select,
-.top-bar input[type="file"] {
+.top-bar input[type="file"],
+.top-bar input[type="number"] {
     padding: 8px 10px;
     border: 1px solid var(--border);
     border-radius: 8px;

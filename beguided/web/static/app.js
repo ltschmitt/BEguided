@@ -4,6 +4,7 @@
 const fileInput = document.getElementById("fileInput");
 const presetSelect = document.getElementById("presetSelect");
 const filterSelect = document.getElementById("filterSelect");
+const scoreThreshold = document.getElementById("scoreThreshold");
 const offtargetToggle = document.getElementById("offtargetToggle");
 const runBtn = document.getElementById("runBtn");
 const statusBadge = document.getElementById("statusBadge");
@@ -124,10 +125,17 @@ runBtn.addEventListener("click", async () => {
     downloadResults.style.display = "none";
     resultsAlert.style.display = "none";
 
+    // Switch to Logging tab
+    tabButtons.forEach(b => b.classList.remove("active"));
+    tabPanels.forEach(p => p.classList.remove("active"));
+    document.querySelector('[data-tab="logTab"]').classList.add("active");
+    document.getElementById("logTab").classList.add("active");
+
     const form = new FormData();
     form.append("raw_b64", uploadedRawB64);
     form.append("preset", presetSelect.value);
     form.append("filter_mode", filterSelect.value);
+    form.append("guide_score_threshold", scoreThreshold.value);
     form.append("search_offtargets", offtargetToggle.checked ? "true" : "false");
 
     const res = await fetch("/run", { method: "POST", body: form });

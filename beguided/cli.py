@@ -152,16 +152,30 @@ def cmd_filter(args):
 
 def cmd_web(args):
     """Start the BEguided web server."""
-    import uvicorn
-    from beguided.web.app import create_app
-    from beguided.web.config import WebConfig, set_config
+    try:
+        import uvicorn  # noqa: F401
+        from beguided.web.app import create_app
+        from beguided.web.config import WebConfig, set_config
+    except ImportError as exc:
+        print(
+            "Error: The web server requires extra dependencies.\n"
+            "Install them with one of the following:\n"
+            "  pip install -e \".[web]\"\n"
+            "  pixi install --features web",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
-    cfg = WebConfig(
-        presets_file=args.presets_file,
-        genome_fasta=args.genome_fasta,
-        gtf_path=args.gtf_path,
-        beguidedoff_genome=args.beguidedoff_genome,
-    )
+    kwargs = {}
+    if args.presets_file is not None:
+        kwargs["presets_file"] = args.presets_file
+    if args.genome_fasta is not None:
+        kwargs["genome_fasta"] = args.genome_fasta
+    if args.gtf_path is not None:
+        kwargs["gtf_path"] = args.gtf_path
+    if args.beguidedoff_genome is not None:
+        kwargs["beguidedoff_genome"] = args.beguidedoff_genome
+    cfg = WebConfig(**kwargs)
     set_config(cfg)
 
     app = create_app()

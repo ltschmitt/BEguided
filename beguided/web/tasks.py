@@ -14,7 +14,7 @@ from beguided.web.config import get_config
 logger = logging.getLogger("beguided.web.tasks")
 
 
-def _build_config(targets_df, preset_names, filter_mode, work_dir, search_offtargets=True):
+def _build_config(targets_df, preset_names, filter_mode, work_dir, search_offtargets=True, guide_score_threshold=0.5):
     """Build a pipeline config dict from web UI parameters.
 
     Args:
@@ -23,6 +23,7 @@ def _build_config(targets_df, preset_names, filter_mode, work_dir, search_offtar
         filter_mode: One of 'all', 'no_bystanders', 'silent'.
         work_dir: Temporary directory for outputs.
         search_offtargets: Whether to run BEguidedOFF off-target steps.
+        guide_score_threshold: Minimum on-target guide score (0-1).
 
     Returns:
         dict: Compatible with run_pipeline().
@@ -41,6 +42,7 @@ def _build_config(targets_df, preset_names, filter_mode, work_dir, search_offtar
         "output_prefix": str(work_dir),
         "use_presets": ",".join(preset_names),
         "keep_bystanders": filter_mode,
+        "guide_score_threshold": guide_score_threshold,
         "search_offtargets": search_offtargets,
         "offtargets": {
             "beguidedoff_genome": cfg.beguidedoff_genome,
@@ -76,7 +78,7 @@ def _validate_offtarget_config(search_offtargets: bool):
         )
 
 
-async def run_pipeline_task(job_id, targets_df, preset_names, filter_mode, sse_handler, search_offtargets=True):
+async def run_pipeline_task(job_id, targets_df, preset_names, filter_mode, sse_handler, search_offtargets=True, guide_score_threshold=0.5):
     """Run the pipeline asynchronously and stream logs via SSE.
 
     Args:
@@ -86,6 +88,7 @@ async def run_pipeline_task(job_id, targets_df, preset_names, filter_mode, sse_h
         filter_mode: Filter mode string.
         sse_handler: AsyncQueueHandler instance.
         search_offtargets: Whether to run BEguidedOFF off-target steps.
+        guide_score_threshold: Minimum on-target guide score (0-1).
 
     Returns:
         dict: Result metadata including path to final output.
@@ -95,7 +98,7 @@ async def run_pipeline_task(job_id, targets_df, preset_names, filter_mode, sse_h
 
     with tempfile.TemporaryDirectory(prefix="beguided_") as work_dir:
         _validate_offtarget_config(search_offtargets)
-        config = _build_config(targets_df, preset_names, filter_mode, work_dir, search_offtargets)
+        config = _build_config(targets_df, preset_names, filter_mode, work_dir, search_offtargets, guide_score_threshold)
         final_output = Path(work_dir) / "beguided_results.tsv"
 
         try:
