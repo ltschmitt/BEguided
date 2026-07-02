@@ -51,6 +51,10 @@ body {
     gap: 8px;
 }
 
+.top-bar .right {
+    margin-left: auto;
+}
+
 .top-bar label {
     font-weight: 600;
     font-size: 14px;
@@ -73,6 +77,104 @@ body {
     height: 18px;
     accent-color: var(--primary);
     cursor: pointer;
+}
+
+/* Results-tab filter toolbar */
+.results-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 16px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 16px;
+}
+
+.results-toolbar .group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.results-toolbar label {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.results-toolbar select,
+.results-toolbar input[type="number"] {
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    background: var(--panel);
+    color: var(--text);
+}
+
+.results-toolbar input[type="range"] {
+    width: 160px;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+.results-toolbar input[type="number"] {
+    width: 70px;
+}
+
+.results-toolbar .muted {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+/* Scroll wrapper for the results table only — toolbar above stays static */
+.results-table-scroll {
+    max-height: 800px;
+    overflow: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-top: 16px;
+}
+
+/* Compact preset/target summary card between toolbar and results table */
+.results-summary {
+    max-height: 180px;
+    overflow: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 16px;
+}
+
+.results-summary .summary-table {
+    width: auto;
+    min-width: 320px;
+}
+
+.results-summary .summary-table thead th {
+    position: static;
+}
+
+.results-summary .summary-table thead th:nth-child(2) {
+    background: #f1f5f9;
+    font-weight: 700;
+}
+
+.results-summary .summary-table tbody th[scope="row"] {
+    text-align: left;
+    font-weight: 700;
+    color: var(--muted);
+    padding: 10px 12px;
+}
+
+.results-summary .summary-table tbody td:nth-child(2) {
+    background: #f1f5f9;
+    font-weight: 700;
 }
 
 .btn {
@@ -114,6 +216,16 @@ body {
     cursor: not-allowed;
 }
 
+.btn-danger {
+    background: var(--danger);
+    color: #fff;
+    border-color: var(--danger);
+}
+
+.btn-danger:hover {
+    background: #b91c1c;
+}
+
 /* Status badge */
 .badge {
     display: inline-block;
@@ -144,6 +256,43 @@ body {
     background: #fee2e2;
     color: var(--danger);
     border-color: #fca5a5;
+}
+
+.badge.queued,
+.badge.submitting {
+    background: #fef3c7;
+    color: #78350f;
+    border-color: #fcd34d;
+}
+
+.badge.cancelled {
+    background: #e5e7eb;
+    color: #374151;
+    border-color: #d1d5db;
+}
+
+.badge.loading {
+    background: #fef3c7;
+    color: #78350f;
+    border-color: #fcd34d;
+    animation: badge-pulse 1.4s ease-in-out infinite;
+}
+
+.badge.ready {
+    background: #dcfce7;
+    color: var(--success);
+    border-color: #86efac;
+}
+
+.badge.muted {
+    background: #f1f5f9;
+    color: var(--muted);
+    border-color: var(--border);
+}
+
+@keyframes badge-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.55; }
 }
 
 /* Info row */
@@ -234,6 +383,66 @@ body {
 
 .data-table tbody tr:hover td {
     background: #f8fafc;
+}
+
+/* Target-group zebra stripes: every other (chromosome, position) target group
+   gets a light-grey tint to visually separate one target's guides from the next. */
+.data-table tbody tr.target-a td {
+    background: var(--panel);
+}
+
+.data-table tbody tr.target-b td {
+    background: #f1f5f9;
+}
+
+.data-table tbody tr.target-a:hover td,
+.data-table tbody tr.target-b:hover td {
+    background: #e2e8f0;
+}
+
+/* Guide tab prose */
+#guideTab h2 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    font-size: 20px;
+}
+
+#guideTab h3 {
+    margin-top: 24px;
+    margin-bottom: 8px;
+    font-size: 16px;
+    color: var(--text);
+}
+
+#guideTab p,
+#guideTab ul {
+    margin: 8px 0;
+    line-height: 1.6;
+}
+
+#guideTab code {
+    background: #f1f5f9;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12.5px;
+}
+
+#guideTab ul {
+    padding-left: 22px;
+}
+
+#guideTab ul li {
+    margin-bottom: 4px;
+}
+
+#presetTableContainer {
+    margin-top: 12px;
+    max-height: 360px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
 }
 
 /* Log area */

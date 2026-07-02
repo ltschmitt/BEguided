@@ -10,7 +10,7 @@ from beguided.genome.sequence import apply_reverse_complement_if_needed, insert_
 from beguided.editing.mutations import find_bystander_edits
 from beguided.editing.search import find_pams_regex
 from beguided.guidefinder.crisprater import get_score as get_crisprater_score
-from beguided.models import GuideResult
+from beguided.models import GuideResult, CORE_COLUMN_ORDER
 
 logger = logging.getLogger("beguided.guidefinder")
 
@@ -200,7 +200,8 @@ _CORE_INPUT_COLS = {
 
 
 def run_genome_wide(
-    genome, targets_df, presets, preset_names, progress_callback=None
+    genome, targets_df, presets, preset_names,
+    progress_callback=None, passthrough_extras=True,
 ):
     """Run guidefinder across all targets and presets.
 
@@ -208,10 +209,16 @@ def run_genome_wide(
         genome: dict of chromosome -> sequence.
         targets_df: pandas DataFrame with columns:
             chromosome, position, target_base, desired_base.
-            Any additional columns are passed through to output.
+            Any additional columns are passed through to output unless
+            ``passthrough_extras`` is ``False``.
         presets: Presets dict from load_presets.
         preset_names: List of preset names to use.
         progress_callback: Optional callable(chrom, pos) for progress reporting.
+        passthrough_extras: If ``True`` (default), any input columns beyond the
+            four core columns (``chromosome``, ``position``, ``target_base``,
+            ``desired_base``) are carried through to each ``GuideResult`` and
+            later expanded into DataFrame columns. If ``False``, extra input
+            columns are dropped.
 
     Returns:
         list of GuideResult objects.
@@ -219,7 +226,10 @@ def run_genome_wide(
     results = []
 
     # Identify extra columns to preserve from input
-    extra_cols = [c for c in targets_df.columns if c not in _CORE_INPUT_COLS]
+    if passthrough_extras:
+        extra_cols = [c for c in targets_df.columns if c not in _CORE_INPUT_COLS]
+    else:
+        extra_cols = []
 
     modified_count = 0
     total_targets = 0
@@ -229,7 +239,7 @@ def run_genome_wide(
         position = int(row["position"])
         target_base = row["target_base"]
         desired_base = row["desired_base"]
-        extra_columns = {c: row[c] for c in extra_cols}
+        extra_columns = ({c: row[c] for c in extra_cols} if extra_cols else {})
 
         if progress_callback:
             progress_callback(chromosome, position)
@@ -289,46 +299,63 @@ def run_genome_wide(
     return results
 
 
-def results_to_dataframe(results):
+def results_to_dataframe(results, passthrough_extras=True):
     """Convert list of GuideResult to a pandas DataFrame with proper column ordering.
 
     Any ``extra_columns`` stored on each GuideResult are expanded into columns
-    so that original input metadata is preserved all the way to the final output.
+    so that original input metadata is preserved all the way to the final output
+    (unless ``passthrough_extras`` is ``False``).
 
     Args:
         results: list of GuideResult.
+        passthrough_extras: If ``True`` (default), the ``extra_columns`` dict on
+            each ``GuideResult`` is expanded into DataFrame columns. If
+            ``False``, extra input columns are dropped here as well.
 
     Returns:
         pandas DataFrame.
     """
     import pandas as pd
 
-    core_columns = [
-        "chromosome", "position", "target_base", "desired_base",
-        "genome_base", "strand_used", "editing_position", "bystander_positions",
-        "guide_rna_sequence", "pam_sequence", "be_preset",
-        "genomic_context_upstream", "genomic_context_downstream", "guide_score",
-    ]
-
     if not results:
-        return pd.DataFrame(columns=core_columns)
+        return pd.DataFrame(columns=CORE_COLUMN_ORDER)
 
     # Build rows while expanding extra_columns
     rows = []
     extra_keys = set()
     for r in results:
         row = vars(r).copy()
-        extra = row.pop("extra_columns", {})
-        extra_keys.update(extra.keys())
-        row.update(extra)
+        if passthrough_extras:
+            extra = row.pop("extra_columns", {})
+            extra_keys.update(extra.keys())
+            row.update(extra)
+        else:
+            row.pop("extra_columns", None)
         rows.append(row)
 
     df = pd.DataFrame(rows)
     extra_keys_sorted = sorted(extra_keys)
 
-    # Column order: core columns first, then any extra columns, then internals last
-    col_order = [c for c in core_columns if c in df.columns]
-    col_order.extend([c for c in extra_keys_sorted if c in df.columns])
+    # Column order: CORE_COLUMN_ORDER columns first, then any remaining
+    # internal columns, then user-provided extra_columns at the very end.
+    internal_cols = [
+        "genomic_context_upstream",
+        "genomic_context_downstream",
+    ]
+    seen = set()
+    col_order = []
+    for c in CORE_COLUMN_ORDER:
+        if c in df.columns and c not in seen:
+            col_order.append(c)
+            seen.add(c)
+    for c in internal_cols:
+        if c in df.columns and c not in seen:
+            col_order.append(c)
+            seen.add(c)
+    for c in extra_keys_sorted:
+        if c in df.columns and c not in seen:
+            col_order.append(c)
+            seen.add(c)
     df = df[col_order]
     df = df.sort_values(
         by=["chromosome", "position", "be_preset", "editing_position"],

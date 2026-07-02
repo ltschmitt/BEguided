@@ -33,22 +33,42 @@ class AsyncQueueHandler(logging.Handler):
                 pass
 
     def register_job(self, job_id):
-        """Create or retrieve a queue for a new job."""
+        """Create or retrieve a queue for a new job.
+
+        Must be called from the asyncio loop thread. Returns the queue
+        regardless so callers can stash it for the worker thread.
+        """
         if job_id in self._queues:
             return self._queues[job_id]
         try:
             loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "AsyncQueueHandler.register_job must be called from the "
+                "asyncio loop thread."
+            ) from exc
         self._loop = loop
         q = asyncio.Queue(maxsize=1000)
         self._queues[job_id] = q
         return q
 
     def get_queue(self, job_id):
-        """Retrieve an existing queue for a job."""
+        """Retrieve an existing queue for a job (returns None if unknown)."""
         return self._queues.get(job_id)
+
+    def push(self, job_id, msg):
+        """Push a log line to a single job's queue from any thread."""
+        q = self._queues.get(job_id)
+        if q is None:
+            return False
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return False
+        try:
+            loop.call_soon_threadsafe(q.put_nowait, msg)
+        except Exception:
+            return False
+        return True
 
     def unregister_job(self, job_id):
         """Remove queue for a completed job."""

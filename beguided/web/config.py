@@ -9,6 +9,14 @@ import pandas as pd
 
 from beguided.editing.presets import load_presets
 
+
+def _env_bool(name: str, default: bool) -> bool:
+    """Return the boolean value of an env var, falling back to ``default``."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in ("0", "false", "no", "off", "")
+
 _DEFAULT_PRESETS = str(Path(__file__).resolve().parents[2] / "be_presets.tsv")
 _DEFAULT_GENOME = str(
     Path(__file__).resolve().parents[2]
@@ -44,6 +52,22 @@ class WebConfig:
     mismatch_tolerance: int = 5
     remove_guides_n_offtargets: int = 100
     max_input_targets: int = 1000
+    preload_genome: bool = field(
+        default_factory=lambda: _env_bool("BEGUIDED_PRELOAD_GENOME", True)
+    )
+    genome_label: str = field(
+        default_factory=lambda: os.getenv("BEGUIDED_GENOME_LABEL", "").strip()
+    )
+    preload_gtf: bool = field(
+        default_factory=lambda: _env_bool("BEGUIDED_PRELOAD_GTF", True)
+    )
+    # Scheduler / safety knobs
+    db_path: str = field(
+        default_factory=lambda: os.getenv("BEGUIDED_DB_PATH", "/var/lib/beguided/jobs.db")
+    )
+    queue_max: int = 8
+    cooldown_seconds: float = 60.0
+    max_upload_mb: int = 10
 
     @property
     def has_beguidedoff(self) -> bool:

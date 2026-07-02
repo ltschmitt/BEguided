@@ -52,3 +52,20 @@ class EditingOutcome:
     simulated_outcome: str
     aa_wanted: str
     aa_bystander: str
+
+
+CORE_COLUMN_ORDER = [
+    "chromosome",
+    "position",
+    "target_base",
+    "desired_base",
+    "genome_base",
+    "be_preset",
+    "guide_rna_sequence",
+    "pam_sequence",
+    "strand_used",
+    "editing_position",
+    "bystander_positions",
+    "bystander_effect",
+    "guide_score",
+]

@@ -32,6 +32,13 @@ output_prefix: "./pipeline_results/run1"
 # Keep intermediate files (step1-4 TSVs)
 keep_intermediates: true
 
+# Pass non-core columns from the input targets TSV through to all step outputs
+# and the final beguided_results.tsv. The four core columns are always
+# chromosome, position, target_base, desired_base — any other columns in the
+# input TSV are treated as "extras". Set to false to drop them.
+# Default: true
+passthrough_extras: true
+
 # =============================================================================
 # GUIDEFINDER
 # =============================================================================

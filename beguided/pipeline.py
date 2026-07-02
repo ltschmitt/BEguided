@@ -1,6 +1,7 @@
 """Pipeline orchestration: direct function calls, no subprocess, no state files."""
 
 import logging
+import threading
 from pathlib import Path
 
 import pandas as pd
@@ -14,6 +15,7 @@ from beguided.bystander.analysis import run_all as run_bystander
 from beguided.filtering.filters import load_filter_criteria, filter_guides
 from beguided.off_target.merger import aggregate_beguidedoff_results, merge_with_input
 from beguided.logging_config import get_logger
+from beguided.models import CORE_COLUMN_ORDER
 
 logger = get_logger("pipeline")
 
@@ -21,6 +23,36 @@ logger = get_logger("pipeline")
 class PipelineError(Exception):
     """Custom exception for pipeline errors."""
     pass
+
+
+class PipelineCancelled(PipelineError):
+    """Raised when a cooperative cancel_event trips mid-run."""
+    pass
+
+
+def _check_cancel(cancel_event):
+    """Raise PipelineCancelled if the event is set."""
+    if cancel_event is not None and cancel_event.is_set():
+        raise PipelineCancelled("Run cancelled by user.")
+
+
+def _apply_final_column_order(df):
+    """Reorder DataFrame columns so CORE_COLUMN_ORDER columns come first.
+
+    Columns in ``CORE_COLUMN_ORDER`` that are missing are silently skipped
+    (e.g. ``bystander_effect`` when the bystander step was skipped). All other
+    columns keep their existing relative order and follow the core columns.
+    User-provided ``extra_columns`` from the input TSV therefore always land
+    at the very end.
+    """
+    seen = set()
+    ordered = []
+    for c in CORE_COLUMN_ORDER:
+        if c in df.columns and c not in seen:
+            ordered.append(c)
+            seen.add(c)
+    tail = [c for c in df.columns if c not in seen]
+    return df[ordered + tail]
 
 
 def _resolve_preset_names(presets, preset_arg):
@@ -115,6 +147,9 @@ def _read_new_style_config(config):
     # --- keep_intermediates ---
     result["keep_intermediates"] = config.get("keep_intermediates", True)
 
+    # --- passthrough_extras ---
+    result["passthrough_extras"] = config.get("passthrough_extras", True)
+
     return result
 
 
@@ -156,13 +191,20 @@ def _prepare_beguidedoff_input(df, output_path):
 
 
 def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
-                       count_threshold_score, output_file, batch_size=1500):
+                       count_threshold_score, output_file, batch_size=1500,
+                       cancel_event=None):
     """Run BEguidedOFF off-target search on the filtered guide file.
 
     Guides are loaded explicitly and processed in batches so the pipeline
     stays within BEguidedOFF's internal limits regardless of input size.
 
-    Returns the BEguidedOFF result DataFrame.
+    Args:
+        cancel_event: Optional ``threading.Event``. Checked between batches;
+            raising ``PipelineCancelled`` exits before the next batch starts.
+            A single batch (and a single GPU kernel) cannot be interrupted.
+
+    Returns:
+        The BEguidedOFF result DataFrame.
     """
     try:
         from beguidedoff import beguidedoff
@@ -173,6 +215,8 @@ def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
             "Install it from: ssh://git@gitlab.mn.tu-dresden.de/buchholzlab/beguidedoff.git\n"
             "Or set search_offtargets=false in your config to skip off-target search."
         ) from exc
+
+    _check_cancel(cancel_event)
 
     finder = beguidedoff(
         genome_path=genome_npz,
@@ -188,6 +232,7 @@ def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
     n_batches = (total_guides + batch_size - 1) // batch_size
     dfs = []
     for i in range(0, total_guides, batch_size):
+        _check_cancel(cancel_event)
         batch_num = i // batch_size + 1
         batch = guides[i:i + batch_size]
         logger.info(
@@ -214,7 +259,8 @@ def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
     return combined
 
 
-def run_pipeline(config, start_step=1, end_step=5):
+def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=None,
+                interval_trees=None):
     """Run pipeline steps as direct function calls.
 
     Output layout::
@@ -230,6 +276,18 @@ def run_pipeline(config, start_step=1, end_step=5):
         config: dict loaded from YAML.
         start_step: First step to run (1-5).
         end_step: Last step to run (1-5).
+        cancel_event: Optional ``threading.Event``. Checked at the entry of
+            each step and between BEguidedOFF batches. Setting it raises
+            ``PipelineCancelled`` at the next checkpoint.
+        genome: Optional pre-loaded genome dict (``{chrom_id: sequence}``).
+            When supplied, Step 1 and Step 2 reuse this dict instead of calling
+            ``load_genome()`` on the configured FASTA. The caller is responsible
+            for loading it (e.g. ``beguided.web.genome_cache``).
+        interval_trees: Optional pre-loaded GTF interval trees
+            (``{chrom_id: IntervalTree}``). When supplied, Step 2 reuses this
+            dict instead of calling ``load_gtf_to_interval_tree()`` on the
+            configured GTF. The caller is responsible for loading it (e.g.
+            ``beguided.web.gtf_cache``).
 
     Returns:
         Path to final output file.
@@ -249,6 +307,7 @@ def run_pipeline(config, start_step=1, end_step=5):
     screen_offtargets = cfg["search_offtargets"]
 
     # Step 1: Guidefinder
+    _check_cancel(cancel_event)
     if start_step <= 1 <= end_step:
         logger.info("=" * 60)
         logger.info("Step 1/5: Guidefinder - Generating guide RNAs")
@@ -261,9 +320,12 @@ def run_pipeline(config, start_step=1, end_step=5):
         logger.info(f"Using presets: {', '.join(preset_names)}")
 
         genome_file = cfg["genome"]
-        logger.info(f"Loading genome from: {genome_file}")
-        genome = load_genome(genome_file)
-        logger.info(f"Loaded {len(genome)} chromosomes")
+        if genome is None:
+            logger.info(f"Loading genome from: {genome_file}")
+            genome = load_genome(genome_file)
+            logger.info(f"Loaded {len(genome)} chromosomes")
+        else:
+            logger.info(f"Using pre-loaded genome ({len(genome)} chromosomes)")
 
         targets_df = pd.read_csv(cfg["targets"], sep="\t")
         original_target_count = len(targets_df)
@@ -286,9 +348,12 @@ def run_pipeline(config, start_step=1, end_step=5):
 
         results = run_guidefinder(
             genome, targets_df, presets, preset_names,
-            progress_callback=lambda c, p: logger.debug(f"Processing {c}:{p}")
+            progress_callback=lambda c, p: logger.debug(f"Processing {c}:{p}"),
+            passthrough_extras=cfg["passthrough_extras"],
         )
-        df = results_to_dataframe(results)
+        df = results_to_dataframe(
+            results, passthrough_extras=cfg["passthrough_extras"],
+        )
         df.to_csv(guidefinder_output, sep="\t", index=False)
 
         invalid_mask = df["guide_rna_sequence"].fillna("").str.startswith("**")
@@ -338,6 +403,7 @@ def run_pipeline(config, start_step=1, end_step=5):
         )
 
     # Step 2: Bystander (conditional)
+    _check_cancel(cancel_event)
     filter_mode = cfg["filter_mode"]
     needs_bystander = filter_mode != "no_bystanders"
 
@@ -350,29 +416,25 @@ def run_pipeline(config, start_step=1, end_step=5):
         logger.info("=" * 60)
 
         if needs_bystander:
-            gtf_file = cfg["gff_file"]
-            if not gtf_file:
-                raise PipelineError(
-                    "GFF/GTF file is required for bystander analysis."
+            if interval_trees is None:
+                gtf_file = cfg["gff_file"]
+                if not gtf_file:
+                    raise PipelineError(
+                        "GFF/GTF file is required for bystander analysis."
+                    )
+                logger.info(f"Loading GTF annotation from: {gtf_file}")
+                interval_trees = load_gtf_to_interval_tree(gtf_file)
+                logger.info(f"Loaded annotations for {len(interval_trees)} chromosomes")
+            else:
+                logger.info(
+                    f"Using pre-loaded GTF annotation ({len(interval_trees)} chromosomes)"
                 )
-            logger.info(f"Loading GTF annotation from: {gtf_file}")
-            interval_trees = load_gtf_to_interval_tree(gtf_file)
-            logger.info(f"Loaded annotations for {len(interval_trees)} chromosomes")
 
             df = pd.read_csv(guidefinder_output, sep="\t")
             df = df[df["guide_rna_sequence"] != "**No guide possible**"]
             logger.info(f"Analyzing {len(df)} guides for bystander effects")
 
             if len(df) > 0:
-                if "genomic_context_upstream" not in df.columns:
-                    genome_file = cfg["genome"]
-                    logger.info(f"Loading genome from: {genome_file}")
-                    genome = load_genome(genome_file)
-                    logger.info(f"Loaded {len(genome)} chromosomes")
-                else:
-                    genome = None
-                    logger.info("Using guidefinder context columns")
-
                 df = run_bystander(
                     df, interval_trees,
                     progress_callback=lambda idx, total: (
@@ -387,6 +449,7 @@ def run_pipeline(config, start_step=1, end_step=5):
             logger.info(f"Copied guidefinder output to {bystander_output}")
 
     # Step 3: Filter
+    _check_cancel(cancel_event)
     if start_step <= 3 <= end_step:
         logger.info("=" * 60)
         logger.info("Step 3/5: Filtering guides")
@@ -405,10 +468,12 @@ def run_pipeline(config, start_step=1, end_step=5):
         df = filter_guides(df, criteria)
         logger.info(f"After filtering: {len(df)} guides (from {original_count})")
 
+        df = _apply_final_column_order(df)
         df.to_csv(filter_file, sep="\t", index=False)
         logger.info(f"Filtered results written to {filter_file}")
 
     # Step 4: BEguidedOFF off-target search (single step)
+    _check_cancel(cancel_event)
     if screen_offtargets and start_step <= 4 <= end_step:
         logger.info("=" * 60)
         logger.info("Step 4/5: BEguidedOFF off-target search")
@@ -440,12 +505,14 @@ def run_pipeline(config, start_step=1, end_step=5):
             cfg["max_mismatches"],
             cfg["count_threshold_score"],
             offtarget_output,
+            cancel_event=cancel_event,
         )
         logger.info(
             f"BEguidedOFF complete: {len(ot_df)} off-target rows written to "
             f"{offtarget_output}"
         )
 
+    _check_cancel(cancel_event)
     if start_step <= 5 <= end_step:
         input_df = pd.read_csv(filter_file, sep="\t")
 
@@ -507,6 +574,7 @@ def run_pipeline(config, start_step=1, end_step=5):
                     f"{len(merged)}/{before} guides remain"
                 )
 
+            merged = _apply_final_column_order(merged)
             merged.to_csv(final_output, sep="\t", index=False)
             size_mb = final_output.stat().st_size / (1024 * 1024)
             logger.info(
@@ -529,6 +597,7 @@ def run_pipeline(config, start_step=1, end_step=5):
             ]
             merged = input_df.drop(columns=drop_cols, errors="ignore")
 
+            merged = _apply_final_column_order(merged)
             merged.to_csv(final_output, sep="\t", index=False)
             size_mb = final_output.stat().st_size / (1024 * 1024)
             logger.info(

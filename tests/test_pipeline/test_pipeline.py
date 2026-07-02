@@ -1,7 +1,9 @@
 """Tests for pipeline components."""
 
-import pytest
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 
 class TestPipelineImports:
@@ -47,6 +49,97 @@ class TestPipelineConfigValidation:
         }
         with pytest.raises(PipelineError):
             run_pipeline(config, start_step=1, end_step=1)
+
+
+class TestPassthroughExtras:
+    """Test the ``passthrough_extras`` config option."""
+
+    def _build_config(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv,
+        targets_content, passthrough_extras=None,
+    ):
+        presets_path = tmp_path / "presets.tsv"
+        presets_path.write_text(valid_preset_tsv)
+        targets_path = tmp_path / "targets.tsv"
+        targets_path.write_text(targets_content)
+        gtf_path = tmp_path / "dummy.gtf"
+        gtf_path.write_text(
+            "##format: gtf\n"
+            "chr1\ttest\tCDS\t1\t200\t.\t+\t0\t"
+            'gene_id "G1"; transcript_id "T1"; tag "MANE_Select";\n'
+        )
+        config = {
+            "input": {
+                "targets": str(targets_path),
+                "genome": sample_fasta_file,
+                "presets": str(presets_path),
+                "gff_file": str(gtf_path),
+            },
+            "output_prefix": str(tmp_path / "out"),
+            "use_presets": "all",
+            "keep_bystanders": "no_bystanders",
+            "search_offtargets": False,
+        }
+        if passthrough_extras is not None:
+            config["passthrough_extras"] = passthrough_extras
+        return config
+
+    def test_default_passes_extras_through(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """No ``passthrough_extras`` key → default ON → extras preserved."""
+        from beguided.pipeline import run_pipeline
+        import pandas as pd
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\tgene\n"
+            "chr1\t75\tA\tG\tKRAS\n",
+        )
+        run_pipeline(config, start_step=1, end_step=5)
+
+        final = pd.read_csv(tmp_path / "out" / "beguided_results.tsv", sep="\t")
+        assert "gene" in final.columns
+        assert (final["gene"] == "KRAS").all()
+
+    def test_explicit_true_keeps_extras(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        from beguided.pipeline import run_pipeline
+        import pandas as pd
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\tgene\n"
+            "chr1\t75\tA\tG\tKRAS\n",
+            passthrough_extras=True,
+        )
+        run_pipeline(config, start_step=1, end_step=5)
+
+        final = pd.read_csv(tmp_path / "out" / "beguided_results.tsv", sep="\t")
+        assert "gene" in final.columns
+
+    def test_explicit_false_drops_extras(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """``passthrough_extras: false`` in config drops extras everywhere."""
+        from beguided.pipeline import run_pipeline
+        import pandas as pd
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\tgene\n"
+            "chr1\t75\tA\tG\tKRAS\n",
+            passthrough_extras=False,
+        )
+        run_pipeline(config, start_step=1, end_step=5)
+
+        final = pd.read_csv(tmp_path / "out" / "beguided_results.tsv", sep="\t")
+        assert "gene" not in final.columns
+
+        # Also verify the intermediate step1 output is stripped
+        step1 = pd.read_csv(tmp_path / "out" / "step1_guidefinder.tsv", sep="\t")
+        assert "gene" not in step1.columns
 
 
 class TestPipelineSkipOffTarget:
@@ -497,3 +590,170 @@ class TestPipelineFailFast:
             (df["target_base"] == "C") & (df["desired_base"] == "T")
         ]
         assert len(c_to_t_rows) == 0
+
+
+class TestRunPipelineGenomeKwarg:
+    """When the caller supplies a pre-loaded genome, run_pipeline() must
+    skip the per-step ``load_genome()`` call and reuse the supplied dict."""
+
+    def test_preloaded_genome_skips_load_genome(
+        self, tmp_path, sample_fasta_file, sample_genome_dict, valid_preset_tsv
+    ):
+        from beguided.pipeline import run_pipeline
+
+        presets_path = tmp_path / "test_presets.tsv"
+        presets_path.write_text(valid_preset_tsv)
+        targets_path = tmp_path / "targets.tsv"
+        targets_path.write_text(
+            "chromosome\tposition\ttarget_base\tdesired_base\n"
+            "chr1\t50\tT\tC\nchr1\t75\tA\tG\n"
+        )
+        gtf_path = tmp_path / "dummy.gtf"
+        gtf_path.write_text(
+            "##format: gtf\n"
+            "chr1\ttest\tCDS\t1\t160\t.\t+\t0\t"
+            'gene_id "G1"; transcript_id "T1"; tag "MANE_Select";\n'
+        )
+        base_dir = tmp_path / "out"
+
+        config = {
+            "input": {
+                "targets": str(targets_path),
+                "genome": sample_fasta_file,
+                "presets": str(presets_path),
+                "gff_file": str(gtf_path),
+            },
+            "output_prefix": str(base_dir),
+            "use_presets": "all",
+            "keep_bystanders": "no_bystanders",
+            "search_offtargets": False,
+            "offtargets": {
+                "max_mismatches": 5,
+                "count_threshold_score": 15.0,
+                "remove_guides_score": 5.0,
+                "remove_guides_n_offtargets": 100,
+            },
+        }
+
+        # Reuse the real sample genome so PAM search can actually find guides.
+        preloaded = dict(sample_genome_dict)
+
+        with patch("beguided.pipeline.load_genome") as fake_load:
+            fake_load.side_effect = AssertionError(
+                "load_genome must NOT be called when genome kwarg is supplied"
+            )
+            run_pipeline(
+                config,
+                start_step=1,
+                end_step=3,
+                genome=preloaded,
+            )
+
+        guidefinder_output = base_dir / "step1_guidefinder.tsv"
+        assert guidefinder_output.exists()
+        import pandas as pd
+        df = pd.read_csv(guidefinder_output, sep="\t")
+        assert len(df) > 0
+
+    def test_no_kwarg_still_calls_load_genome(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """Regression: backward-compatible behaviour when ``genome=None``."""
+        from beguided.pipeline import run_pipeline
+        from beguided.genome.io import load_genome
+
+        presets_path = tmp_path / "test_presets.tsv"
+        presets_path.write_text(valid_preset_tsv)
+        targets_path = tmp_path / "targets.tsv"
+        targets_path.write_text(
+            "chromosome\tposition\ttarget_base\tdesired_base\nchr1\t50\tT\tC\n"
+        )
+        base_dir = tmp_path / "out"
+
+        config = {
+            "input": {
+                "targets": str(targets_path),
+                "genome": sample_fasta_file,
+                "presets": str(presets_path),
+                "gff_file": "",
+            },
+            "output_prefix": str(base_dir),
+            "use_presets": "all",
+            "keep_bystanders": "no_bystanders",
+            "search_offtargets": False,
+            "offtargets": {
+                "max_mismatches": 5,
+                "count_threshold_score": 15.0,
+                "remove_guides_score": 5.0,
+                "remove_guides_n_offtargets": 100,
+            },
+        }
+
+        with patch("beguided.pipeline.load_genome", wraps=load_genome) as spy:
+            run_pipeline(config, start_step=1, end_step=3, genome=None)
+            assert spy.called, "load_genome must run when no genome is supplied"
+
+
+class TestPipelineScaffoldFilter:
+    """The pipeline must drop scaffold records from the genome dict so
+    only canonical chromosomes are searched for PAMs."""
+
+    def test_pipeline_drops_scaffolds(
+        self, tmp_path, valid_preset_tsv, sample_genome_dict
+    ):
+        from beguided.pipeline import run_pipeline
+        from beguided.genome.io import load_genome
+        import pandas as pd
+
+        # Build a FASTA whose scaffold records would fail chromosome lookup.
+        fasta = tmp_path / "mixed.fa"
+        fasta.write_text(
+            ">1 dna:chromosome chromosome:GRCh38:1:1:160:1 REF\n"
+            + sample_genome_dict["chr1"]
+            + "\n"
+            + ">KI270728.1 dna:scaffold scaffold:GRCh38:KI270728.1:1:60:1 REF\n"
+            + "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\n"
+            + ">chr2 dna:chromosome chromosome:GRCh38:2:1:160:1 REF\n"
+            + sample_genome_dict["chr2"]
+            + "\n"
+        )
+
+        presets_path = tmp_path / "test_presets.tsv"
+        presets_path.write_text(valid_preset_tsv)
+        targets_path = tmp_path / "targets.tsv"
+        # Note: targets use the bare Ensembl chromosome names (1, 2).
+        targets_path.write_text(
+            "chromosome\tposition\ttarget_base\tdesired_base\n"
+            "1\t50\tT\tC\n1\t75\tA\tG\n2\t30\tT\tC\n"
+        )
+        base_dir = tmp_path / "out"
+
+        config = {
+            "input": {
+                "targets": str(targets_path),
+                "genome": str(fasta),
+                "presets": str(presets_path),
+                "gff_file": "",
+            },
+            "output_prefix": str(base_dir),
+            "use_presets": "all",
+            "keep_bystanders": "no_bystanders",
+            "search_offtargets": False,
+            "offtargets": {
+                "max_mismatches": 5,
+                "count_threshold_score": 15.0,
+                "remove_guides_score": 5.0,
+                "remove_guides_n_offtargets": 100,
+            },
+        }
+
+        genome = load_genome(str(fasta))
+        assert "KI270728.1" not in genome
+        assert set(genome) == {"1", "chr2"}
+
+        run_pipeline(config, start_step=1, end_step=3, genome=genome)
+        guidefinder_output = base_dir / "step1_guidefinder.tsv"
+        assert guidefinder_output.exists()
+        df = pd.read_csv(guidefinder_output, sep="\t")
+        # No guides should have landed on a scaffold chromosome.
+        assert "KI270728.1" not in df["chromosome"].astype(str).unique()

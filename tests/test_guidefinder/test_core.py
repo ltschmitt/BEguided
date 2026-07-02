@@ -2,10 +2,11 @@
 
 import re
 
+import pandas as pd
 import pytest
 
 from beguided.editing.presets import pam_to_regex
-from beguided.guidefinder.core import process_target
+from beguided.guidefinder.core import process_target, run_genome_wide, results_to_dataframe
 from beguided.genome.io import load_genome
 
 
@@ -98,6 +99,68 @@ class TestIntegration:
         for r in results:
             assert r.extra_columns.get("gene") == "KRAS"
             assert r.extra_columns.get("mutation_occurance") == 17008
+
+
+class TestRunGenomeWidePassthrough:
+    """Tests for the ``passthrough_extras`` flag on ``run_genome_wide``."""
+
+    @pytest.fixture
+    def presets_dict(self, valid_preset_tsv):
+        from beguided.editing.presets import load_presets
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
+            f.write(valid_preset_tsv)
+            temp_path = f.name
+        presets = load_presets(temp_path)
+        os.unlink(temp_path)
+        return presets
+
+    @pytest.fixture
+    def targets_with_extras(self):
+        return pd.DataFrame({
+            "chromosome": ["chr1", "chr2"],
+            "position": [75, 30],
+            "target_base": ["A", "T"],
+            "desired_base": ["G", "C"],
+            "gene": ["KRAS", "TP53"],
+            "mutation_id": ["mut1", "mut2"],
+        })
+
+    def test_passthrough_extras_default_on(
+        self, sample_genome_dict, presets_dict, targets_with_extras,
+    ):
+        results = run_genome_wide(
+            sample_genome_dict, targets_with_extras, presets_dict, ["ABE8e"],
+        )
+        df = results_to_dataframe(results)
+        assert "gene" in df.columns
+        assert "mutation_id" in df.columns
+        assert set(df["gene"].unique()) == {"KRAS", "TP53"}
+
+    def test_passthrough_extras_disabled(
+        self, sample_genome_dict, presets_dict, targets_with_extras,
+    ):
+        results = run_genome_wide(
+            sample_genome_dict, targets_with_extras, presets_dict, ["ABE8e"],
+            passthrough_extras=False,
+        )
+        df = results_to_dataframe(results)
+        assert "gene" not in df.columns
+        assert "mutation_id" not in df.columns
+
+    def test_results_to_dataframe_drops_extras_when_disabled(
+        self, sample_genome_dict, presets_dict, targets_with_extras,
+    ):
+        results = run_genome_wide(
+            sample_genome_dict, targets_with_extras, presets_dict, ["ABE8e"],
+        )
+        # Force extras back onto the GuideResults (simulates a caller that
+        # populated extra_columns before passthrough_extras=False was set).
+        for r in results:
+            r.extra_columns = {"gene": "X", "mutation_id": "Y"}
+        df = results_to_dataframe(results, passthrough_extras=False)
+        assert "gene" not in df.columns
+        assert "mutation_id" not in df.columns
 
     def test_guide_score_populated_for_valid_guides(
         self, sample_genome_dict, abe8e_preset_config

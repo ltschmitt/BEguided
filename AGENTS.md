@@ -84,7 +84,10 @@ beguided filter          --input ... --output ... --mode no_bystanders
 beguided run-pipeline    --config config.yaml [--from-step 3]
 beguided web             [--host 0.0.0.0] [--port 8000] [--reload] \
                          [--presets-file ...] [--genome-fasta ...] \
-                         [--gtf-path ...] [--beguidedoff-genome ...]
+                         [--gtf-path ...] [--beguidedoff-genome ...] \
+                         [--preload-genome | --no-preload-genome] \
+                         [--preload-gtf | --no-preload-gtf] \
+                         [--genome-label ...]
                          # Requires web extra: pixi run --environment web beguided web
 ```
 
@@ -222,6 +225,15 @@ python -m pytest tests/test_editing/test_presets.py::TestPAMToRegex -v
 - Scoring is **CCTOP** (lower = more concerning).
 - On-target exclusion uses the 1-based leftmost guide position for ``+`` strand guides and the 1-based rightmost guide position for ``-`` strand guides, computed from the target coordinates.
 
+### Preload Caches (Web)
+
+The web server mirrors the same two caches used by the pipeline:
+
+- `beguided/web/genome_cache.py` — parses the genome FASTA once at startup; exposes `/genome/status`; `os._exit(1)` on failure (fail-fast).
+- `beguided/web/gtf_cache.py` — parses the GTF annotation once at startup; exposes `/gtf/status`; same fail-fast policy.
+
+Both back the `run_pipeline(..., genome=..., interval_trees=...)` kwargs in `beguided.pipeline`. When `preload_genome=False` or `preload_gtf=False`, the pipeline falls back to parsing the file per job.
+
 ### Config Keys (offtargets block)
 
 | Key | Default | Description |
@@ -277,3 +289,5 @@ python -m pytest tests/test_editing/test_presets.py::TestPAMToRegex -v
   - `BEGUIDED_GENOME_FASTA`
   - `BEGUIDED_GTF_PATH`
   - `BEGUIDED_BEGUIDEDOFF_GENOME`
+- `BEGUIDED_PRELOAD_GENOME` / `--preload-genome` / `--no-preload-genome` — preload the genome FASTA at startup (default: enabled).
+- `BEGUIDED_PRELOAD_GTF` / `--preload-gtf` / `--no-preload-gtf` — preload the GTF annotation at startup (default: enabled).

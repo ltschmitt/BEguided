@@ -77,9 +77,10 @@ def cmd_guidefinder(args):
 
     results = run_guidefinder(
         genome, df, presets, preset_names,
-        progress_callback=lambda c, p: print(f"{c}:{p}")
+        progress_callback=lambda c, p: print(f"{c}:{p}"),
+        passthrough_extras=args.passthrough_extras,
     )
-    result_df = results_to_dataframe(results)
+    result_df = results_to_dataframe(results, passthrough_extras=args.passthrough_extras)
     result_df.to_csv(args.output, sep="\t", index=False)
 
 
@@ -156,6 +157,7 @@ def cmd_web(args):
         import uvicorn  # noqa: F401
         from beguided.web.app import create_app
         from beguided.web.config import WebConfig, set_config
+        from beguided.web.safety import validate_operator_paths
     except ImportError as exc:
         print(
             "Error: The web server requires extra dependencies.\n"
@@ -175,8 +177,38 @@ def cmd_web(args):
         kwargs["gtf_path"] = args.gtf_path
     if args.beguidedoff_genome is not None:
         kwargs["beguidedoff_genome"] = args.beguidedoff_genome
+    if args.db_path is not None:
+        kwargs["db_path"] = args.db_path
+    if args.queue_max is not None:
+        kwargs["queue_max"] = args.queue_max
+    if args.cooldown_seconds is not None:
+        kwargs["cooldown_seconds"] = args.cooldown_seconds
+    if args.max_upload_mb is not None:
+        kwargs["max_upload_mb"] = args.max_upload_mb
+    if args.preload_genome is not None:
+        kwargs["preload_genome"] = args.preload_genome
+    if args.genome_label is not None:
+        kwargs["genome_label"] = args.genome_label
+    if args.preload_gtf is not None:
+        kwargs["preload_gtf"] = args.preload_gtf
     cfg = WebConfig(**kwargs)
     set_config(cfg)
+
+    # Fail fast on missing presets file (the genome FASTA / GTF / .npz are
+    # best-effort: some deployments only do steps 4-5 where they aren't needed).
+    try:
+        validate_operator_paths(cfg)
+    except (FileNotFoundError, PermissionError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    # Reminder: do NOT run with --workers N > 1. Each worker would claim the
+    # GPU independently and the FIFO guarantee would break.
+    print(
+        f"BEguided web: queue_max={cfg.queue_max} cooldown={int(cfg.cooldown_seconds)}s "
+        f"db={cfg.db_path} upload_cap={cfg.max_upload_mb}MB",
+        file=sys.stderr,
+    )
 
     app = create_app()
     uvicorn.run(
@@ -209,6 +241,9 @@ def cmd_run_pipeline(args):
 
     start_step = args.from_step if args.from_step else 1
 
+    if args.passthrough_extras is not None:
+        config["passthrough_extras"] = args.passthrough_extras
+
     try:
         final = run_pipeline(config, start_step=start_step, end_step=5)
         print(f"\nPipeline completed: {final}")
@@ -230,6 +265,19 @@ def main():
     p_gf.add_argument("--genome", "-g", required=True, help="Genome FASTA file")
     p_gf.add_argument("--presets", default="ABE8e", help="Comma-separated presets, or 'all', 'all ABEs', 'all CBEs'")
     p_gf.add_argument("--presets-file", default="be_presets.tsv", help="Presets TSV file")
+    p_gf.add_argument(
+        "--passthrough-extras",
+        dest="passthrough_extras",
+        action="store_true",
+        default=True,
+        help="Pass non-core columns from the input TSV through to the output (default: enabled).",
+    )
+    p_gf.add_argument(
+        "--no-passthrough-extras",
+        dest="passthrough_extras",
+        action="store_false",
+        help="Drop non-core columns from the input TSV.",
+    )
     p_gf.set_defaults(func=cmd_guidefinder)
 
     # bystander
@@ -255,6 +303,47 @@ def main():
     p_web.add_argument("--genome-fasta", default=None, help="Genome FASTA file (default: env BEGUIDED_GENOME_FASTA or genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa)")
     p_web.add_argument("--gtf-path", default=None, help="GTF annotation file (default: env BEGUIDED_GTF_PATH or genome/Homo_sapiens.GRCh38.112.gtf)")
     p_web.add_argument("--beguidedoff-genome", default=None, help="BEguidedOFF encoded genome .npz (default: env BEGUIDED_BEGUIDEDOFF_GENOME)")
+    p_web.add_argument("--db-path", default=None, help="SQLite path for the job store (default: env BEGUIDED_DB_PATH or /var/lib/beguided/jobs.db)")
+    p_web.add_argument("--queue-max", type=int, default=None, help="Max pending jobs in queue (default: 8)")
+    p_web.add_argument("--cooldown-seconds", type=float, default=None, help="Per-IP cooldown between submits (default: 60)")
+    p_web.add_argument("--max-upload-mb", type=int, default=None, help="Cap on request body size in MB (default: 10)")
+    p_web.add_argument(
+        "--preload-genome",
+        dest="preload_genome",
+        action="store_true",
+        default=None,
+        help="Preload the genome FASTA at startup (background thread). Default: enabled.",
+    )
+    p_web.add_argument(
+        "--no-preload-genome",
+        dest="preload_genome",
+        action="store_false",
+        default=None,
+        help="Disable genome preload. The genome is then parsed per-job instead.",
+    )
+    p_web.add_argument(
+        "--genome-label",
+        default=None,
+        help=(
+            "Display label for the genome (e.g. 'GRCh38.112'). "
+            "Empty = derive from FASTA filename. "
+            "Env: BEGUIDED_GENOME_LABEL."
+        ),
+    )
+    p_web.add_argument(
+        "--preload-gtf",
+        dest="preload_gtf",
+        action="store_true",
+        default=None,
+        help="Preload the GTF annotation at startup (background thread). Default: enabled.",
+    )
+    p_web.add_argument(
+        "--no-preload-gtf",
+        dest="preload_gtf",
+        action="store_false",
+        default=None,
+        help="Disable GTF preload. The GTF is then parsed per-job instead.",
+    )
     p_web.set_defaults(func=cmd_web)
 
     # run-pipeline
@@ -262,6 +351,20 @@ def main():
     p_pipe.add_argument("--config", "-c", required=True, help="Pipeline config YAML")
     p_pipe.add_argument("--from-step", type=int, choices=range(1, 6), help="Start from step (1-5)")
     p_pipe.add_argument("--verbose", "-v", action="store_true", help="Enable DEBUG logging")
+    p_pipe.add_argument(
+        "--passthrough-extras",
+        dest="passthrough_extras",
+        action="store_true",
+        default=None,
+        help="Pass non-core columns from the input TSV through to the output (default: enabled).",
+    )
+    p_pipe.add_argument(
+        "--no-passthrough-extras",
+        dest="passthrough_extras",
+        action="store_false",
+        default=None,
+        help="Drop non-core columns from the input TSV.",
+    )
     p_pipe.set_defaults(func=cmd_run_pipeline)
 
     args = parser.parse_args()

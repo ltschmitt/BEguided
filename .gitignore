@@ -6,8 +6,12 @@ genome/*
 casoff/*
 casoffinput/*
 testing/*
-*__pycache__*
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
 results*
 config.yaml
 run_web.sh
 pixi.lock
+beguided.egg-info/*

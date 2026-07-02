@@ -3,6 +3,7 @@
 {% block title %}BEguided{% endblock %}
 
 {% block content %}
+<h1 style="margin-top:0;">BEguided</h1>
 <div class="top-bar">
     <div class="group">
         <label for="fileInput">Targets</label>
@@ -17,43 +18,77 @@
             {% endfor %}
         </select>
     </div>
-    <div class="group">
-        <label for="filterSelect">Filter</label>
-        <select id="filterSelect">
-            {% for mode in filter_modes %}
-            <option value="{{ mode }}">{{ mode.replace('_', ' ') }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    <div class="group">
-        <label for="scoreThreshold">Min score</label>
-        <input type="number" id="scoreThreshold" min="0" max="1" step="0.01" value="0.5" style="width:70px;" />
-    </div>
-    <div class="group">
-        <label for="offtargetToggle">Off-target</label>
-        <input type="checkbox" id="offtargetToggle"
-            {% if beguidedoff_available %}checked{% else %}disabled{% endif %}
-            title="{% if beguidedoff_available %}Run BEguidedOFF off-target search{% else %}BEguidedOFF not installed — off-target search unavailable{% endif %}" />
-    </div>
-    <button id="runBtn" class="btn btn-primary" disabled>Run</button>
-    <div class="right">
-        <span id="statusBadge" class="badge">idle</span>
-    </div>
+    <span id="statusBadge" class="badge">idle</span>
+    <button id="cancelBtn" class="btn btn-danger" style="display:none;">Cancel</button>
+    <button id="runBtn" class="btn btn-primary right" disabled>Run</button>
 </div>
 
 <div class="info-row">
-    <span id="fileInfo"></span>
-    <span id="compatibilityInfo" class="right"></span>
-    <span class="right">&nbsp;&middot; Genome: GRCh38 &middot; Max targets: 1000</span>
+    <span id="genomeStatus" class="badge" data-preload="{{ 'true' if preload_genome else 'false' }}">&hellip;</span>
+    <span id="gtfStatus" class="badge" data-preload="{{ 'true' if preload_gtf else 'false' }}">&hellip;</span>
+    <span id="compatibilityInfo"></span>
+    <span id="limitsInfo" class="right"></span>
 </div>
 
+<div id="toastContainer" style="position:fixed; top:16px; right:16px; z-index:1000; max-width:420px;"></div>
+
 <div class="tabs">
-    <button class="tab-button active" data-tab="inputTab">Input</button>
+    <button class="tab-button active" data-tab="guideTab">Guide</button>
+    <button class="tab-button" data-tab="inputTab">Input</button>
     <button class="tab-button" data-tab="logTab">Logging</button>
     <button class="tab-button" data-tab="resultsTab">Results</button>
 </div>
 
-<div id="inputTab" class="tab-panel active">
+<div id="guideTab" class="tab-panel active">
+    <div class="panel">
+        <h2 style="margin-top:0;">What BEguided does</h2>
+        <p>
+            BEguided designs single-guide RNAs (sgRNAs) for CRISPR base editors.
+            For every target base you supply, it searches the genome for nearby
+            PAM sites, predicts which editable window (relative to the PAM) the
+            base falls into, scores the guide, annotates bystander editing, and
+            (optionally) runs an off-target search.
+        </p>
+        <p>
+            Upload a targets file (TSV / CSV / XLSX) using the field above to
+            get started. Use the <em>Template</em> button to download a sample.
+        </p>
+
+        <h3>Input format (1-based positions)</h3>
+        <p>
+            The <code>position</code> column is <strong>1-based</strong>:
+            position 1 is the first nucleotide of the chromosome, position 2
+            the second, and so on. The value is the genomic coordinate of the
+            base you want to edit.
+        </p>
+        <p>Required columns:</p>
+        <ul>
+            <li><code>chromosome</code> &mdash; e.g. <code>chr1</code></li>
+            <li><code>position</code> &mdash; 1-based genomic coordinate of the target base</li>
+            <li><code>target_base</code> &mdash; base you want to edit (<code>A</code>, <code>C</code>, <code>G</code>, <code>T</code>)</li>
+            <li><code>desired_base</code> &mdash; base you want to have after editing (<code>A</code>, <code>C</code>, <code>G</code>, <code>T</code>)</li>
+        </ul>
+        <p>
+            The tool picks a preset that supports the
+            <code>target_base &rarr; desired_base</code> change. If no preset in
+            the selected group supports it, that target is skipped with a warning.
+        </p>
+
+        <h3>Available presets</h3>
+        <p style="color:var(--muted); font-size:13px;">
+            Editing windows are position ranges, counted from the PAM-distal end
+            of the guide, where the base editor is active.
+            <em>General</em> = the full window where some editing occurs;
+            <em>High-activity</em> = the narrower window where editing is most
+            efficient.
+        </p>
+        <div id="presetTableContainer">
+            <p style="color:var(--muted);">Loading preset table&hellip;</p>
+        </div>
+    </div>
+</div>
+
+<div id="inputTab" class="tab-panel">
     <div id="checkAlert" class="alert info" style="display:none;"></div>
     <div id="inputAlert" class="alert info" style="display:none;"></div>
     <div class="panel" id="inputPanel">
@@ -71,12 +106,29 @@
 </div>
 
 <div id="resultsTab" class="tab-panel">
-    <div id="resultsAlert" class="alert info" style="display:none;"></div>
-    <div class="panel" id="resultsPanel" style="padding:0; overflow:auto;">
-        <p style="color: var(--muted); padding:16px;">Results will appear here after the pipeline completes.</p>
+    <div class="results-toolbar" id="resultsToolbar" style="display:none;">
+        <div class="group">
+            <label for="bystanderFilter">Bystander filter</label>
+            <select id="bystanderFilter">
+                <option value="all">all</option>
+                <option value="no_bystanders">no bystanders</option>
+                <option value="silent">silent</option>
+            </select>
+        </div>
+        <div class="group">
+            <label for="scoreRange">Guide score filter</label>
+            <input type="range" id="scoreRange" min="0" max="1" step="0.01" value="0.5" />
+            <input type="number" id="scoreInput" min="0" max="1" step="0.01" value="0.5" style="width:70px;" />
+        </div>
+        <span id="filterSummary" class="muted">Showing 0 of 0</span>
+    </div>
+    <div id="resultsSummary" class="results-summary" style="display:none;"></div>
+    <div class="results-table-scroll" id="resultsPanel">
+        <p style="color: var(--muted); padding:16px;" id="resultsPlaceholder">Results will appear here after the pipeline completes.</p>
     </div>
     <div style="margin-top:8px;">
         <a id="downloadResults" class="btn btn-secondary" href="#" style="display:none;">Download TSV</a>
+        <a id="downloadResultsXlsx" class="btn btn-secondary" href="#" style="display:none; margin-left:8px;">Download XLSX</a>
     </div>
 </div>
 {% endblock %}

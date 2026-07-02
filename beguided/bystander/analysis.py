@@ -14,6 +14,7 @@ from beguided.bystander.annotation import (
     extract_coding_sequence_from_region,
 )
 from beguided.bystander.protein import translate_with_codons
+from beguided.models import CORE_COLUMN_ORDER
 
 
 def _normalize_bases(base_from, base_to):
@@ -29,7 +30,11 @@ def analyze_guide(row, interval_trees):
         interval_trees: dict from load_gtf_to_interval_tree.
 
     Returns:
-        tuple: (effect, simulated_outcome, aa_wanted, aa_bystander, effect_detail)
+        tuple: (bystander_effect, simulated_outcome, aa_wanted, aa_bystander)
+            bystander_effect is one of the labels documented in the module
+            (e.g. ``no_bystanders``, ``silent``, ``missense``, ``multi-transcript``,
+            ``bystander_outside_cds``, or one of the granular ``*_non_coding``
+            / ``*_failed`` labels when CDS handling fails).
     """
     chrom = str(row["chromosome"])
     position = int(row["position"])
@@ -47,9 +52,12 @@ def analyze_guide(row, interval_trees):
     )
 
     if not cds_info:
-        return "non-coding", "", "", "", "no_cds_overlap"
+        return "no_cds_overlap", "", "", ""
 
-    effect = "multi-transcript" if is_multiple else ""
+    if is_multiple:
+        effect = "multi-transcript"
+    else:
+        effect = ""
 
     region, guide_offset = reconstruct_genomic_region(row)
 
@@ -60,7 +68,7 @@ def analyze_guide(row, interval_trees):
     )
 
     if coding_seq is None:
-        return "non-coding", "", "", "", "cds_reconstruction_failed"
+        return "cds_reconstruction_failed", "", "", ""
 
     # Parse bystanders
     bystander_list = []
@@ -84,7 +92,7 @@ def analyze_guide(row, interval_trees):
         else:
             genomic_pos = guide_end - pos
         if genomic_pos < cds_start or genomic_pos >= cds_end:
-            return "bystander_outside_cds", "", "", "", "bystander_outside_cds"
+            return "bystander_outside_cds", "", "", ""
 
     # Check editing position in CDS
     if strand_used == "+":
@@ -92,7 +100,7 @@ def analyze_guide(row, interval_trees):
     else:
         genomic_editing_pos = guide_end - editing_position
     if genomic_editing_pos < cds_start or genomic_editing_pos >= cds_end:
-        return "non-coding", "", "", "", "editing_position_non_coding"
+        return "editing_position_non_coding", "", "", ""
 
     codon_offset = codon_offset_end if strand_used == "-" else codon_offset_start
 
@@ -128,8 +136,7 @@ def analyze_guide(row, interval_trees):
     aa_wanted = mark_mutations(aa_wanted, aa_editing_pos, [], strand_used, cds_strand, 0)
     aa_bystander = mark_mutations(aa_bystander, aa_editing_pos, [], strand_used, cds_strand, 0)
 
-    effect_detail = effect
-    return effect, seq_bystander, aa_wanted, aa_bystander, effect_detail
+    return effect, seq_bystander, aa_wanted, aa_bystander
 
 
 def run_all(guides_df, interval_trees, progress_callback=None):
@@ -152,7 +159,7 @@ def run_all(guides_df, interval_trees, progress_callback=None):
         if progress_callback and idx % 100 == 0:
             progress_callback(idx, total)
 
-        effect, simulated_outcome, aa_wanted, aa_bystander, effect_detail = analyze_guide(
+        effect, simulated_outcome, aa_wanted, aa_bystander = analyze_guide(
             row, interval_trees
         )
         results.append({
@@ -160,17 +167,27 @@ def run_all(guides_df, interval_trees, progress_callback=None):
             "simulated_outcome": simulated_outcome,
             "aa_wanted": aa_wanted,
             "aa_bystander": aa_bystander,
-            "bystander_effect_detail": effect_detail,
         })
 
     results_df = pd.DataFrame(results)
     df = pd.concat([guides_df.reset_index(drop=True), results_df], axis=1)
 
-    cols = [c for c in df.columns if c not in [
-        "bystander_effect", "simulated_outcome", "aa_wanted", "aa_bystander",
-        "bystander_effect_detail"
-    ]]
-    cols.extend(["bystander_effect", "bystander_effect_detail",
-                 "simulated_outcome", "aa_wanted", "aa_bystander"])
+    new_cols = ["bystander_effect", "simulated_outcome", "aa_wanted", "aa_bystander"]
+    # Column order: CORE_COLUMN_ORDER columns first (in CORE_COLUMN_ORDER), then
+    # bystander-specific columns, then any extra columns from the input TSV.
+    seen = set()
+    cols = []
+    for c in CORE_COLUMN_ORDER:
+        if c in df.columns and c not in seen:
+            cols.append(c)
+            seen.add(c)
+    for c in new_cols:
+        if c in df.columns and c not in seen:
+            cols.append(c)
+            seen.add(c)
+    for c in df.columns:
+        if c not in seen:
+            cols.append(c)
+            seen.add(c)
     df = df[cols]
     return df
