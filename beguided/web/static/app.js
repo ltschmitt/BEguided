@@ -17,6 +17,7 @@ const resultsPanel = document.getElementById("resultsPanel");
 const resultsToolbar = document.getElementById("resultsToolbar");
 const resultsPlaceholder = document.getElementById("resultsPlaceholder");
 const resultsSummary = document.getElementById("resultsSummary");
+const resultsGuideStatus = document.getElementById("resultsGuideStatus");
 const bystanderFilter = document.getElementById("bystanderFilter");
 const scoreRange = document.getElementById("scoreRange");
 const scoreInput = document.getElementById("scoreInput");
@@ -25,9 +26,19 @@ const downloadResults = document.getElementById("downloadResults");
 const downloadResultsXlsx = document.getElementById("downloadResultsXlsx");
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabPanels = document.querySelectorAll(".tab-panel");
+const subtabButtons = document.querySelectorAll(".subtab-button");
+const subtabPanels = document.querySelectorAll(".subtab-panel");
 const toastContainer = document.getElementById("toastContainer");
+const modeSpreadsheetBtn = document.getElementById("modeSpreadsheet");
+const modeSequenceBtn = document.getElementById("modeSequence");
+const spreadsheetPanel = document.getElementById("spreadsheetPanel");
+const sequencePanel = document.getElementById("sequencePanel");
+const sequenceInput = document.getElementById("sequenceInput");
+const parseSequenceBtn = document.getElementById("parseSequenceBtn");
 
+let currentMode = "spreadsheet";
 let uploadedRawB64 = null;
+let customGenomeB64 = null;
 let currentJobId = null;
 let currentRevokeToken = null;
 let eventSource = null;
@@ -35,6 +46,7 @@ let pollHandle = null;
 let genomePollHandle = null;
 let gtfPollHandle = null;
 let currentRecords = [];
+let matchedPresetCount = 0;
 
 // Fetch server config + preset table on load (BEguidedOFF availability, scheduler limits)
 (async function init() {
@@ -240,6 +252,48 @@ function switchTab(tabId) {
     });
 }
 
+// Sub-tab switching (nested tabs inside the Results tab)
+subtabButtons.forEach(btn => {
+    btn.addEventListener("click", () => switchSubTab(btn.dataset.subtab));
+});
+
+function switchSubTab(subtabId) {
+    subtabButtons.forEach(b => {
+        b.classList.toggle("active", b.dataset.subtab === subtabId);
+    });
+    subtabPanels.forEach(p => {
+        p.classList.toggle("active", p.id === subtabId);
+    });
+}
+
+// Mode switcher: spreadsheet vs sequence input.
+function setMode(mode) {
+    if (mode !== "spreadsheet" && mode !== "sequence") return;
+    currentMode = mode;
+    modeSpreadsheetBtn.classList.toggle("active", mode === "spreadsheet");
+    modeSequenceBtn.classList.toggle("active", mode === "sequence");
+    spreadsheetPanel.style.display = mode === "spreadsheet" ? "" : "none";
+    sequencePanel.style.display = mode === "sequence" ? "" : "none";
+
+    // Reset state when switching modes: a previously uploaded file is
+    // irrelevant for sequence input and vice-versa.
+    uploadedRawB64 = null;
+    customGenomeB64 = null;
+    matchedPresetCount = 0;
+    runBtn.disabled = true;
+    compatibilityInfo.textContent = "";
+    checkAlert.style.display = "none";
+    inputAlert.style.display = "none";
+    inputPanel.innerHTML = `<p style="color: var(--muted);padding:16px;">${
+        mode === "spreadsheet"
+            ? "Upload a targets file to preview input data."
+            : "Parse sequences to preview input data."
+    }</p>`;
+}
+
+modeSpreadsheetBtn.addEventListener("click", () => setMode("spreadsheet"));
+modeSequenceBtn.addEventListener("click", () => setMode("sequence"));
+
 async function runCompatibilityCheck() {
     if (!uploadedRawB64) return;
     const form = new FormData();
@@ -254,6 +308,7 @@ async function runCompatibilityCheck() {
             checkAlert.style.display = "none";
             compatibilityInfo.textContent = `${data.matched}/${data.total} targets match preset(s)`;
             compatibilityInfo.style.color = "var(--success)";
+            matchedPresetCount = data.matched;
             runBtn.disabled = false;
         } else {
             showAlert(checkAlert, "error",
@@ -263,6 +318,7 @@ async function runCompatibilityCheck() {
             );
             compatibilityInfo.textContent = `${data.matched}/${data.total} targets match preset(s)`;
             compatibilityInfo.style.color = "var(--danger)";
+            matchedPresetCount = data.matched;
             runBtn.disabled = true;
         }
     } catch (err) {
@@ -270,8 +326,62 @@ async function runCompatibilityCheck() {
     }
 }
 
+// Sequence-mode parse handler. Posts the textarea content to /sequence/parse
+// and, on success, mirrors the spreadsheet-mode state (raw_b64 + preview +
+// compatibility check).
+async function parseSequences() {
+    const text = sequenceInput.value;
+    if (!text.trim()) {
+        showAlert(inputAlert, "error", "Paste at least one sequence.");
+        runBtn.disabled = true;
+        matchedPresetCount = 0;
+        compatibilityInfo.textContent = "";
+        checkAlert.style.display = "none";
+        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">Paste sequences first.</p>`;
+        return;
+    }
+
+    const form = new FormData();
+    form.append("text", text);
+    let res, data;
+    try {
+        res = await fetch("/sequence/parse", { method: "POST", body: form });
+        data = await res.json();
+    } catch (err) {
+        showAlert(inputAlert, "error", `Parse failed: ${err}`);
+        return;
+    }
+
+    if (res.status === 413) {
+        showAlert(inputAlert, "error", data.error || "Input too large.");
+        return;
+    }
+
+    if (!data.ok) {
+        showAlert(inputAlert, "error", data.error);
+        uploadedRawB64 = null;
+        customGenomeB64 = null;
+        matchedPresetCount = 0;
+        runBtn.disabled = true;
+        compatibilityInfo.textContent = "";
+        checkAlert.style.display = "none";
+        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">${escapeHtml(data.error)}</p>`;
+        return;
+    }
+
+    showAlert(inputAlert, "success", `Parsed ${data.row_count} sequence(s). Showing up to 100.`);
+    uploadedRawB64 = data.raw_b64;
+    customGenomeB64 = data.custom_genome_b64;
+    inputPanel.innerHTML = renderSequencePreview(data.preview);
+    await runCompatibilityCheck();
+    switchTab("inputTab");
+}
+
+parseSequenceBtn.addEventListener("click", parseSequences);
+
 // File upload
 fileInput.addEventListener("change", async () => {
+    if (currentMode !== "spreadsheet") return;
     const file = fileInput.files[0];
     if (!file) return;
 
@@ -295,6 +405,7 @@ fileInput.addEventListener("change", async () => {
     if (!data.ok) {
         showAlert(inputAlert, "error", data.error);
         uploadedRawB64 = null;
+        matchedPresetCount = 0;
         runBtn.disabled = true;
         compatibilityInfo.textContent = "";
         checkAlert.style.display = "none";
@@ -320,6 +431,10 @@ presetSelect.addEventListener("change", async () => {
 // Run pipeline
 runBtn.addEventListener("click", async () => {
     if (!uploadedRawB64) return;
+    if (currentMode === "sequence" && !customGenomeB64) {
+        showToast("error", "Parse sequences before running.");
+        return;
+    }
 
     runBtn.disabled = true;
     setStatus("submitting");
@@ -335,6 +450,11 @@ runBtn.addEventListener("click", async () => {
         resultsSummary.innerHTML = "";
         resultsSummary.style.display = "none";
     }
+    setSummaryPlaceholder(true, "Waiting for pipeline to complete...");
+    if (resultsGuideStatus) {
+        resultsGuideStatus.textContent = "";
+        resultsGuideStatus.style.display = "none";
+    }
     filterSummary.textContent = "Showing 0 of 0";
     downloadResults.style.display = "none";
     downloadResultsXlsx.style.display = "none";
@@ -349,6 +469,10 @@ runBtn.addEventListener("click", async () => {
     const form = new FormData();
     form.append("raw_b64", uploadedRawB64);
     form.append("preset", presetSelect.value);
+    form.append("mode", currentMode);
+    if (currentMode === "sequence") {
+        form.append("custom_genome_b64", customGenomeB64 || "");
+    }
 
     let res, data;
     try {
@@ -475,6 +599,45 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+// Render the sequence-mode preview table. Each row shows the chromosome,
+// 1-based edit position, target/desired bases, and a snippet of the
+// bracketed sequence so the user can spot-check the edit location.
+function renderSequencePreview(rows) {
+    if (!rows || rows.length === 0) {
+        return `<p style="color:var(--muted);padding:16px;">No sequences to display.</p>`;
+    }
+    const labels = {
+        chromosome: "Chromosome",
+        position: "Position",
+        target_base: "From",
+        desired_base: "To",
+        sequence_preview: "Sequence (edit highlighted)",
+    };
+    const cols = Object.keys(labels);
+    let html = `<table class="data-table"><thead><tr>`;
+    cols.forEach(c => { html += `<th>${escapeHtml(labels[c])}</th>`; });
+    html += `</tr></thead><tbody>`;
+    rows.forEach(row => {
+        html += `<tr>`;
+        cols.forEach(c => {
+            let v = row[c] !== undefined && row[c] !== null ? String(row[c]) : "";
+            if (c === "sequence_preview") {
+                // Highlight the [X] bracket from the backend.
+                const marked = escapeHtml(v).replace(
+                    /\[([ACGT])\]/,
+                    `<span class="sequence-edit-mark">[$1]</span>`
+                );
+                html += `<td><code>${marked}</code></td>`;
+            } else {
+                html += `<td>${escapeHtml(v)}</td>`;
+            }
+        });
+        html += `</tr>`;
+    });
+    html += `</tbody></table>`;
+    return html;
+}
+
 function displayColumnName(name) {
     return name.replace(/_/g, " ");
 }
@@ -575,6 +738,11 @@ async function fetchResults(jobId) {
             resultsSummary.innerHTML = "";
             resultsSummary.style.display = "none";
         }
+        setSummaryPlaceholder(true, data.message || "No results returned.");
+        if (resultsGuideStatus) {
+            resultsGuideStatus.textContent = "";
+            resultsGuideStatus.style.display = "none";
+        }
         showToast("info", data.message || "No results returned.");
         return;
     }
@@ -582,13 +750,24 @@ async function fetchResults(jobId) {
     currentRecords = data.records;
     if (resultsPlaceholder) resultsPlaceholder.style.display = "none";
     resultsToolbar.style.display = "flex";
+    if (resultsGuideStatus) {
+        const foundTargets = new Set(
+            currentRecords.map(r => `${r.chromosome ?? ""}__${r.position ?? ""}`)
+        ).size;
+        resultsGuideStatus.innerHTML =
+            `Found guides for ` +
+            `<span class="results-guide-count">${foundTargets}/${matchedPresetCount}</span> ` +
+            `targets with the selected base editors`;
+        resultsGuideStatus.style.display = "block";
+    }
     renderResultsTable();
 
-    // Auto-switch to results tab
+    // Auto-switch to results tab + Guides sub-tab
     tabButtons.forEach(b => b.classList.remove("active"));
     tabPanels.forEach(p => p.classList.remove("active"));
     document.querySelector('[data-tab="resultsTab"]').classList.add("active");
     document.getElementById("resultsTab").classList.add("active");
+    switchSubTab("guidesSubtab");
 }
 
 // Dynamic filtering for the Results tab. Mirrors beguided.filtering.filters.
@@ -672,6 +851,18 @@ function renderResultsTable() {
     }
 }
 
+// Toggle the Summary sub-tab placeholder text.
+function setSummaryPlaceholder(visible, text) {
+    const ph = document.getElementById("summaryPlaceholder");
+    if (!ph) return;
+    if (visible) {
+        ph.textContent = text || "Summary will appear here after the pipeline completes.";
+        ph.style.display = "block";
+    } else {
+        ph.style.display = "none";
+    }
+}
+
 // Pivoted per-preset summary of distinct targets visible under the current
 // filters. Two rows: the top header row holds the be_preset names with
 // "all" first, the second row holds the corresponding count of distinct
@@ -681,6 +872,7 @@ function renderResultsSummary(filtered) {
     if (!filtered || filtered.length === 0) {
         resultsSummary.innerHTML = "";
         resultsSummary.style.display = "none";
+        setSummaryPlaceholder(true, "No guides match the current filters.");
         return;
     }
 
@@ -715,6 +907,7 @@ function renderResultsSummary(filtered) {
 
     resultsSummary.innerHTML = html;
     resultsSummary.style.display = "block";
+    setSummaryPlaceholder(false);
 }
 
 // Filter event wiring (two-way slider/number sync).

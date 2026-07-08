@@ -84,7 +84,7 @@ class TestExtractCodingFromRegion:
         chrom = "chr1"
         guide_start = 4
         guide_end = 9
-        cds_info = [(0, 20, "+", "tx1")]
+        cds_info = [(0, 20, "+", "tx1", "KRAS")]
         region = "ABCDEFGHIJKLMNO"
         guide_offset = 4
         seq, codon_start, codon_end, strand = extract_coding_sequence_from_region(
@@ -101,7 +101,7 @@ class TestExtractCodingFromRegion:
         chrom = "chr1"
         guide_start = 8
         guide_end = 12
-        cds_info = [(0, 20, "+", "tx1")]
+        cds_info = [(0, 20, "+", "tx1", "KRAS")]
         region = "ABCDE"
         guide_offset = 3
         result = extract_coding_sequence_from_region(
@@ -115,7 +115,7 @@ class TestExtractCodingFromRegion:
         chrom = "chr1"
         guide_start = 6
         guide_end = 10
-        cds_info = [(0, 20, "+", "tx1")]
+        cds_info = [(0, 20, "+", "tx1", "KRAS")]
         region = "ABCDEFGHIJ"
         guide_offset = 2
         seq, codon_start, codon_end, strand = extract_coding_sequence_from_region(

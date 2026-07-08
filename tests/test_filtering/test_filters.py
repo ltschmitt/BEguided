@@ -124,6 +124,46 @@ class TestFilterGuides:
         p.write_text(yaml.dump(cfg))
         criteria = load_filter_criteria(config_file=str(p), guide_score_threshold=0.9)
         assert criteria["guide_score_threshold"] == 0.9
+
+    def test_skip_bystander_keeps_all_when_mode_is_no_bystanders(self):
+        """Regression: when ``skip_bystander=True`` is set (sequence-mode
+        jobs), ``mode='no_bystanders'`` must NOT drop guides whose
+        ``bystander_positions`` is non-empty. This is the bug that
+        previously caused every guide to be filtered out on A-rich
+        sequences in sequence mode.
+        """
+        df = pd.DataFrame({
+            "chromosome": ["chr1", "chr1", "chr1"],
+            "position": [10, 10, 10],
+            "target_base": ["A", "A", "A"],
+            "desired_base": ["G", "G", "G"],
+            "guide_rna_sequence": ["AAAAA", "BBBBB", "CCCCC"],
+            # Every guide has at least one bystander. Without the fix,
+            # all three would be dropped under ``mode='no_bystanders'``.
+            "bystander_positions": ["5", "3,7", "2,4,8"],
+        })
+        criteria = {"mode": "no_bystanders", "skip_bystander": True}
+        result = filter_guides(df, criteria)
+        assert len(result) == 3
+        assert set(result["guide_rna_sequence"]) == {"AAAAA", "BBBBB", "CCCCC"}
+
+    def test_skip_bystander_default_false(self):
+        """Default behaviour: ``skip_bystander`` is False, so
+        ``mode='no_bystanders'`` still drops guides with bystanders.
+        """
+        df = pd.DataFrame({
+            "chromosome": ["chr1", "chr1"],
+            "position": [10, 10],
+            "target_base": ["A", "A"],
+            "desired_base": ["G", "G"],
+            "guide_rna_sequence": ["AAAAA", "BBBBB"],
+            "bystander_positions": ["", "5"],  # one clean, one with bystander
+        })
+        criteria = {"mode": "no_bystanders"}
+        result = filter_guides(df, criteria)
+        assert len(result) == 1
+        assert result.iloc[0]["guide_rna_sequence"] == "AAAAA"
+
         """Regression: same guide sequence with different presets must all survive filtering."""
         df = pd.DataFrame({
             "chromosome": ["1", "1", "1"],

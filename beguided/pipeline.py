@@ -150,6 +150,15 @@ def _read_new_style_config(config):
     # --- passthrough_extras ---
     result["passthrough_extras"] = config.get("passthrough_extras", True)
 
+    # --- skip_bystander ---
+    # Explicit flag to skip step 2 (bystander analysis). This is the sole
+    # gate for whether step 2 runs; ``keep_bystanders`` only governs step 3
+    # filtering. Used by the sequence-input web path where no GTF annotation
+    # is available — the step is skipped, and the downstream filter must NOT
+    # apply a "no_bystanders" cut on ``bystander_positions`` either (which
+    # would drop every guide on A-rich sequences).
+    result["skip_bystander"] = bool(config.get("skip_bystander", False))
+
     return result
 
 
@@ -405,7 +414,8 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
     # Step 2: Bystander (conditional)
     _check_cancel(cancel_event)
     filter_mode = cfg["filter_mode"]
-    needs_bystander = filter_mode != "no_bystanders"
+    skip_bystander = cfg["skip_bystander"]
+    needs_bystander = not skip_bystander
 
     if start_step <= 2 <= end_step:
         logger.info("=" * 60)
@@ -416,6 +426,19 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
         logger.info("=" * 60)
 
         if needs_bystander:
+            # Load the genome if not pre-loaded — required so the
+            # codon-aligned extract can splice across exon junctions.
+            if genome is None:
+                genome_file = cfg["genome"]
+                if not genome_file:
+                    raise PipelineError(
+                        "Genome FASTA is required for bystander analysis "
+                        "(when starting from step 2 or later, supply it via "
+                        "the genome= kwarg)."
+                    )
+                logger.info(f"Loading genome from: {genome_file}")
+                genome = load_genome(genome_file)
+                logger.info(f"Loaded {len(genome)} chromosomes")
             if interval_trees is None:
                 gtf_file = cfg["gff_file"]
                 if not gtf_file:
@@ -424,10 +447,16 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
                     )
                 logger.info(f"Loading GTF annotation from: {gtf_file}")
                 interval_trees = load_gtf_to_interval_tree(gtf_file)
-                logger.info(f"Loaded annotations for {len(interval_trees)} chromosomes")
+                _chrom_count = len(interval_trees) - (
+                    1 if "__tx_codons__" in interval_trees else 0
+                )
+                logger.info(f"Loaded annotations for {_chrom_count} chromosomes")
             else:
+                _chrom_count = len(interval_trees) - (
+                    1 if "__tx_codons__" in interval_trees else 0
+                )
                 logger.info(
-                    f"Using pre-loaded GTF annotation ({len(interval_trees)} chromosomes)"
+                    f"Using pre-loaded GTF annotation ({_chrom_count} chromosomes)"
                 )
 
             df = pd.read_csv(guidefinder_output, sep="\t")
@@ -440,7 +469,8 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
                     progress_callback=lambda idx, total: (
                         logger.info(f"  Bystander analysis: {idx + 1}/{total} guides")
                         if idx % 100 == 0 else None
-                    )
+                    ),
+                    genome=genome,
                 )
                 logger.info("Bystander analysis complete")
             df.to_csv(bystander_output, sep="\t", index=False)

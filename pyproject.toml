@@ -83,6 +83,10 @@ httpx = ">=0.27.0"
 [tool.pixi.feature.cuda.dependencies]
 pytorch-cuda = ">=12.4,<13"
 
+# Local editable BEguidedOFF (off-target search), sibling repo at ../BEguidedOFF
+[tool.pixi.feature.cuda.pypi-dependencies]
+beguidedoff = { path = "../BEguidedOFF", editable = true }
+
 # ---------------------------------------------------------------------------
 # Environments
 # ---------------------------------------------------------------------------

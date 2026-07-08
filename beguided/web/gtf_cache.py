@@ -94,7 +94,9 @@ def _load_blocking(path: str) -> None:
         os._exit(1)
         return
 
-    chrom_count = len(interval_trees)
+    # Exclude the reserved __tx_codons__ key from the chromosome count.
+    from beguided.bystander.annotation import _TX_CODONS_KEY
+    chrom_count = len(interval_trees) - (1 if _TX_CODONS_KEY in interval_trees else 0)
     with _cond:
         _interval_trees = interval_trees
         _state["status"] = "ready"

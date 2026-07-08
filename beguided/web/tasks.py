@@ -8,6 +8,7 @@ result records back from disk into a JSON-serialisable dict.
 
 from __future__ import annotations
 
+import base64
 import logging
 import tempfile
 import threading
@@ -31,6 +32,8 @@ def _build_config(
     search_offtargets: bool = True,
     guide_score_threshold: float = 0.5,
     passthrough_extras: bool = False,
+    genome_fasta: Optional[str] = None,
+    skip_bystander: bool = False,
 ) -> dict:
     """Build a pipeline config dict from web UI parameters.
 
@@ -44,6 +47,12 @@ def _build_config(
         passthrough_extras: Whether non-core columns from the input TSV should
             be carried through to the final output. Defaults to ``False`` in
             the web app.
+        genome_fasta: Path to the FASTA file to use as the genome. Defaults to
+            the operator-configured ``cfg.genome_fasta``. Pass a custom path
+            (e.g. a sequence-mode job's temp FASTA) to override it.
+        skip_bystander: When True, skip the bystander analysis step AND skip
+            the bystander filter in step 3. Used by sequence-mode jobs
+            (no GTF annotation available).
 
     Returns:
         dict: Compatible with run_pipeline().
@@ -55,7 +64,7 @@ def _build_config(
     return {
         "input": {
             "targets": str(targets_path),
-            "genome": cfg.genome_fasta,
+            "genome": genome_fasta if genome_fasta is not None else cfg.genome_fasta,
             "presets": cfg.presets_file,
             "gff_file": cfg.gtf_path,
         },
@@ -65,6 +74,7 @@ def _build_config(
         "guide_score_threshold": guide_score_threshold,
         "search_offtargets": search_offtargets,
         "passthrough_extras": passthrough_extras,
+        "skip_bystander": skip_bystander,
         "offtargets": {
             "beguidedoff_genome": cfg.beguidedoff_genome,
             "mismatch_tolerance": cfg.mismatch_tolerance,
@@ -125,6 +135,8 @@ def execute_job(
     guide_score_threshold: float = 0.5,
     cancel_event: Optional[threading.Event] = None,
     passthrough_extras: bool = False,
+    mode: str = "spreadsheet",
+    custom_genome_b64: Optional[str] = None,
 ) -> dict:
     """Run a single job synchronously. Called from the scheduler worker thread.
 
@@ -133,6 +145,15 @@ def execute_job(
     forwarded to the SSE handler (if any) so the operator can see it in the
     browser.
 
+    Args:
+        mode: ``"spreadsheet"`` (default) or ``"sequence"``. In sequence
+            mode the caller must also supply ``custom_genome_b64``; the job
+            then uses the supplied custom FASTA instead of the configured
+            genome, bypasses GTF loading, and forces bystander analysis
+            + off-target search off.
+        custom_genome_b64: Base64-encoded FASTA text containing the user's
+            sequences. Required when ``mode="sequence"``.
+
     Returns:
         dict with keys: job_id, status, message, records.
     """
@@ -140,6 +161,24 @@ def execute_job(
     from beguided.web.safety import validate_chromosomes
 
     sse = get_sse_handler()
+
+    sequence_mode = mode == "sequence"
+    if sequence_mode and not custom_genome_b64:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "message": "Sequence mode requires custom_genome_b64.",
+            "records": [],
+        }
+
+    # Sequence mode has no GTF annotation and no pre-encoded off-target
+    # genome, so we (a) skip the bystander step entirely (via the explicit
+    # ``skip_bystander`` pipeline flag, NOT by setting filter_mode to
+    # "no_bystanders", which would also drop every guide with bystanders)
+    # and (b) disable BEguidedOFF.
+    skip_bystander = sequence_mode
+    if sequence_mode:
+        search_offtargets = False
 
     _validate_offtarget_config(search_offtargets)
 
@@ -153,11 +192,51 @@ def execute_job(
             "records": [],
         }
 
-    # Validate chromosomes against the configured genome if it's available.
-    # Genome-free reruns (steps 4-5) skip this check.
     cfg = get_config()
     genome: Optional[dict] = None
-    if cfg.genome_fasta and Path(cfg.genome_fasta).exists():
+    custom_fasta_path: Optional[str] = None
+
+    if sequence_mode:
+        # Decode the custom FASTA and write it to a temp file. The pipeline
+        # accepts a path via ``cfg["input"]["genome"]`` and the existing
+        # chromosome validation keys off ``genome.keys()`` — both work with
+        # a freshly-written temp file.
+        try:
+            fasta_text = base64.b64decode(custom_genome_b64).decode("ascii")
+        except Exception as exc:
+            return {
+                "job_id": job_id,
+                "status": "error",
+                "message": f"Failed to decode custom genome payload: {exc}",
+                "records": [],
+            }
+        try:
+            from beguided.genome.io import load_genome as _load_genome
+
+            genome = _load_genome_from_string(fasta_text, _load_genome)
+        except Exception as exc:
+            return {
+                "job_id": job_id,
+                "status": "error",
+                "message": f"Failed to parse custom genome FASTA: {exc}",
+                "records": [],
+            }
+        # Chromosome validation: every chromosome in the targets DF must
+        # appear in the custom genome.
+        unknown = validate_chromosomes(
+            targets_df["chromosome"].astype(str).tolist(), genome.keys()
+        )
+        if unknown:
+            return {
+                "job_id": job_id,
+                "status": "error",
+                "message": (
+                    f"Unknown chromosome(s) in sequence input: "
+                    f"{', '.join(sorted(set(unknown)))}."
+                ),
+                "records": [],
+            }
+    elif cfg.genome_fasta and Path(cfg.genome_fasta).exists():
         try:
             if cfg.preload_genome:
                 # Block the worker thread until the background preload
@@ -195,8 +274,10 @@ def execute_job(
     # Load (or wait for) the GTF interval trees if a GTF is configured.
     # Step 2 reuses the preloaded dict; otherwise it falls back to parsing
     # the file itself (the pipeline will still work when preload_gtf=False).
+    # Sequence mode skips this entirely — there's no annotation for custom
+    # sequences.
     interval_trees: Optional[dict] = None
-    if cfg.gtf_path and Path(cfg.gtf_path).exists():
+    if not sequence_mode and cfg.gtf_path and Path(cfg.gtf_path).exists():
         try:
             if cfg.preload_gtf:
                 from beguided.web.gtf_cache import wait_until_ready
@@ -215,6 +296,16 @@ def execute_job(
             }
 
     with tempfile.TemporaryDirectory(prefix="beguided_") as work_dir:
+        if sequence_mode:
+            # Persist the custom FASTA in the work dir so run_pipeline can
+            # load it through its normal path. We retain the in-memory
+            # ``genome`` dict and pass it via the ``genome=`` kwarg so
+            # guidefinder doesn't reparse the file.
+            custom_fasta_path = str(Path(work_dir) / "custom_genome.fa")
+            Path(custom_fasta_path).write_text(
+                base64.b64decode(custom_genome_b64).decode("ascii")
+            )
+
         config = _build_config(
             targets_df,
             preset_names,
@@ -223,6 +314,8 @@ def execute_job(
             search_offtargets,
             guide_score_threshold,
             passthrough_extras,
+            genome_fasta=custom_fasta_path,
+            skip_bystander=skip_bystander,
         )
         final_output = Path(work_dir) / "beguided_results.tsv"
 
@@ -267,3 +360,28 @@ def execute_job(
                 "message": str(exc),
                 "records": [],
             }
+
+
+def _load_genome_from_string(fasta_text: str, load_genome_fn) -> dict:
+    """Load a FASTA text blob into a ``{chrom: sequence}`` dict.
+
+    BioPython's ``SeqIO.parse`` consumes a file path; we write to a
+    NamedTemporaryFile so we can reuse the existing ``load_genome`` loader.
+    The temp file is closed immediately (and thus OS-cleaned) once the
+    loader has read it.
+    """
+    import tempfile as _tf
+
+    tmp = _tf.NamedTemporaryFile(
+        mode="w", suffix=".fa", delete=False, encoding="ascii"
+    )
+    try:
+        tmp.write(fasta_text)
+        tmp.flush()
+        tmp.close()
+        return load_genome_fn(tmp.name)
+    finally:
+        try:
+            Path(tmp.name).unlink()
+        except OSError:
+            pass

@@ -24,6 +24,12 @@ from beguided.web.config import (
 )
 from beguided.editing.presets import load_presets, get_supported_editor_keys
 from beguided.web import genome_cache, gtf_cache
+from beguided.web.sequence_input import (
+    SequenceParseError,
+    parse_sequence_text,
+    records_to_fasta,
+    records_to_targets_dataframe,
+)
 from beguided.web.scheduler import (
     Cooldown,
     Job,
@@ -42,6 +48,7 @@ logger = logging.getLogger("beguided.web.app")
 
 REQUIRED_COLUMNS = {"chromosome", "position", "target_base", "desired_base"}
 VALID_FILTER_MODES = ("all", "no_bystanders", "silent")
+VALID_INPUT_MODES = ("spreadsheet", "sequence")
 
 
 def _render_template(name, **kwargs) -> str:
@@ -249,6 +256,68 @@ def create_app() -> FastAPI:
             "raw_b64": base64.b64encode(content).decode("ascii"),
         }
 
+    @app.post("/sequence/parse")
+    async def sequence_parse(text: Annotated[str, Form()] = "") -> dict:
+        """Parse raw sequence text with ``[X>Y]`` brackets into targets.
+
+        Returns the same shape as ``/upload`` (so the existing ``/check`` and
+        ``/run`` flows keep working) plus a ``custom_genome_b64`` payload
+        containing the FASTA representation of the parsed sequences. The
+        caller passes ``custom_genome_b64`` to ``/run`` to switch the job
+        into sequence-input mode.
+        """
+        try:
+            records = parse_sequence_text(text)
+        except SequenceParseError as exc:
+            prefix = (
+                f"Sequence #{exc.record_index + 1}: "
+                if exc.record_index >= 0
+                else ""
+            )
+            return {"ok": False, "error": prefix + str(exc)}
+
+        cfg = get_config()
+        if len(records) > cfg.max_input_targets:
+            return {
+                "ok": False,
+                "error": (
+                    f"Too many sequences: {len(records)} "
+                    f"(max {cfg.max_input_targets})"
+                ),
+            }
+
+        df = records_to_targets_dataframe(records)
+        fasta_text = records_to_fasta(records)
+
+        # The standard preview columns are the four core targets columns;
+        # append a sequence snippet so the user can spot-check the edit
+        # location without scrolling through the full raw text.
+        preview_columns = [
+            "chromosome",
+            "position",
+            "target_base",
+            "desired_base",
+            "sequence_preview",
+        ]
+        preview = df[preview_columns].head(100).to_dict(orient="records")
+
+        # Targets DataFrame is base64-encoded for parity with /upload. We
+        # serialise only the core columns so the downstream pipeline sees
+        # exactly the same TSV it would have seen from the spreadsheet path.
+        targets_tsv = df[["chromosome", "position", "target_base", "desired_base"]]
+        targets_b64 = base64.b64encode(
+            targets_tsv.to_csv(sep="\t", index=False).encode()
+        ).decode("ascii")
+
+        return {
+            "ok": True,
+            "row_count": len(df),
+            "columns": preview_columns,
+            "preview": preview,
+            "raw_b64": targets_b64,
+            "custom_genome_b64": base64.b64encode(fasta_text.encode()).decode("ascii"),
+        }
+
     @app.post("/check")
     async def check(
         raw_b64: Annotated[str, Form()],
@@ -297,13 +366,26 @@ def create_app() -> FastAPI:
         request: Request,
         raw_b64: Annotated[str, Form()],
         preset: Annotated[str, Form()],
+        mode: Annotated[str, Form()] = "spreadsheet",
+        custom_genome_b64: Annotated[str, Form()] = "",
     ) -> JSONResponse:
         """Enqueue a pipeline run. Returns immediately with job_id + revoke_token.
 
         The web UI always runs the pipeline with all guides (no bystander /
         score filtering) and skips BEguidedOFF. The user filters the result
         table dynamically in the Results tab.
+
+        When ``mode="sequence"`` (and ``custom_genome_b64`` is supplied) the
+        job runs in sequence-input mode: the supplied custom FASTA is used
+        instead of the operator-configured genome, bystander analysis is
+        skipped, and off-target search is disabled.
         """
+        if mode not in VALID_INPUT_MODES:
+            return JSONResponse(
+                {"ok": False, "error": f"Unknown input mode: {mode!r}"},
+                status_code=400,
+            )
+
         df = _decode_targets(raw_b64)
 
         groups = load_preset_groups()
@@ -313,6 +395,20 @@ def create_app() -> FastAPI:
                 status_code=400,
             )
         preset_names = groups[preset]
+
+        custom_genome_b64 = custom_genome_b64.strip()
+        if mode == "sequence":
+            if not custom_genome_b64:
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            "Sequence mode requires custom_genome_b64; "
+                            "parse the input via /sequence/parse first."
+                        ),
+                    },
+                    status_code=400,
+                )
 
         scheduler = current_scheduler()
         client_ip = request.client.host if request.client else "unknown"
@@ -326,6 +422,8 @@ def create_app() -> FastAPI:
                     "search_offtargets": False,
                     "guide_score_threshold": 0.0,
                     "passthrough_extras": False,
+                    "mode": mode,
+                    "custom_genome_b64": custom_genome_b64 or None,
                 },
             )
         except Cooldown as exc:

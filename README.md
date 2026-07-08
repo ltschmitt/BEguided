@@ -71,11 +71,19 @@ pip install -e .
 
 ### Optional: Install BEguidedOFF (off-target search)
 
+When using Pixi, BEguidedOFF is installed automatically — editable, from the sibling repo at `../BEguidedOFF` — into the `cuda` environment:
+
 ```bash
-pip install "git+ssh://git@gitlab.mn.tu-dresden.de/buchholzlab/beguidedoff.git"
+pixi install --features cuda
 ```
 
 Then provide the path to an encoded genome `.npz` via `--beguidedoff-genome` or `BEGUIDED_BEGUIDEDOFF_GENOME`.
+
+If you are not using Pixi (or the sibling repo is not at `../BEguidedOFF`), install it manually:
+
+```bash
+pip install "git+ssh://git@gitlab.mn.tu-dresden.de/buchholzlab/beguidedoff.git"
+```
 
 ### Docker
 

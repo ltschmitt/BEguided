@@ -66,7 +66,7 @@ class TestPassthroughExtras:
         gtf_path.write_text(
             "##format: gtf\n"
             "chr1\ttest\tCDS\t1\t200\t.\t+\t0\t"
-            'gene_id "G1"; transcript_id "T1"; tag "MANE_Select";\n'
+            'gene_id "G1"; gene_name "G1"; transcript_id "T1"; tag "MANE_Select";\n'
         )
         config = {
             "input": {
@@ -164,7 +164,7 @@ class TestPipelineSkipOffTarget:
         gtf_path.write_text(
             "##format: gtf\n"
             "chr1\ttest\tCDS\t1\t60\t.\t+\t0\t"
-            'gene_id "G1"; transcript_id "T1"; tag "MANE_Select";\n'
+            'gene_id "G1"; gene_name "G1"; transcript_id "T1"; tag "MANE_Select";\n'
         )
 
         base_dir = tmp_path / "out"
@@ -206,7 +206,92 @@ class TestPipelineSkipOffTarget:
         assert (base_dir / "step3_filtered.tsv").exists()
 
 
-class TestPrepareBEguidedOFFInput:
+class TestPipelineAlwaysRunBystander:
+    """Verify that step 2 always runs unless skip_bystander=True, regardless
+    of keep_bystanders filter mode."""
+
+    def _build_config(self, tmp_path, sample_fasta_file, valid_preset_tsv,
+                      keep_bystanders="no_bystanders", skip_bystander=False):
+        presets_path = tmp_path / "presets.tsv"
+        presets_path.write_text(valid_preset_tsv)
+        targets_path = tmp_path / "targets.tsv"
+        targets_path.write_text(
+            "chromosome\tposition\ttarget_base\tdesired_base\nchr1\t50\tT\tC\n"
+        )
+        gtf_path = tmp_path / "dummy.gtf"
+        gtf_path.write_text(
+            "##format: gtf\n"
+            "chr1\ttest\tCDS\t1\t200\t.\t+\t0\t"
+            'gene_id "G1"; gene_name "G1"; transcript_id "T1"; tag "MANE_Select";\n'
+        )
+        config = {
+            "input": {
+                "targets": str(targets_path),
+                "genome": sample_fasta_file,
+                "presets": str(presets_path),
+                "gff_file": str(gtf_path),
+            },
+            "output_prefix": str(tmp_path / "out"),
+            "use_presets": "all",
+            "keep_bystanders": keep_bystanders,
+            "search_offtargets": False,
+        }
+        if skip_bystander:
+            config["skip_bystander"] = True
+        return config
+
+    def test_no_bystanders_mode_still_runs_step2(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """keep_bystanders='no_bystanders' must NOT skip step 2 anymore."""
+        from beguided.pipeline import run_pipeline
+        import pandas as pd
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            keep_bystanders="no_bystanders",
+        )
+        run_pipeline(config, start_step=1, end_step=5)
+
+        step2 = pd.read_csv(tmp_path / "out" / "step2_bystander.tsv", sep="\t")
+        # Step 2 ran → bystander_effect column exists (not just a copy of step 1)
+        assert "bystander_effect" in step2.columns
+        assert "gene_edit_desired" in step2.columns
+
+    def test_gene_edit_desired_in_final_output(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """Final TSV includes gene_edit_desired when step 2 runs."""
+        from beguided.pipeline import run_pipeline
+        import pandas as pd
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            keep_bystanders="all",
+        )
+        run_pipeline(config, start_step=1, end_step=5)
+
+        final = pd.read_csv(tmp_path / "out" / "beguided_results.tsv", sep="\t")
+        assert "gene_edit_desired" in final.columns
+
+    def test_skip_bystander_skips_step2(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """skip_bystander=True still skips step 2."""
+        from beguided.pipeline import run_pipeline
+        import pandas as pd
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            keep_bystanders="all",
+            skip_bystander=True,
+        )
+        run_pipeline(config, start_step=1, end_step=5)
+
+        step2 = pd.read_csv(tmp_path / "out" / "step2_bystander.tsv", sep="\t")
+        # Step 2 skipped → no bystander_effect column
+        assert "bystander_effect" not in step2.columns
+        assert "gene_edit_desired" not in step2.columns
     """Unit tests for _prepare_beguidedoff_input without BEguidedOFF installed."""
 
     def test_columns_and_positions(self, tmp_path):
@@ -478,7 +563,7 @@ class TestPipelineWithBEguidedOFF:
         gtf_path.write_text(
             "##format: gtf\n"
             "chr1\ttest\tCDS\t1\t100\t.\t+\t0\t"
-            'gene_id "G1"; transcript_id "T1"; tag "MANE_Select";\n'
+            'gene_id "G1"; gene_name "G1"; transcript_id "T1"; tag "MANE_Select";\n'
         )
 
         base_dir = tmp_path / "out"
@@ -612,7 +697,7 @@ class TestRunPipelineGenomeKwarg:
         gtf_path.write_text(
             "##format: gtf\n"
             "chr1\ttest\tCDS\t1\t160\t.\t+\t0\t"
-            'gene_id "G1"; transcript_id "T1"; tag "MANE_Select";\n'
+            'gene_id "G1"; gene_name "G1"; transcript_id "T1"; tag "MANE_Select";\n'
         )
         base_dir = tmp_path / "out"
 
@@ -668,6 +753,12 @@ class TestRunPipelineGenomeKwarg:
         targets_path.write_text(
             "chromosome\tposition\ttarget_base\tdesired_base\nchr1\t50\tT\tC\n"
         )
+        gtf_path = tmp_path / "dummy.gtf"
+        gtf_path.write_text(
+            "##format: gtf\n"
+            "chr1\ttest\tCDS\t1\t200\t.\t+\t0\t"
+            'gene_id "G1"; gene_name "G1"; transcript_id "T1"; tag "MANE_Select";\n'
+        )
         base_dir = tmp_path / "out"
 
         config = {
@@ -675,7 +766,7 @@ class TestRunPipelineGenomeKwarg:
                 "targets": str(targets_path),
                 "genome": sample_fasta_file,
                 "presets": str(presets_path),
-                "gff_file": "",
+                "gff_file": str(gtf_path),
             },
             "output_prefix": str(base_dir),
             "use_presets": "all",
@@ -726,6 +817,14 @@ class TestPipelineScaffoldFilter:
             "chromosome\tposition\ttarget_base\tdesired_base\n"
             "1\t50\tT\tC\n1\t75\tA\tG\n2\t30\tT\tC\n"
         )
+        gtf_path = tmp_path / "dummy.gtf"
+        gtf_path.write_text(
+            "##format: gtf\n"
+            "1\ttest\tCDS\t1\t200\t.\t+\t0\t"
+            'gene_id "G1"; gene_name "G1"; transcript_id "T1"; tag "MANE_Select";\n'
+            "chr2\ttest\tCDS\t1\t200\t.\t+\t0\t"
+            'gene_id "G2"; gene_name "G2"; transcript_id "T2"; tag "MANE_Select";\n'
+        )
         base_dir = tmp_path / "out"
 
         config = {
@@ -733,7 +832,7 @@ class TestPipelineScaffoldFilter:
                 "targets": str(targets_path),
                 "genome": str(fasta),
                 "presets": str(presets_path),
-                "gff_file": "",
+                "gff_file": str(gtf_path),
             },
             "output_prefix": str(base_dir),
             "use_presets": "all",

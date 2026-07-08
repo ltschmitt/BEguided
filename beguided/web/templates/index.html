@@ -6,9 +6,11 @@
 <h1 style="margin-top:0;">BEguided</h1>
 <div class="top-bar">
     <div class="group">
-        <label for="fileInput">Targets</label>
-        <input type="file" id="fileInput" accept=".tsv,.csv,.xlsx,.xls" />
-        <a href="/download/template" class="btn btn-secondary" download>Template</a>
+        <label>Input mode</label>
+        <div class="mode-switch" role="tablist">
+            <button id="modeSpreadsheet" class="mode-switch-btn active" data-mode="spreadsheet" type="button">Spreadsheet</button>
+            <button id="modeSequence" class="mode-switch-btn" data-mode="sequence" type="button">Sequence</button>
+        </div>
     </div>
     <div class="group">
         <label for="presetSelect">Preset</label>
@@ -21,6 +23,30 @@
     <span id="statusBadge" class="badge">idle</span>
     <button id="cancelBtn" class="btn btn-danger" style="display:none;">Cancel</button>
     <button id="runBtn" class="btn btn-primary right" disabled>Run</button>
+</div>
+
+<div id="spreadsheetPanel" class="input-panel">
+    <div class="group">
+        <label for="fileInput">Targets</label>
+        <input type="file" id="fileInput" accept=".tsv,.csv,.xlsx,.xls" />
+        <a href="/download/template" class="btn btn-secondary" download>Template</a>
+    </div>
+</div>
+
+<div id="sequencePanel" class="input-panel" style="display:none;">
+    <div class="group" style="align-items:flex-start;">
+        <label for="sequenceInput" style="margin-top:10px;">Sequences</label>
+        <div style="flex:1; min-width:0;">
+            <textarea id="sequenceInput" class="sequence-textarea" rows="8"
+                placeholder="Paste a single sequence or FASTA. Mark the edit with [A>G], [T>C], [C>T] or [G>A].&#10;&#10;The bracket becomes the base at that position. Example:&#10;ATAG[T>C]GACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACG&#10;  position 5 = T (from bracket), position 6 = G (was after `]`)&#10;&#10;Multiple sequences (FASTA):&#10;&gt;my_target_1&#10;ATAGAGTATAGACCC[A>G]CTATCCAGTCTACCTAGGGAATC&#10;&gt;my_target_2&#10;GGGCATAGCCATGTAGCATT[T>C]GCAATTGGCCATGCATTTACC"></textarea>
+            <div style="margin-top:8px;">
+                <button id="parseSequenceBtn" class="btn btn-primary" type="button">Parse</button>
+                <span id="sequenceHint" class="muted" style="margin-left:8px;">
+                    One <code>[X&gt;Y]</code> bracket per sequence, where X and Y are A/C/G/T.
+                </span>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="info-row">
@@ -74,6 +100,33 @@
             the selected group supports it, that target is skipped with a warning.
         </p>
 
+        <h3>Sequence input</h3>
+        <p>
+            Instead of a targets file you can paste one or more sequences
+            directly. Switch the input mode at the top to
+            <em>Sequence</em>, then mark the desired edit with a bracket
+            like <code>[A&gt;G]</code> (or <code>[T&gt;C]</code>,
+            <code>[C&gt;T]</code>, <code>[G&gt;A]</code>). The bracket
+            <em>becomes</em> the base at that position &mdash; text after
+            <code>]</code> shifts one position later in the resulting
+            sequence.
+        </p>
+        <p>
+            Example: <code>ATAG[T&gt;C]GAC</code> gives a 9-nt stripped
+            sequence <code>ATAGTGAC</code> where position&nbsp;5 is
+            <code>T</code> (from the bracket) and positions&nbsp;6&hellip;9
+            are <code>G</code>, <code>A</code>, <code>C</code>. The base
+            you want to edit goes on the <em>left</em> side of <code>&gt;</code>.
+        </p>
+        <p>
+            A single sequence without a FASTA header gets the chromosome
+            name <code>custom</code>; with a FASTA header (anything after
+            <code>&gt;</code> up to the first whitespace) the header is
+            used as the chromosome name. In sequence mode the loaded
+            reference genome and bystander annotation are not used &mdash;
+            guides are designed directly on the provided sequence.
+        </p>
+
         <h3>Available presets</h3>
         <p style="color:var(--muted); font-size:13px;">
             Editing windows are position ranges, counted from the PAM-distal end
@@ -106,6 +159,7 @@
 </div>
 
 <div id="resultsTab" class="tab-panel">
+    <div id="resultsGuideStatus" class="results-guide-status" style="display:none;"></div>
     <div class="results-toolbar" id="resultsToolbar" style="display:none;">
         <div class="group">
             <label for="bystanderFilter">Bystander filter</label>
@@ -122,13 +176,22 @@
         </div>
         <span id="filterSummary" class="muted">Showing 0 of 0</span>
     </div>
-    <div id="resultsSummary" class="results-summary" style="display:none;"></div>
-    <div class="results-table-scroll" id="resultsPanel">
-        <p style="color: var(--muted); padding:16px;" id="resultsPlaceholder">Results will appear here after the pipeline completes.</p>
+    <div class="subtabs">
+        <button class="subtab-button active" data-subtab="guidesSubtab" type="button">Guides</button>
+        <button class="subtab-button" data-subtab="summarySubtab" type="button">Summary</button>
     </div>
-    <div style="margin-top:8px;">
-        <a id="downloadResults" class="btn btn-secondary" href="#" style="display:none;">Download TSV</a>
-        <a id="downloadResultsXlsx" class="btn btn-secondary" href="#" style="display:none; margin-left:8px;">Download XLSX</a>
+    <div id="guidesSubtab" class="subtab-panel active">
+        <div class="results-table-scroll" id="resultsPanel">
+            <p style="color: var(--muted); padding:16px;" id="resultsPlaceholder">Results will appear here after the pipeline completes.</p>
+        </div>
+        <div style="margin-top:8px;">
+            <a id="downloadResults" class="btn btn-secondary" href="#" style="display:none;">Download TSV</a>
+            <a id="downloadResultsXlsx" class="btn btn-secondary" href="#" style="display:none; margin-left:8px;">Download XLSX</a>
+        </div>
+    </div>
+    <div id="summarySubtab" class="subtab-panel">
+        <div id="resultsSummary" class="results-summary" style="display:none;"></div>
+        <p id="summaryPlaceholder" style="color: var(--muted); padding:16px;">Summary will appear here after the pipeline completes.</p>
     </div>
 </div>
 {% endblock %}

@@ -70,7 +70,7 @@ def test_preload_async_sets_ready_state(tmp_path):
     assert status["path"] == str(gtf)
 
     trees = gtf_cache.wait_until_ready(timeout=1.0)
-    assert set(trees.keys()) == {"chr1", "chr2"}
+    assert set(trees.keys()) == {"chr1", "chr2", "__tx_codons__"}
     # Each interval is converted to 0-based half-open [start, end).
     assert list(trees["chr1"][99:200])  # noqa: E501 - probe the tree
     assert list(trees["chr1"][299:400])

@@ -116,7 +116,7 @@ def cmd_bystander(args):
     interval_trees = load_gtf_to_interval_tree(args.gtf_annotation)
 
     input_chroms = set(df["chromosome"].astype(str))
-    gtf_chroms = set(interval_trees.keys())
+    gtf_chroms = set(interval_trees.keys()) - {"__tx_codons__"}
     unmatched = input_chroms - gtf_chroms
     if unmatched:
         stripped = {c.replace("chr", "") for c in unmatched}
@@ -130,7 +130,8 @@ def cmd_bystander(args):
 
     df = run_bystander(
         df, interval_trees,
-        progress_callback=lambda idx, total: print(f"  Processed {idx}/{total} guides")
+        progress_callback=lambda idx, total: print(f"  Processed {idx}/{total} guides"),
+        genome=genome,
     )
     df.to_csv(args.output, sep="\t", index=False)
     print(f"\nBystander effect summary:")

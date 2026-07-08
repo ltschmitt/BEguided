@@ -60,6 +60,7 @@ CORE_COLUMN_ORDER = [
     "target_base",
     "desired_base",
     "genome_base",
+    "gene_edit_desired",
     "be_preset",
     "guide_rna_sequence",
     "pam_sequence",

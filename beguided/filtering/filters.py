@@ -79,33 +79,37 @@ def filter_guides(input_df, criteria):
 
     Args:
         input_df: DataFrame with guide results.
-        criteria: dict with 'mode' and optional 'guide_score_threshold'.
+        criteria: dict with 'mode' and optional 'guide_score_threshold' and
+            optional 'skip_bystander' (when True, no bystander-based filter
+            is applied regardless of ``mode``).
 
     Returns:
         Filtered DataFrame.
     """
     df = input_df.copy()
     mode = criteria["mode"]
+    skip_bystander = bool(criteria.get("skip_bystander", False))
 
-    if mode == "no_bystanders":
-        if "bystander_effect" in df.columns:
-            df = df[df["bystander_effect"] == "no_bystanders"]
-        elif len(df) == 0:
-            return df
-        else:
-            df = df[df["bystander_positions"].isna() | (df["bystander_positions"] == "")]
-
-    elif mode == "silent":
-        if "bystander_effect" not in df.columns:
-            if len(df) == 0:
+    if not skip_bystander:
+        if mode == "no_bystanders":
+            if "bystander_effect" in df.columns:
+                df = df[df["bystander_effect"] == "no_bystanders"]
+            elif len(df) == 0:
                 return df
-            raise ValueError(
-                "'bystander_effect' column not found. Run bystander analysis first."
-            )
-        df = df[df["bystander_effect"].isin(["silent", "no_bystanders"])]
+            else:
+                df = df[df["bystander_positions"].isna() | (df["bystander_positions"] == "")]
 
-    elif mode != "all":
-        raise ValueError(f"Unknown filter mode: {mode}")
+        elif mode == "silent":
+            if "bystander_effect" not in df.columns:
+                if len(df) == 0:
+                    return df
+                raise ValueError(
+                    "'bystander_effect' column not found. Run bystander analysis first."
+                )
+            df = df[df["bystander_effect"].isin(["silent", "no_bystanders"])]
+
+        elif mode != "all":
+            raise ValueError(f"Unknown filter mode: {mode}")
 
     # Apply on-target score filter if configured
     threshold = criteria.get("guide_score_threshold")

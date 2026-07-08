@@ -37,6 +37,7 @@ beguided/                  # Main package
     ├── config.py            # Web config and preset groups
     ├── sse_logger.py        # SSE log streaming handler
     ├── tasks.py             # Async pipeline task wrapper
+    ├── sequence_input.py    # Sequence-mode parser ([X>Y] bracket syntax)
     ├── templates/
     │   ├── base.html
     │   └── index.html
@@ -218,7 +219,8 @@ python -m pytest tests/test_editing/test_presets.py::TestPAMToRegex -v
 ### BEguidedOFF Integration
 
 - BEguidedOFF is a **separate sibling repository** (`../BEguidedOFF` from BEguided).
-- Install: editable pip install or add to `PYTHONPATH`.
+- Installed automatically into the `cuda` Pixi env via a pypi-dependencies path source (`beguidedoff = { path = "../BEguidedOFF", editable = true }` under `[tool.pixi.feature.cuda]`); the `default` and `web` envs do **not** include it.
+- Outside the `cuda` env: editable `pip install` or add to `PYTHONPATH`.
 - The genome must be **pre-encoded** to `.npz` format once via `python -m beguidedoff.cli encode-genome`.
 - Pipeline Step 4 calls `BEguidedOFF.search()` via Python API (no subprocess).
 - `n_top_offtargets=1` — only the single worst off-target per guide is returned.
@@ -291,3 +293,52 @@ Both back the `run_pipeline(..., genome=..., interval_trees=...)` kwargs in `beg
   - `BEGUIDED_BEGUIDEDOFF_GENOME`
 - `BEGUIDED_PRELOAD_GENOME` / `--preload-genome` / `--no-preload-genome` — preload the genome FASTA at startup (default: enabled).
 - `BEGUIDED_PRELOAD_GTF` / `--preload-gtf` / `--no-preload-gtf` — preload the GTF annotation at startup (default: enabled).
+
+### Sequence input mode
+
+The web UI has two input modes, switched at the top of the page:
+
+- **Spreadsheet** (default): upload a TSV/CSV/XLSX with columns
+  `chromosome, position, target_base, desired_base`.
+- **Sequence**: paste raw sequence text. Each sequence must contain
+  exactly one edit bracket, e.g. `ATAGAGT...[A>G]...CCTATCC` to mark an
+  A→G edit.
+
+Accepted bracket directions: `[A>G]`, `[T>C]`, `[C>T]`, `[G>A]`
+(the four directions actually supported by BEguided presets including
+sense + antisense complement). Anything else (including IUPAC codes
+inside the bracket) is rejected.
+
+Format details:
+
+- A single sequence with no FASTA header gets the chromosome name `custom`.
+- With a FASTA header (anything after `>` up to the first whitespace), the
+  header token is used as the chromosome name.
+- The bracket is **replaced** by the base on the left side of `>` (the
+  target_base) at the edit position; the text originally after `]` shifts
+  one position later in the resulting sequence. For example
+  `ATAG[T>C]GAC` becomes `ATAGTGAC` with edit position 5 (the `T` from
+  the bracket).
+- Edit position is 1-based and points at the base represented by the
+  bracket.
+- Per-sequence length cap: 1000 nt (`MAX_SEQUENCE_LENGTH` in
+  `beguided/web/sequence_input.py`).
+- Per-input cap: `cfg.max_input_targets` sequences.
+
+In sequence mode:
+
+- The configured reference genome and GTF annotation are not used.
+- Bystander analysis is silently skipped (no GTF for custom sequences).
+  This is implemented with the explicit `skip_bystander` pipeline flag so
+  that step 3's filter does NOT apply a `mode="no_bystanders"` cut on
+  `bystander_positions` either — doing so would drop every guide on
+  A-rich sequences.
+- BEguidedOFF off-target search is disabled (requires a pre-encoded `.npz`).
+
+Implementation:
+
+- Parser: `beguided/web/sequence_input.py`.
+- Endpoint: `POST /sequence/parse` returns the same `{raw_b64, preview, ...}`
+  shape as `POST /upload` plus a `custom_genome_b64` payload.
+- `POST /run` accepts `mode=spreadsheet|sequence` and (in sequence mode)
+  `custom_genome_b64`.

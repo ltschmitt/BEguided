@@ -280,6 +280,8 @@ class Scheduler:
                         passthrough_extras=job.payload.get(
                             "passthrough_extras", False
                         ),
+                        mode=job.payload.get("mode", "spreadsheet"),
+                        custom_genome_b64=job.payload.get("custom_genome_b64"),
                         cancel_event=job.cancel,
                     )
                     status = result.get("status", "error")
@@ -325,6 +327,10 @@ def _payload_to_jsonable(payload: dict) -> dict:
             out[k] = {"__type__": "dataframe", "rows": rows}
         elif k == "preset_names":
             out[k] = list(v) if v is not None else []
+        elif k == "custom_genome_b64":
+            # Don't bloat the SQLite audit row with the full FASTA payload;
+            # record just the byte length for diagnostics.
+            out[k] = {"__type__": "fasta_b64", "bytes": len(v) if v else 0}
         else:
             try:
                 json.dumps(v)

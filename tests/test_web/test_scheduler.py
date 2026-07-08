@@ -51,6 +51,8 @@ class StubRunner:
         guide_score_threshold=0.5,
         cancel_event=None,
         passthrough_extras=False,
+        mode="spreadsheet",
+        custom_genome_b64=None,
     ):
         with self._lock:
             self._counter += 1
@@ -77,6 +79,9 @@ def _stub_payload(idx: int = 0) -> dict:
         "filter_mode": "all",
         "search_offtargets": False,
         "guide_score_threshold": 0.5,
+        "passthrough_extras": False,
+        "mode": "spreadsheet",
+        "custom_genome_b64": None,
         "_idx": idx,
     }
 
