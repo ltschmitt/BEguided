@@ -38,18 +38,18 @@ class TestIntegration:
         assert all(r.strand_used == "+" for r in results)
 
     def test_chr2_30_T_C_multiple_guides(self, sample_genome_dict):
-        from beguided.editing.presets import load_presets
+        from beguided.editing.presets import load_base_editor_profiles
         import tempfile, os
         tsv = (
-            "name\tediting\tgeneral_edit_start\tgeneral_edit_end\thigh_edit_start\thigh_edit_end\tguide_length\tpam\tcas\tsource\n"
-            "ABE8e\tA-to-G\t2\t13\t3\t8\t20\tNGG\tspCas9\tNature2022\n"
+            "name\tediting\tgeneral_edit_start\tgeneral_edit_end\thigh_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+            "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\n"
         )
         with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
             f.write(tsv)
             tp = f.name
-        presets = load_presets(tp)
+        profiles = load_base_editor_profiles(tp)
         os.unlink(tp)
-        config = presets[("T", "C")]["ABE8e"]
+        config = profiles[("T", "C")]["ABE8e"]
 
         results = process_target(
             sample_genome_dict["chr2"], "chr2", 30, "T", "C",
@@ -69,7 +69,7 @@ class TestIntegration:
     def test_guide_outside_editing_window_filtered(
         self, sample_genome_dict, abe8e_preset_config
     ):
-        # This test narrows window; need a fresh PresetConfig copy
+        # This test narrows window; need a fresh BaseEditorConfig copy
         config = abe8e_preset_config
         # We can't mutate dataclass easily, so skip if not possible
         # Just verify filtering logic works with normal config
@@ -86,7 +86,7 @@ class TestIntegration:
             "G", abe8e_preset_config
         )
         assert len(results) == 1
-        assert results[0].guide_rna_sequence == "**Base-edit doesn't match preset**"
+        assert results[0].guide_rna_sequence == "**Base-edit doesn't match base editor profile**"
         assert results[0].guide_score is None
 
     def test_extra_columns_passed_through(self, sample_genome_dict, abe8e_preset_config):
@@ -106,14 +106,14 @@ class TestRunGenomeWidePassthrough:
 
     @pytest.fixture
     def presets_dict(self, valid_preset_tsv):
-        from beguided.editing.presets import load_presets
+        from beguided.editing.presets import load_base_editor_profiles
         import tempfile, os
         with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
             f.write(valid_preset_tsv)
             temp_path = f.name
-        presets = load_presets(temp_path)
+        profiles = load_base_editor_profiles(temp_path)
         os.unlink(temp_path)
-        return presets
+        return profiles
 
     @pytest.fixture
     def targets_with_extras(self):
@@ -191,18 +191,18 @@ class TestEdgeCases:
 
     def test_position_1_antisense(self, sample_genome_dict, abe8e_preset_config):
         # Need antisense config
-        from beguided.editing.presets import load_presets
+        from beguided.editing.presets import load_base_editor_profiles
         import tempfile, os
         tsv = (
-            "name\tediting\tgeneral_edit_start\tgeneral_edit_end\thigh_edit_start\thigh_edit_end\tguide_length\tpam\tcas\tsource\n"
-            "ABE8e\tA-to-G\t2\t13\t3\t8\t20\tNGG\tspCas9\tNature2022\n"
+            "name\tediting\tgeneral_edit_start\tgeneral_edit_end\thigh_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+            "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\n"
         )
         with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
             f.write(tsv)
             tp = f.name
-        presets = load_presets(tp)
+        profiles = load_base_editor_profiles(tp)
         os.unlink(tp)
-        config = presets[("T", "C")]["ABE8e"]
+        config = profiles[("T", "C")]["ABE8e"]
 
         results = process_target(
             sample_genome_dict["chr1"], "chr1", 1, "T", "C",

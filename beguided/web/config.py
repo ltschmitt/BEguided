@@ -1,4 +1,4 @@
-"""Web application configuration and preset helpers."""
+"""Web application configuration and base editor helpers."""
 
 import os
 from dataclasses import dataclass, field
@@ -7,7 +7,7 @@ from typing import List
 
 import pandas as pd
 
-from beguided.editing.presets import load_presets
+from beguided.editing.presets import load_base_editor_profiles
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -17,7 +17,7 @@ def _env_bool(name: str, default: bool) -> bool:
         return default
     return raw.strip().lower() not in ("0", "false", "no", "off", "")
 
-_DEFAULT_PRESETS = str(Path(__file__).resolve().parents[2] / "be_presets.tsv")
+_DEFAULT_PRESETS = str(Path(__file__).resolve().parents[2] / "base_editor_profiles.tsv")
 _DEFAULT_GENOME = str(
     Path(__file__).resolve().parents[2]
     / "genome"
@@ -32,8 +32,10 @@ _DEFAULT_GTF = str(
 class WebConfig:
     """Configuration for the BEguided web server."""
 
-    presets_file: str = field(
-        default_factory=lambda: os.getenv("BEGUIDED_PRESETS_FILE", _DEFAULT_PRESETS)
+    base_editor_profiles_file: str = field(
+        default_factory=lambda: os.getenv(
+            "BEGUIDED_BASE_EDITOR_PROFILES_FILE", _DEFAULT_PRESETS
+        )
     )
     genome_fasta: str = field(
         default_factory=lambda: os.getenv("BEGUIDED_GENOME_FASTA", _DEFAULT_GENOME)
@@ -94,21 +96,21 @@ def get_config() -> WebConfig:
     return _config
 
 
-def load_preset_groups(presets_file: str | None = None):
-    """Load presets and return grouped options for the dropdown.
+def load_base_editor_groups(base_editor_profiles_file: str | None = None):
+    """Load base editor profiles and return grouped options for the dropdown.
 
     Args:
-        presets_file: Path to presets TSV. Uses config default if None.
+        base_editor_profiles_file: Path to base editor profiles TSV. Uses config default if None.
 
     Returns:
-        dict: Mapping label -> list of preset names.
+        dict: Mapping label -> list of base editor names.
     """
-    if presets_file is None:
-        presets_file = _config.presets_file
-    df = pd.read_csv(presets_file, sep="\t")
+    if base_editor_profiles_file is None:
+        base_editor_profiles_file = _config.base_editor_profiles_file
+    df = pd.read_csv(base_editor_profiles_file, sep="\t")
 
-    abe_names = sorted(df[df["editing"] == "A-to-G"]["name"].tolist())
-    cbe_names = sorted(df[df["editing"] == "C-to-T"]["name"].tolist())
+    abe_names = sorted(df[df["editing"] == "ABE"]["name"].tolist())
+    cbe_names = sorted(df[df["editing"] == "CBE"]["name"].tolist())
     all_names = sorted(df["name"].tolist())
 
     groups = {
@@ -122,30 +124,30 @@ def load_preset_groups(presets_file: str | None = None):
     return groups
 
 
-def get_preset_display_names(presets_file: str | None = None):
+def get_base_editor_display_names(base_editor_profiles_file: str | None = None):
     """Return ordered list of dropdown labels."""
-    groups = load_preset_groups(presets_file)
+    groups = load_base_editor_groups(base_editor_profiles_file)
     return ["all", "all ABEs", "all CBEs"] + sorted(
         set(groups.keys()) - {"all", "all ABEs", "all CBEs"}
     )
 
 
-def get_editing_type_for_presets(
-    preset_names: List[str], presets_file: str | None = None
+def get_editing_type_for_base_editors(
+    base_editor_names: List[str], base_editor_profiles_file: str | None = None
 ) -> dict:
-    """Return a mapping of editing type -> preset names.
+    """Return a mapping of editing type -> base editor names.
 
     Args:
-        preset_names: List of preset names to look up.
-        presets_file: Path to presets TSV. Uses config default if None.
+        base_editor_names: List of base editor names to look up.
+        base_editor_profiles_file: Path to base editor profiles TSV. Uses config default if None.
 
     Returns:
-        dict: {"A-to-G": [...], "C-to-T": [...]}
+        dict: {"ABE": [...], "CBE": [...]}
     """
-    if presets_file is None:
-        presets_file = _config.presets_file
-    df = pd.read_csv(presets_file, sep="\t")
-    df = df[df["name"].isin(preset_names)]
+    if base_editor_profiles_file is None:
+        base_editor_profiles_file = _config.base_editor_profiles_file
+    df = pd.read_csv(base_editor_profiles_file, sep="\t")
+    df = df[df["name"].isin(base_editor_names)]
     result = {}
     for editing, group in df.groupby("editing"):
         result[editing] = sorted(group["name"].tolist())

@@ -19,10 +19,10 @@ from beguided.filtering.filters import filter_guides
 from beguided.logging_config import setup_logging
 from beguided.web.config import (
     get_config,
-    get_preset_display_names,
-    load_preset_groups,
+    get_base_editor_display_names,
+    load_base_editor_groups,
 )
-from beguided.editing.presets import load_presets, get_supported_editor_keys
+from beguided.editing.presets import load_base_editor_profiles, get_supported_editor_keys
 from beguided.web import genome_cache, gtf_cache
 from beguided.web.sequence_input import (
     SequenceParseError,
@@ -137,10 +137,10 @@ def create_app() -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
         cfg = get_config()
-        preset_names = get_preset_display_names()
+        base_editor_names = get_base_editor_display_names()
         html = _render_template(
             "index.html",
-            preset_names=preset_names,
+            base_editor_names=base_editor_names,
             filter_modes=list(VALID_FILTER_MODES),
             beguidedoff_available=cfg.has_beguidedoff,
             preload_genome=cfg.preload_genome,
@@ -185,19 +185,18 @@ def create_app() -> FastAPI:
             **status,
         }
 
-    @app.get("/preset-table")
-    def preset_table() -> dict:
-        """Return a condensed view of the presets TSV for the Guide tab.
+    @app.get("/base-editor-table")
+    def base_editor_table() -> dict:
+        """Return a condensed view of the base editor profiles TSV for the Guide tab.
 
-        Drops guide_length since most are 20 nt. Merges
-        general_edit_start/end into a ``general`` column and
+        Merges general_edit_start/end into a ``general`` column and
         high_edit_start/end into a ``high`` column, each formatted as
         ``"start-end"``.
         """
         try:
-            df = pd.read_csv(get_config().presets_file, sep="\t")
+            df = pd.read_csv(get_config().base_editor_profiles_file, sep="\t")
         except Exception as exc:
-            return {"ok": False, "error": f"Failed to load presets: {exc}"}
+            return {"ok": False, "error": f"Failed to load base editor profiles: {exc}"}
         rows = []
         for _, r in df.iterrows():
             rows.append({
@@ -321,16 +320,16 @@ def create_app() -> FastAPI:
     @app.post("/check")
     async def check(
         raw_b64: Annotated[str, Form()],
-        preset: Annotated[str, Form()],
+        base_editor: Annotated[str, Form()],
     ) -> dict:
-        """Pre-run compatibility check: report target->preset matching."""
+        """Pre-run compatibility check: report target->base editor matching."""
         df = _decode_targets(raw_b64)
 
         cfg = get_config()
-        groups = load_preset_groups()
-        preset_names = groups.get(preset, [preset])
-        presets = load_presets(cfg.presets_file)
-        expected_keys = get_supported_editor_keys(presets, preset_names)
+        groups = load_base_editor_groups()
+        base_editor_names = groups.get(base_editor, [base_editor])
+        profiles = load_base_editor_profiles(cfg.base_editor_profiles_file)
+        expected_keys = get_supported_editor_keys(profiles, base_editor_names)
 
         matched = 0
         mismatched = 0
@@ -347,7 +346,7 @@ def create_app() -> FastAPI:
                 mismatched += 1
                 detail.append(
                     f"{row['chromosome']}:{row['position']} "
-                    f"({row['target_base']}→{row['desired_base']}) → NO matching preset"
+                    f"({row['target_base']}→{row['desired_base']}) → NO matching base editor"
                 )
 
         can_run = mismatched == 0
@@ -357,7 +356,7 @@ def create_app() -> FastAPI:
             "total": len(df),
             "matched": matched,
             "mismatched": mismatched,
-            "preset_types": sorted({f"{k[0]}-to-{k[1]}" for k in expected_keys}),
+            "editor_types": sorted({f"{k[0]}-to-{k[1]}" for k in expected_keys}),
             "detail": detail,
         }
 
@@ -365,7 +364,7 @@ def create_app() -> FastAPI:
     async def run(
         request: Request,
         raw_b64: Annotated[str, Form()],
-        preset: Annotated[str, Form()],
+        base_editor: Annotated[str, Form()],
         mode: Annotated[str, Form()] = "spreadsheet",
         custom_genome_b64: Annotated[str, Form()] = "",
     ) -> JSONResponse:
@@ -388,13 +387,13 @@ def create_app() -> FastAPI:
 
         df = _decode_targets(raw_b64)
 
-        groups = load_preset_groups()
-        if preset not in groups:
+        groups = load_base_editor_groups()
+        if base_editor not in groups:
             return JSONResponse(
-                {"ok": False, "error": f"Unknown preset group: {preset!r}"},
+                {"ok": False, "error": f"Unknown base editor group: {base_editor!r}"},
                 status_code=400,
             )
-        preset_names = groups[preset]
+        base_editor_names = groups[base_editor]
 
         custom_genome_b64 = custom_genome_b64.strip()
         if mode == "sequence":
@@ -417,7 +416,7 @@ def create_app() -> FastAPI:
                 client_ip,
                 {
                     "targets_df": df,
-                    "preset_names": preset_names,
+                    "base_editor_names": base_editor_names,
                     "filter_mode": "all",
                     "search_offtargets": False,
                     "guide_score_threshold": 0.0,

@@ -45,7 +45,7 @@ class StubRunner:
         self,
         job_id,
         targets_df,
-        preset_names,
+        base_editor_names,
         filter_mode,
         search_offtargets=True,
         guide_score_threshold=0.5,
@@ -75,7 +75,7 @@ def scheduler_dir(tmp_path):
 def _stub_payload(idx: int = 0) -> dict:
     return {
         "targets_df": None,  # scheduler doesn't introspect this; tasks.execute_job does
-        "preset_names": ["ABE8e"],
+        "base_editor_names": ["ABE8e"],
         "filter_mode": "all",
         "search_offtargets": False,
         "guide_score_threshold": 0.5,

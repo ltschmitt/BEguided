@@ -18,47 +18,47 @@ def sample_genome_dict():
 
 @pytest.fixture
 def valid_preset_tsv():
-    """Content of a valid presets TSV file."""
+    """Content of a valid base editor profiles TSV file."""
     return (
-        "name\tediting\tgeneral_edit_start\tgeneral_edit_end\thigh_edit_start\thigh_edit_end\tguide_length\tpam\tcas\tsource\n"
-        "ABE8e\tA-to-G\t2\t13\t3\t8\t20\tNGG\tspCas9\tNature2022\n"
-        "saABE8e\tA-to-G\t5\t13\t5\t13\t20\tNNGRRT\tsaCas9\tNature2020\n"
-        "ABE9\tA-to-G\t4\t7\t5\t6\t20\tNGG\tspCas9\tChen2023\n"
+        "name\tediting\tgeneral_edit_start\tgeneral_edit_end\thigh_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+        "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\n"
+        "saABE8e\tABE\t5\t13\t5\t13\tNNGRRT\tsaCas9\tNature2020\n"
+        "ABE9\tABE\t4\t7\t5\t6\tNGG\tSpCas9\tChen2023\n"
     )
 
 
 @pytest.fixture
 def duplicate_preset_tsv():
-    """Content with duplicate preset names."""
+    """Content with duplicate base editor names."""
     return (
-        "name\tediting\tgeneral_edit_start\tgeneral_edit_end\thigh_edit_start\thigh_edit_end\tguide_length\tpam\tcas\tsource\n"
-        "ABE8e\tA-to-G\t2\t13\t3\t8\t20\tNGG\tspCas9\tNature2022\n"
-        "ABE8e\tA-to-G\t4\t7\t5\t6\t20\tNGG\tspCas9\tChen2023\n"
+        "name\tediting\tgeneral_edit_start\tgeneral_edit_end\thigh_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+        "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\n"
+        "ABE8e\tABE\t4\t7\t5\t6\tNGG\tSpCas9\tChen2023\n"
     )
 
 
 @pytest.fixture
 def abe8e_preset_config(valid_preset_tsv):
-    """ABE8e preset configuration (sense strand A->G)."""
-    from beguided.editing.presets import load_presets
+    """ABE8e base editor configuration (sense strand A->G)."""
+    from beguided.editing.presets import load_base_editor_profiles
     with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
         f.write(valid_preset_tsv)
         temp_path = f.name
-    presets = load_presets(temp_path)
+    profiles = load_base_editor_profiles(temp_path)
     os.unlink(temp_path)
-    return presets[("A", "G")]["ABE8e"]
+    return profiles[("A", "G")]["ABE8e"]
 
 
 @pytest.fixture
 def abe8e_antisense_config(valid_preset_tsv):
-    """ABE8e preset configuration (antisense strand T->C)."""
-    from beguided.editing.presets import load_presets
+    """ABE8e base editor configuration (antisense strand T->C)."""
+    from beguided.editing.presets import load_base_editor_profiles
     with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
         f.write(valid_preset_tsv)
         temp_path = f.name
-    presets = load_presets(temp_path)
+    profiles = load_base_editor_profiles(temp_path)
     os.unlink(temp_path)
-    return presets[("T", "C")]["ABE8e"]
+    return profiles[("T", "C")]["ABE8e"]
 
 
 @pytest.fixture
@@ -95,7 +95,7 @@ def synthetic_beguided_output():
         "guide_rna_sequence": ["AAAAAAAAAAAAAAAAAAAA", "TTTTTTTTTTTTTTTTTTTT",
                                "GGGGGGGGGGGGGGGGGGGG", "CCCCCCCCCCCCCCCCCCCC"],
         "pam_sequence": ["AGG", "TGG", "GGG", "CGG"],
-        "be_preset": ["ABE8e", "ABE8e", "saABE8e", "saABE8e"]
+        "base_editor": ["ABE8e", "ABE8e", "saABE8e", "saABE8e"]
     })
 
 
@@ -116,7 +116,7 @@ def synthetic_bystander_output():
                                "GGGGGGGGGGGGGGGGGGGG", "CCCCCCCCCCCCCCCCCCCC",
                                "NNNNNNNNNNNNNNNNNNNN"],
         "pam_sequence": ["AGG", "TGG", "GGG", "CGG", "AGG"],
-        "be_preset": ["ABE8e", "ABE8e", "saABE8e", "saABE8e", "ABE8e"],
+        "base_editor": ["ABE8e", "ABE8e", "saABE8e", "saABE8e", "ABE8e"],
         "bystander_effect": ["missense", "no_bystanders", "silent", "no_bystanders", "no_bystanders"],
         "simulated_outcome": ["AAAAAAAGAAAAAAAAAAAA", "TTTTTTTTTTTTTTTTTTTT",
                               "GGGGGAGGGGGGGGGGGGGG", "CCCCCCCCCCCCCCCCCCCC",
@@ -133,7 +133,7 @@ def synthetic_beguidedoff_output():
     return pd.DataFrame({
         "guide_rna_sequence": ["AAAAAAAAAAAAAAAAAAAA", "TTTTTTTTTTTTTTTTTTTT",
                                "GGGGGGGGGGGGGGGGGGGG"],
-        "be_preset": ["ABE8e", "ABE8e", "saABE8e"],
+        "base_editor": ["ABE8e", "ABE8e", "saABE8e"],
         "ot_rank": [1, 1, 1],
         "ot_chromosome": ["chr1", "chr1", "chr2"],
         "ot_position": [1000, 2000, 3000],

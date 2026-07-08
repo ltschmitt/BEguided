@@ -17,10 +17,9 @@ else
 fi
 docker run --gpus all \
     -p 8000:8000 \
-    -v "$(pwd)/be_presets_wt.tsv:/app/be_presets_wt.tsv:ro" \
-    -v "$(pwd)/be_presets.tsv:/app/be_presets.tsv:ro" \
+    -v "$(pwd)/base_editor_profiles.tsv:/app/base_editor_profiles.tsv:ro" \
     -v "$(pwd)/genome:/app/genome:ro" \
-    -e BEGUIDED_PRESETS_FILE=/app/be_presets_wt.tsv \
+    -e BEGUIDED_BASE_EDITOR_PROFILES_FILE=/app/base_editor_profiles.tsv \
     -e BEGUIDED_GENOME_FASTA=/app/genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa \
     -e BEGUIDED_GTF_PATH=/app/genome/Homo_sapiens.GRCh38.112.gtf \
     -e BEGUIDED_BEGUIDEDOFF_GENOME=/app/genome/hg38_otbe.npz \

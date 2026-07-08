@@ -26,7 +26,7 @@ logger = logging.getLogger("beguided.web.tasks")
 
 def _build_config(
     targets_df: pd.DataFrame,
-    preset_names: list[str],
+    base_editor_names: list[str],
     filter_mode: str,
     work_dir: str,
     search_offtargets: bool = True,
@@ -39,7 +39,7 @@ def _build_config(
 
     Args:
         targets_df: DataFrame with target rows.
-        preset_names: List of preset name strings.
+        base_editor_names: List of base editor name strings.
         filter_mode: One of 'all', 'no_bystanders', 'silent'.
         work_dir: Working directory for outputs.
         search_offtargets: Whether to run BEguidedOFF off-target steps.
@@ -65,11 +65,11 @@ def _build_config(
         "input": {
             "targets": str(targets_path),
             "genome": genome_fasta if genome_fasta is not None else cfg.genome_fasta,
-            "presets": cfg.presets_file,
+            "base_editor_profiles": cfg.base_editor_profiles_file,
             "gff_file": cfg.gtf_path,
         },
         "output_prefix": str(work_dir),
-        "use_presets": ",".join(preset_names),
+        "use_base_editors": ",".join(base_editor_names),
         "keep_bystanders": filter_mode,
         "guide_score_threshold": guide_score_threshold,
         "search_offtargets": search_offtargets,
@@ -129,7 +129,7 @@ def _df_to_records(path: Path) -> list[dict]:
 def execute_job(
     job_id: str,
     targets_df: pd.DataFrame,
-    preset_names: list[str],
+    base_editor_names: list[str],
     filter_mode: str,
     search_offtargets: bool = True,
     guide_score_threshold: float = 0.5,
@@ -308,7 +308,7 @@ def execute_job(
 
         config = _build_config(
             targets_df,
-            preset_names,
+            base_editor_names,
             filter_mode,
             work_dir,
             search_offtargets,

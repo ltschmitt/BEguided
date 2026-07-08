@@ -14,7 +14,7 @@ BEguided is a Python package for designing guide RNAs for Cas9 base editors. It 
 - **Off-target scoring** – Search for off-target sites using BEguidedOFF (GPU-accelerated or CPU fallback) and score them with the CCTOP penalty model.
 - **CCTOP scoring** – Lower CCTOP scores indicate more concerning off-targets (mismatches near the PAM). The score is unbiased across PAM families.
 - **Column passthrough** – Any additional columns in your target input file (e.g. `mutation_occurance`, `genomic_mutation_id`) are preserved through all pipeline steps to the final output.
-- **Web interface** – A browser-based GUI for uploading targets, selecting presets, streaming pipeline logs, and downloading results. Runs locally or on a server.
+- **Web interface** – A browser-based GUI for uploading targets, selecting base editor profiles, streaming pipeline logs, and downloading results. Runs locally or on a server.
 
 ## Installation
 
@@ -115,7 +115,7 @@ docker run -v $(pwd)/data:/app/data beguided:cli guidefinder \
 **Run CPU web server:**
 ```bash
 docker run -p 8000:8000 \
-  -v $(pwd)/be_presets.tsv:/app/be_presets.tsv \
+  -v $(pwd)/base_editor_profiles.tsv:/app/base_editor_profiles.tsv \
   -v $(pwd)/genome:/app/genome \
   beguided:web
 ```
@@ -130,7 +130,7 @@ docker run --gpus all \
 **Run GPU web server:**
 ```bash
 docker run --gpus all -p 8000:8000 \
-  -v $(pwd)/be_presets.tsv:/app/be_presets.tsv \
+  -v $(pwd)/base_editor_profiles.tsv:/app/base_editor_profiles.tsv \
   -v $(pwd)/genome:/app/genome \
   beguided:web-cuda
 ```
@@ -169,15 +169,15 @@ beguided guidefinder \
     --input tests/fixtures/sample_targets.tsv \
     --output results_guides.tsv \
     --genome tests/fixtures/sample_genome.fasta \
-    --presets all \
-    --presets-file be_presets.tsv
+    --base-editors all \
+    --base-editor-profiles-file base_editor_profiles.tsv
 ```
 
 Preset options:
-- `--presets all` — run every available preset
-- `--presets all ABEs` — run only A→G / T→C presets (e.g. ABE8e, ABE9, saABE8e)
-- `--presets all CBEs` — run only C→T / G→A presets (e.g. CBE6d, TadCBEd)
-- `--presets ABE8e,ABE9` — comma-separated list of specific presets
+- `--base-editors all` — run every available base editor profile
+- `--base-editors all ABEs` — run only ABE (A→G / T→C) profiles (e.g. ABE8e, ABE9, Sa-ABE8e)
+- `--base-editors all CBEs` — run only CBE (C→T / G→A) profiles (e.g. CBE6d, TadCBEd)
+- `--base-editors ABE8e,ABE9` — comma-separated list of specific base editors
 
 ### 2. Analyse bystander effects
 
@@ -253,7 +253,7 @@ beguided web --reload
 
 # Override file paths (recommended for production)
 beguided web \
-  --presets-file be_presets.tsv \
+  --base-editor-profiles-file base_editor_profiles.tsv \
   --genome-fasta genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa \
   --gtf-path genome/Homo_sapiens.GRCh38.112.gtf \
   --beguidedoff-genome /path/to/hg38_otbe.npz
@@ -263,7 +263,7 @@ The web server looks for four paths.  They can be set via **CLI flags** (shown a
 
 | CLI flag | Environment variable | Default |
 |---|---|---|
-| `--presets-file` | `BEGUIDED_PRESETS_FILE` | `be_presets.tsv` (repo root) |
+| `--base-editor-profiles-file` | `BEGUIDED_BASE_EDITOR_PROFILES_FILE` | `base_editor_profiles.tsv` (repo root) |
 | `--genome-fasta` | `BEGUIDED_GENOME_FASTA` | `genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa` |
 | `--gtf-path` | `BEGUIDED_GTF_PATH` | `genome/Homo_sapiens.GRCh38.112.gtf` |
 | `--beguidedoff-genome` | `BEGUIDED_BEGUIDEDOFF_GENOME` | *(none – off-target search is disabled if missing)* |
@@ -272,7 +272,7 @@ CLI flags take priority over environment variables.
 
 **Interface overview:**
 
-- **Top bar** – Upload target files (`.tsv`, `.csv`, `.xlsx`, up to 1000 rows), download a template, select a base editor preset, and choose the filter mode.
+- **Top bar** – Upload target files (`.tsv`, `.csv`, `.xlsx`, up to 1000 rows), download a template, select a base editor profile, and choose the filter mode.
 - **Input tab** – Preview the uploaded target table.
 - **Logging tab** – Real-time pipeline logs streamed via Server-Sent Events.
 - **Results tab** – Interactive final results table with a download button for `beguided_results.tsv`.
@@ -281,7 +281,7 @@ CLI flags take priority over environment variables.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BEGUIDED_PRESETS_FILE` | `be_presets.tsv` | Preset definitions |
+| `BEGUIDED_BASE_EDITOR_PROFILES_FILE` | `base_editor_profiles.tsv` | Base editor profile definitions |
 | `BEGUIDED_GENOME_FASTA` | `genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa` | Genome FASTA |
 | `BEGUIDED_GTF_PATH` | `genome/Homo_sapiens.GRCh38.112.gtf` | Gene annotation |
 | `BEGUIDED_BEGUIDEDOFF_GENOME` | `tests/fixtures/mini_genome.npz` | BEguidedOFF encoded genome |
@@ -294,11 +294,11 @@ The pipeline is configured via a YAML file. Key sections:
 input:
   targets: "path/to/targets.tsv"
   genome: "path/to/genome.fa"
-  presets: "be_presets.tsv"
+  base_editor_profiles: "base_editor_profiles.tsv"
   gff_file: "path/to/annotation.gtf"
 
 output_prefix: "./results"
-use_presets: "all"
+use_base_editors: "all"
 keep_bystanders: "all"
 guide_score_threshold: 0.5
 search_offtargets: true
@@ -337,26 +337,27 @@ output_prefix/
 └── beguided_results.tsv    (step 6 – final merged output)
 ```
 
-The final `beguided_results.tsv` contains all guide results merged with off-target summary columns (`worst_offtarget_score`, `offtarget_count`, `worst_offtarget_chr`, `worst_offtarget_pos`, `worst_offtarget_sequence`). Every row also carries a `guide_score` column — the CRISPRater on-target activity score computed in step 1 (requires a 20-nt guide; non-20-nt presets are skipped with a warning). Any extra columns from your input target file are preserved in the final output.
+The final `beguided_results.tsv` contains all guide results merged with off-target summary columns (`worst_offtarget_score`, `offtarget_count`, `worst_offtarget_chr`, `worst_offtarget_pos`, `worst_offtarget_sequence`). Every row also carries a `guide_score` column — the CRISPRater on-target activity score computed in step 1 (requires a 20-nt guide; non-20-nt base editor profiles are skipped with a warning). Any extra columns from your input target file are preserved in the final output.
 
-## Base editor presets
+## Base editor profiles
 
-Base editor configurations are stored in a TSV file (default: `be_presets.tsv`):
+Base editor configurations are stored in a TSV file (default: `base_editor_profiles.tsv`):
 
 | Column               | Description                                  |
 |----------------------|----------------------------------------------|
-| `name`               | Preset name (e.g. `ABE8e`)                   |
-| `editing`            | Conversion type (e.g. `A-to-G`)              |
+| `name`               | Profile name (e.g. `ABE8e`)                  |
+| `editing`            | Editor family (`ABE` or `CBE`)               |
 | `general_edit_start` | Start of the general editing window          |
 | `general_edit_end`   | End of the general editing window            |
 | `high_edit_start`    | Start of the high-efficiency window          |
 | `high_edit_end`      | End of the high-efficiency window            |
-| `guide_length`       | Length of the guide RNA (e.g. 20)            |
 | `pam`                | PAM pattern using IUPAC codes (e.g. `NGG`)   |
-| `cas`                | Cas nuclease name (e.g. `spCas9`)            |
+| `cas`                | Cas nuclease name (e.g. `SpCas9`)            |
 | `source`             | Publication or source                        |
 
-Both sense and antisense variants are automatically generated from each preset definition (e.g. `A-to-G` → sense; `T-to-C` → antisense).
+All base editor profiles in the bundled file use a 20-nt guide. The guide RNA length is therefore fixed at 20 bp and is not stored in the TSV. Both sense and antisense variants are automatically generated from each profile definition (e.g. `ABE` → sense `A→G`, antisense `T→C`; `CBE` → sense `C→T`, antisense `G→A`).
+
+> **Note:** The `guide_score` column (CRISPRater on-target activity score) is only computed for **20 bp** guides. Because every base editor profile in `base_editor_profiles.tsv` uses a 20-nt guide, the score is always populated. If you add a custom profile with a different guide length, the score will be skipped with a warning and the `guide_score` column will be empty.
 
 ## BEguidedOFF integration
 

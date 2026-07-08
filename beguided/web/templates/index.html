@@ -13,9 +13,9 @@
         </div>
     </div>
     <div class="group">
-        <label for="presetSelect">Preset</label>
-        <select id="presetSelect">
-            {% for name in preset_names %}
+        <label for="baseEditorSelect">Base Editors</label>
+        <select id="baseEditorSelect">
+            {% for name in base_editor_names %}
             <option value="{{ name }}">{{ name }}</option>
             {% endfor %}
         </select>
@@ -95,9 +95,10 @@
             <li><code>desired_base</code> &mdash; base you want to have after editing (<code>A</code>, <code>C</code>, <code>G</code>, <code>T</code>)</li>
         </ul>
         <p>
-            The tool picks a preset that supports the
-            <code>target_base &rarr; desired_base</code> change. If no preset in
-            the selected group supports it, that target is skipped with a warning.
+            The tool picks a base editor profile that supports the
+            <code>target_base &rarr; desired_base</code> change. If no profile
+            in the selected group supports it, that target is skipped with a
+            warning.
         </p>
 
         <h3>Sequence input</h3>
@@ -127,7 +128,7 @@
             guides are designed directly on the provided sequence.
         </p>
 
-        <h3>Available presets</h3>
+        <h3>Available base editor profiles</h3>
         <p style="color:var(--muted); font-size:13px;">
             Editing windows are position ranges, counted from the PAM-distal end
             of the guide, where the base editor is active.
@@ -135,8 +136,8 @@
             <em>High-activity</em> = the narrower window where editing is most
             efficient.
         </p>
-        <div id="presetTableContainer">
-            <p style="color:var(--muted);">Loading preset table&hellip;</p>
+        <div id="baseEditorTableContainer">
+            <p style="color:var(--muted);">Loading base editor profiles&hellip;</p>
         </div>
     </div>
 </div>

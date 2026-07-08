@@ -181,7 +181,7 @@ class TestParseSequenceText:
                 parse_sequence_text(text)
 
     def test_unsupported_direction_rejected(self):
-        # A>T is not supported by any preset's sense or antisense direction.
+        # A>T is not supported by any base editor profile's sense or antisense direction.
         text = (
             CANONICAL_STRIPPED[:CANONICAL_EDIT_POS - 1]
             + "[A>T]"
@@ -301,11 +301,11 @@ def cfg_and_db(tmp_path, monkeypatch):
     presets = tmp_path / "presets.tsv"
     presets.write_text(
         "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
-        "high_edit_start\thigh_edit_end\tguide_length\tpam\tcas\tsource\n"
-        "ABE8e\tA-to-G\t2\t13\t3\t8\t20\tNGG\tspCas9\tNature2022\n"
+        "high_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+        "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\n"
     )
     set_config(WebConfig(
-        presets_file=str(presets),
+        base_editor_profiles_file=str(presets),
         genome_fasta="/nonexistent",
         gtf_path="/nonexistent",
         beguidedoff_genome="",
@@ -432,7 +432,7 @@ class TestRunWithSequenceMode:
             "/run",
             data={
                 "raw_b64": body["raw_b64"],
-                "preset": "ABE8e",
+                "base_editor": "ABE8e",
                 "mode": "sequence",
                 "custom_genome_b64": body["custom_genome_b64"],
             },
@@ -455,7 +455,7 @@ class TestRunWithSequenceMode:
             "/run",
             data={
                 "raw_b64": base64.b64encode(b"chrom\t1\tA\tG\n").decode(),
-                "preset": "ABE8e",
+                "base_editor": "ABE8e",
                 "mode": "sequence",
                 "custom_genome_b64": "",
             },
@@ -470,7 +470,7 @@ class TestRunWithSequenceMode:
             "/run",
             data={
                 "raw_b64": base64.b64encode(b"chrom\t1\tA\tG\n").decode(),
-                "preset": "ABE8e",
+                "base_editor": "ABE8e",
                 "mode": "wat",
             },
         )
@@ -497,7 +497,7 @@ class TestRunWithSequenceMode:
             "/run",
             data={
                 "raw_b64": base64.b64encode(b"chr1\t1\tA\tG\n").decode(),
-                "preset": "ABE8e",
+                "base_editor": "ABE8e",
             },
         )
         assert res.status_code == 200
@@ -560,14 +560,14 @@ class TestSequenceModeEndToEnd:
         """
         from pathlib import Path
         from beguided.guidefinder.core import run_genome_wide
-        from beguided.editing.presets import load_presets
+        from beguided.editing.presets import load_base_editor_profiles
         from beguided.genome.io import load_genome
         import tempfile, os
 
         repo_root = Path(__file__).resolve().parents[2]
-        presets_path = repo_root / "be_presets.tsv"
+        presets_path = repo_root / "base_editor_profiles.tsv"
         if not presets_path.exists():
-            pytest.skip("be_presets.tsv not found in repo root")
+            pytest.skip("base_editor_profiles.tsv not found in repo root")
 
         records = parse_sequence_text(_wrap(CANONICAL_STRIPPED, header="t1"))
         targets_df = records_to_targets_dataframe(records)
@@ -585,14 +585,14 @@ class TestSequenceModeEndToEnd:
         finally:
             os.unlink(path)
 
-        presets = load_presets(str(presets_path))
-        preset_names = sorted({
+        profiles = load_base_editor_profiles(str(presets_path))
+        base_editor_names = sorted({
             name
-            for editor in presets.values()
+            for editor in profiles.values()
             for name in editor.keys()
         })
 
-        results = run_genome_wide(genome, core, presets, preset_names)
+        results = run_genome_wide(genome, core, profiles, base_editor_names)
         # We don't assert a specific guide; just that the pipeline didn't
         # reject the input outright.
         assert isinstance(results, list)
@@ -609,9 +609,9 @@ class TestSequenceModeEndToEnd:
         from beguided.pipeline import run_pipeline
 
         repo_root = Path(__file__).resolve().parents[2]
-        presets_path = repo_root / "be_presets.tsv"
+        presets_path = repo_root / "base_editor_profiles.tsv"
         if not presets_path.exists():
-            pytest.skip("be_presets.tsv not found in repo root")
+            pytest.skip("base_editor_profiles.tsv not found in repo root")
 
         user_text = (
             ">target_C\n"
@@ -642,7 +642,7 @@ class TestSequenceModeEndToEnd:
                     "gff_file": None,
                 },
                 "output_prefix": work_dir,
-                "use_presets": "all",
+                "use_base_editors": "all",
                 "keep_bystanders": "all",
                 "guide_score_threshold": 0.0,
                 "search_offtargets": False,

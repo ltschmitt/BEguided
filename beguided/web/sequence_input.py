@@ -40,9 +40,9 @@ import pandas as pd
 # Whitespace inside the brackets is tolerated.
 _BRACKET_RE = re.compile(r"\[\s*([ACGTacgt])\s*>\s*([ACGTacgt])\s*\]")
 
-# Accepted editing directions. The pipeline's preset loader already creates
-# sense + antisense complement entries automatically (see editing/presets.py),
-# so all four user-friendly spellings are valid input.
+# Accepted editing directions. The pipeline's base editor profile loader
+# already creates sense + antisense complement entries automatically (see
+# editing/presets.py), so all four user-friendly spellings are valid input.
 _VALID_EDITS = {
     ("A", "G"),
     ("T", "C"),
@@ -51,7 +51,7 @@ _VALID_EDITS = {
 }
 
 # Hard cap on the length of a single sequence (after bracket removal).
-# 1000 bp is more than enough for the editing windows supported by all presets
+# 1000 bp is more than enough for the editing windows supported by all base editor profiles
 # (max ~30 nt around the edit). Longer sequences waste server resources and
 # rarely yield more guides.
 MAX_SEQUENCE_LENGTH = 1000

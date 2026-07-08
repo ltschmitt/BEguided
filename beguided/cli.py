@@ -7,7 +7,12 @@ from pathlib import Path
 import pandas as pd
 
 from beguided.genome.io import load_genome
-from beguided.editing.presets import load_presets, get_available_preset_names, get_preset_names_by_type, filter_compatible_targets
+from beguided.editing.presets import (
+    load_base_editor_profiles,
+    get_available_base_editor_names,
+    get_base_editor_names_by_type,
+    filter_compatible_targets,
+)
 from beguided.guidefinder.core import run_genome_wide as run_guidefinder, results_to_dataframe
 from beguided.bystander.annotation import load_gtf_to_interval_tree
 from beguided.bystander.analysis import run_all as run_bystander
@@ -23,29 +28,29 @@ def _add_common_io(parser, input_help, output_help):
 def cmd_guidefinder(args):
     """Run guidefinder subcommand."""
     try:
-        presets = load_presets(args.presets_file)
+        profiles = load_base_editor_profiles(args.base_editor_profiles_file)
     except FileNotFoundError:
-        print(f"Error: Presets file not found: {args.presets_file}", file=sys.stderr)
+        print(f"Error: Base editor profiles file not found: {args.base_editor_profiles_file}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        print(f"Error loading presets: {e}", file=sys.stderr)
+        print(f"Error loading base editor profiles: {e}", file=sys.stderr)
         sys.exit(1)
 
-    available = get_available_preset_names(presets)
-    type_map = get_preset_names_by_type(presets)
-    preset_arg = args.presets
-    if preset_arg.lower() == "all":
-        preset_names = sorted(available)
-    elif preset_arg.lower() == "all abes":
-        preset_names = type_map["abe"]
-    elif preset_arg.lower() == "all cbes":
-        preset_names = type_map["cbe"]
+    available = get_available_base_editor_names(profiles)
+    type_map = get_base_editor_names_by_type(profiles)
+    base_editor_arg = args.base_editors
+    if base_editor_arg.lower() == "all":
+        base_editor_names = sorted(available)
+    elif base_editor_arg.lower() == "all abes":
+        base_editor_names = type_map["abe"]
+    elif base_editor_arg.lower() == "all cbes":
+        base_editor_names = type_map["cbe"]
     else:
-        preset_names = [p.strip() for p in preset_arg.split(",")]
-        for name in preset_names:
+        base_editor_names = [p.strip() for p in base_editor_arg.split(",")]
+        for name in base_editor_names:
             if name not in available:
                 print(
-                    f"Error: Unknown preset '{name}'. "
+                    f"Error: Unknown base editor '{name}'. "
                     f"Available: {', '.join(sorted(available))}",
                     file=sys.stderr,
                 )
@@ -55,11 +60,11 @@ def cmd_guidefinder(args):
     df = pd.read_csv(args.input, sep="\t")
     original_count = len(df)
 
-    df, skipped = filter_compatible_targets(df, presets, preset_names)
+    df, skipped = filter_compatible_targets(df, profiles, base_editor_names)
     if len(skipped) > 0:
         print(
             f"Warning: {len(skipped)}/{original_count} target(s) were skipped "
-            f"because their mutation type is not supported by the selected presets "
+            f"because their mutation type is not supported by the selected base editors "
             f"(supports both sense and antisense complement directions). "
             f"Skipped targets: "
             f"{', '.join([f'{r.chromosome}:{r.position}' for r in skipped.itertuples()][:5])}"
@@ -68,15 +73,15 @@ def cmd_guidefinder(args):
         )
     if len(df) == 0:
         print(
-            "Error: No targets remain after filtering for preset compatibility. "
-            "Check that your target mutations match the selected preset editing directions "
-            "(e.g., ABE presets handle A→G / T→C; CBE presets handle C→T / G→A).",
+            "Error: No targets remain after filtering for base editor compatibility. "
+            "Check that your target mutations match the selected base editor editing directions "
+            "(e.g., ABE base editors handle A→G / T→C; CBE base editors handle C→T / G→A).",
             file=sys.stderr,
         )
         sys.exit(1)
 
     results = run_guidefinder(
-        genome, df, presets, preset_names,
+        genome, df, profiles, base_editor_names,
         progress_callback=lambda c, p: print(f"{c}:{p}"),
         passthrough_extras=args.passthrough_extras,
     )
@@ -170,8 +175,8 @@ def cmd_web(args):
         sys.exit(1)
 
     kwargs = {}
-    if args.presets_file is not None:
-        kwargs["presets_file"] = args.presets_file
+    if args.base_editor_profiles_file is not None:
+        kwargs["base_editor_profiles_file"] = args.base_editor_profiles_file
     if args.genome_fasta is not None:
         kwargs["genome_fasta"] = args.genome_fasta
     if args.gtf_path is not None:
@@ -264,8 +269,8 @@ def main():
     p_gf = subparsers.add_parser("guidefinder", help="Generate guide RNAs")
     _add_common_io(p_gf, "Input TSV file", "Output TSV file")
     p_gf.add_argument("--genome", "-g", required=True, help="Genome FASTA file")
-    p_gf.add_argument("--presets", default="ABE8e", help="Comma-separated presets, or 'all', 'all ABEs', 'all CBEs'")
-    p_gf.add_argument("--presets-file", default="be_presets.tsv", help="Presets TSV file")
+    p_gf.add_argument("--base-editors", default="ABE8e", help="Comma-separated base editor names, or 'all', 'all ABEs', 'all CBEs'")
+    p_gf.add_argument("--base-editor-profiles-file", default="base_editor_profiles.tsv", help="Base editor profiles TSV file")
     p_gf.add_argument(
         "--passthrough-extras",
         dest="passthrough_extras",
@@ -300,7 +305,7 @@ def main():
     p_web.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
     p_web.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
     p_web.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
-    p_web.add_argument("--presets-file", default=None, help="Presets TSV file (default: env BEGUIDED_PRESETS_FILE or be_presets.tsv)")
+    p_web.add_argument("--base-editor-profiles-file", default=None, help="Base editor profiles TSV file (default: env BEGUIDED_BASE_EDITOR_PROFILES_FILE or base_editor_profiles.tsv)")
     p_web.add_argument("--genome-fasta", default=None, help="Genome FASTA file (default: env BEGUIDED_GENOME_FASTA or genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa)")
     p_web.add_argument("--gtf-path", default=None, help="GTF annotation file (default: env BEGUIDED_GTF_PATH or genome/Homo_sapiens.GRCh38.112.gtf)")
     p_web.add_argument("--beguidedoff-genome", default=None, help="BEguidedOFF encoded genome .npz (default: env BEGUIDED_BEGUIDEDOFF_GENOME)")

@@ -87,9 +87,10 @@ class TestExtractCodingFromRegion:
         cds_info = [(0, 20, "+", "tx1", "KRAS")]
         region = "ABCDEFGHIJKLMNO"
         guide_offset = 4
-        seq, codon_start, codon_end, strand = extract_coding_sequence_from_region(
+        result = extract_coding_sequence_from_region(
             chrom, guide_start, guide_end, cds_info, region, guide_offset
         )
+        seq, codon_start, codon_end, strand = result[:4]
         # offset=4→needed=1→extract_start=3; guide_end-extract_start=6→needed=3→extract_end=12
         # region_slice = [3:12]
         assert seq == "DEFGHIJKL"
@@ -118,9 +119,10 @@ class TestExtractCodingFromRegion:
         cds_info = [(0, 20, "+", "tx1", "KRAS")]
         region = "ABCDEFGHIJ"
         guide_offset = 2
-        seq, codon_start, codon_end, strand = extract_coding_sequence_from_region(
+        result = extract_coding_sequence_from_region(
             chrom, guide_start, guide_end, cds_info, region, guide_offset
         )
+        seq, codon_start, codon_end, strand = result[:4]
         # needed_upstream=0; guide_end-extract_start=4→needed=2→extract_end=12
         # region_slice = [2:8]
         assert seq == "CDEFGH"

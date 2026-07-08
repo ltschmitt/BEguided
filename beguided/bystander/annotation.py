@@ -345,7 +345,7 @@ def extract_coding_sequence_from_region(chrom, guide_start, guide_end,
         Same tuple as :func:`extract_coding_sequence`.
     """
     if not cds_info:
-        return None, None, None, None
+        return None, None, None, None, None, None
 
     cds_start, cds_end, cds_strand, transcript_id, _gene_name = cds_info[0]
 
@@ -354,7 +354,7 @@ def extract_coding_sequence_from_region(chrom, guide_start, guide_end,
         interval_trees,
     )
     if bounds is None:
-        return None, None, None, None
+        return None, None, None, None, None, None
     extract_start, extract_end = bounds
 
     region_guide_start = guide_offset
@@ -373,7 +373,7 @@ def extract_coding_sequence_from_region(chrom, guide_start, guide_end,
             transcript_id=transcript_id,
         )
         if seq is None:
-            return None, None, None, None
+            return None, None, None, None, None, None
         seq = seq.upper()
         codon_offset_start = _splice_aware_codon_offset(
             interval_trees, transcript_id, extract_start, extract_end,
@@ -381,9 +381,9 @@ def extract_coding_sequence_from_region(chrom, guide_start, guide_end,
         )
         codon_offset_end = codon_offset_start + (guide_end - guide_start)
     else:
-        return None, None, None, None
+        return None, None, None, None, None, None
 
-    return seq, codon_offset_start, codon_offset_end, cds_strand
+    return seq, codon_offset_start, codon_offset_end, cds_strand, extract_start, extract_end
 
 
 def _splice_aware_codon_offset(interval_trees, transcript_id, extract_start,

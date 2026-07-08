@@ -14,9 +14,9 @@ input:
   # Used for guide generation and bystander analysis (steps 1-3)
   genome: "path/to/genome.fa"
 
-  # Base editor presets (TSV format)
-  # Default: be_presets.tsv in working directory
-  presets: "be_presets.tsv"
+  # Base editor profiles (TSV format)
+  # Default: base_editor_profiles.tsv in working directory
+  base_editor_profiles: "base_editor_profiles.tsv"
 
   # GFF/GTF annotation file for transcript/CDS information
   # Required for bystander analysis (unless keep_bystanders=no_bystanders)
@@ -42,12 +42,12 @@ passthrough_extras: true
 # =============================================================================
 # GUIDEFINDER
 # =============================================================================
-# Which base editor presets to use
-# Options: "all", "all ABEs", "all CBEs", or comma-separated preset names (e.g. "ABE8e,ABE9")
-#   "all"        -> every preset from be_presets.tsv
-#   "all ABEs"   -> only A-to-G / T-to-C presets
-#   "all CBEs"   -> only C-to-T / G-to-A presets
-use_presets: "all"
+# Which base editor profiles to use
+# Options: "all", "all ABEs", "all CBEs", or comma-separated profile names (e.g. "ABE8e,ABE9")
+#   "all"        -> every profile from base_editor_profiles.tsv
+#   "all ABEs"   -> only ABE (A-to-G / T-to-C) profiles
+#   "all CBEs"   -> only CBE (C-to-T / G-to-A) profiles
+use_base_editors: "all"
 
 # =============================================================================
 # FILTERING / BYSTANDERS

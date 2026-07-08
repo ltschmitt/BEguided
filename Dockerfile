@@ -57,7 +57,7 @@ FROM base AS web
 RUN pip install --no-cache-dir -e ".[web]"
 
 ENV PYTHONUNBUFFERED=1
-ENV BEGUIDED_PRESETS_FILE=/app/be_presets.tsv
+ENV BEGUIDED_BASE_EDITOR_PROFILES_FILE=/app/base_editor_profiles.tsv
 
 EXPOSE 8000
 
@@ -122,7 +122,7 @@ FROM base-gpu AS web-cuda
 RUN pip install --no-cache-dir -e ".[web]"
 
 ENV PYTHONUNBUFFERED=1
-ENV BEGUIDED_PRESETS_FILE=/app/be_presets.tsv
+ENV BEGUIDED_BASE_EDITOR_PROFILES_FILE=/app/base_editor_profiles.tsv
 
 EXPOSE 8000
 

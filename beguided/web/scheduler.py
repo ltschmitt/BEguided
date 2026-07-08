@@ -271,7 +271,7 @@ class Scheduler:
                     result = execute_job(
                         job_id=job.job_id,
                         targets_df=job.payload["targets_df"],
-                        preset_names=job.payload["preset_names"],
+                        base_editor_names=job.payload["base_editor_names"],
                         filter_mode=job.payload["filter_mode"],
                         search_offtargets=job.payload.get("search_offtargets", True),
                         guide_score_threshold=job.payload.get(
@@ -325,7 +325,7 @@ def _payload_to_jsonable(payload: dict) -> dict:
             except TypeError:
                 rows = 0
             out[k] = {"__type__": "dataframe", "rows": rows}
-        elif k == "preset_names":
+        elif k == "base_editor_names":
             out[k] = list(v) if v is not None else []
         elif k == "custom_genome_b64":
             # Don't bloat the SQLite audit row with the full FASTA payload;

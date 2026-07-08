@@ -4,7 +4,7 @@ Two concerns:
   * Request body size cap (Starlette middleware) so a malicious client cannot
     upload a 5 GB blob.
   * Operator-supplied path validation so the server refuses to start if any of
-    the genome FASTA / GTF / presets / BEguidedOFF .npz paths is missing or
+    the genome FASTA / GTF / base editor profiles / BEguidedOFF .npz paths is missing or
     unreadable. Also validate uploaded chromosome names against the loaded
     genome.
 """
@@ -86,7 +86,7 @@ def os_accessible(p: Path) -> bool:
 
 def validate_operator_paths(cfg) -> None:
     """Validate every operator-configured input path. Raises on the first failure."""
-    validate_path(cfg.presets_file, "Presets file")
+    validate_path(cfg.base_editor_profiles_file, "Base editor profiles file")
     # The genome FASTA and GTF may not be available in every deployment
     # (e.g. genome-free reruns of step 4-5). Validate them best-effort.
     if cfg.genome_fasta:

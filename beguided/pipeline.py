@@ -8,7 +8,12 @@ import pandas as pd
 
 from beguided.genome.coordinates import guide_coordinates
 from beguided.genome.io import load_genome
-from beguided.editing.presets import load_presets, get_available_preset_names, get_preset_names_by_type, filter_compatible_targets
+from beguided.editing.presets import (
+    load_base_editor_profiles,
+    get_available_base_editor_names,
+    get_base_editor_names_by_type,
+    filter_compatible_targets,
+)
 from beguided.guidefinder.core import run_genome_wide as run_guidefinder, results_to_dataframe
 from beguided.bystander.annotation import load_gtf_to_interval_tree
 from beguided.bystander.analysis import run_all as run_bystander
@@ -55,28 +60,28 @@ def _apply_final_column_order(df):
     return df[ordered + tail]
 
 
-def _resolve_preset_names(presets, preset_arg):
-    """Resolve preset argument to list of names.
+def _resolve_base_editor_names(profiles, base_editor_arg):
+    """Resolve base editor argument to list of names.
 
     Supports:
-      - "all"        → every available preset
-      - "all ABEs"   → all A-to-G presets
-      - "all CBEs"   → all C-to-T presets
-      - comma-separated list of individual preset names
+      - "all"        → every available base editor profile
+      - "all ABEs"   → all ABE (A-to-G) profiles
+      - "all CBEs"   → all CBE (C-to-T) profiles
+      - comma-separated list of individual base editor names
     """
-    available = get_available_preset_names(presets)
-    arg = preset_arg.lower()
+    available = get_available_base_editor_names(profiles)
+    arg = base_editor_arg.lower()
     if arg == "all":
         return sorted(available)
     if arg == "all abes":
-        return sorted(get_preset_names_by_type(presets)["abe"])
+        return sorted(get_base_editor_names_by_type(profiles)["abe"])
     if arg == "all cbes":
-        return sorted(get_preset_names_by_type(presets)["cbe"])
-    names = [p.strip() for p in preset_arg.split(",")]
+        return sorted(get_base_editor_names_by_type(profiles)["cbe"])
+    names = [p.strip() for p in base_editor_arg.split(",")]
     for name in names:
         if name not in available:
             raise PipelineError(
-                f"Unknown preset '{name}'. Available: {', '.join(sorted(available))}"
+                f"Unknown base editor '{name}'. Available: {', '.join(sorted(available))}"
             )
     return names
 
@@ -110,11 +115,13 @@ def _read_new_style_config(config):
 
     result["targets"] = input_cfg.get("targets")
     result["genome"] = input_cfg.get("genome")
-    result["presets_file"] = input_cfg.get("presets", "be_presets.tsv")
+    result["base_editor_profiles_file"] = input_cfg.get(
+        "base_editor_profiles", "base_editor_profiles.tsv"
+    )
     result["gff_file"] = input_cfg.get("gff_file")
 
-    # --- use_presets ---
-    result["preset_arg"] = config.get("use_presets", "all")
+    # --- use_base_editors (which base editor profiles to apply) ---
+    result["base_editor_arg"] = config.get("use_base_editors", "all")
 
     # --- keep_bystanders ---
     result["filter_mode"] = config.get("keep_bystanders", "all")
@@ -193,7 +200,7 @@ def _prepare_beguidedoff_input(df, output_path):
         "chromosome": valid["chromosome"].astype(str),
         "position": positions,
         "guide_rna_sequence": valid["guide_rna_sequence"],
-        "be_preset": valid["be_preset"],
+        "base_editor": valid["base_editor"],
         "strand_used": valid["strand_used"],
     })
     out.to_csv(output_path, sep="\t", index=False)
@@ -321,12 +328,12 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
         logger.info("=" * 60)
         logger.info("Step 1/5: Guidefinder - Generating guide RNAs")
         logger.info("=" * 60)
-        presets_file = cfg["presets_file"]
-        logger.info(f"Loading presets from: {presets_file}")
-        presets = load_presets(presets_file)
+        presets_file = cfg["base_editor_profiles_file"]
+        logger.info(f"Loading base editor profiles from: {presets_file}")
+        profiles = load_base_editor_profiles(presets_file)
 
-        preset_names = _resolve_preset_names(presets, cfg["preset_arg"])
-        logger.info(f"Using presets: {', '.join(preset_names)}")
+        base_editor_names = _resolve_base_editor_names(profiles, cfg["base_editor_arg"])
+        logger.info(f"Using base editors: {', '.join(base_editor_names)}")
 
         genome_file = cfg["genome"]
         if genome is None:
@@ -340,23 +347,23 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
         original_target_count = len(targets_df)
         logger.info(f"Loaded {original_target_count} targets")
 
-        targets_df, skipped_df = filter_compatible_targets(targets_df, presets, preset_names)
+        targets_df, skipped_df = filter_compatible_targets(targets_df, profiles, base_editor_names)
         if len(skipped_df) > 0:
             logger.warning(
                 f"{len(skipped_df)}/{original_target_count} target(s) were skipped "
-                f"because their mutation type is not supported by the selected presets. "
+                f"because their mutation type is not supported by the selected base editors. "
                 f"Skipped: "
                 f"{', '.join([f'{r.chromosome}:{r.position}' for r in skipped_df.itertuples()][:5])}"
                 f"{' ...' if len(skipped_df) > 5 else ''}"
             )
         if len(targets_df) == 0:
             raise PipelineError(
-                "No targets remain after filtering for preset compatibility."
+                "No targets remain after filtering for base editor compatibility."
             )
         logger.info(f"Processing {len(targets_df)} compatible targets")
 
         results = run_guidefinder(
-            genome, targets_df, presets, preset_names,
+            genome, targets_df, profiles, base_editor_names,
             progress_callback=lambda c, p: logger.debug(f"Processing {c}:{p}"),
             passthrough_extras=cfg["passthrough_extras"],
         )
@@ -383,7 +390,7 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
                 for (chrom, pos), group in all_rows:
                     seqs = group["guide_rna_sequence"].fillna("").tolist()
                     if all(s.startswith("**") for s in seqs):
-                        if all("doesn't match preset" in s for s in seqs):
+                        if all("doesn't match base editor profile" in s for s in seqs):
                             pure_mismatch.append(f"{chrom}:{pos}")
                         else:
                             pure_pam_fail.append(f"{chrom}:{pos}")
@@ -391,7 +398,7 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
                 if pure_mismatch:
                     logger.warning(
                         f"{len(pure_mismatch)}/{total_targets} target(s) use a mutation "
-                        f"type not supported by the selected presets: "
+                        f"type not supported by the selected base editors: "
                         f"{', '.join(pure_mismatch[:5])}"
                         f"{' ...' if len(pure_mismatch) > 5 else ''}"
                     )
@@ -404,7 +411,7 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
         total_invalid_rows = invalid_mask.sum()
         if total_invalid_rows == total_result_rows:
             raise PipelineError(
-                "No valid guides found for the given presets."
+                "No valid guides found for the given base editors."
             )
 
         logger.info(
@@ -530,7 +537,7 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
 
         ot_df = _run_beguidedoff(
             bgo_input,
-            cfg["presets_file"],
+            cfg["base_editor_profiles_file"],
             genome_npz,
             cfg["max_mismatches"],
             cfg["count_threshold_score"],

@@ -50,7 +50,7 @@ class TestFilterGuides:
             "bystander_positions": [""],
             "guide_rna_sequence": ["**No guide possible**"],
             "pam_sequence": ["XXX"],
-            "be_preset": ["ABE8e"],
+            "base_editor": ["ABE8e"],
             "bystander_effect": ["no_bystanders"],
             "simulated_outcome": [""],
             "aa_wanted": ["X"],
@@ -164,7 +164,7 @@ class TestFilterGuides:
         assert len(result) == 1
         assert result.iloc[0]["guide_rna_sequence"] == "AAAAA"
 
-        """Regression: same guide sequence with different presets must all survive filtering."""
+        """Regression: same guide sequence with different base editors must all survive filtering."""
         df = pd.DataFrame({
             "chromosome": ["1", "1", "1"],
             "position": [18700668, 18700668, 18700668],
@@ -180,7 +180,7 @@ class TestFilterGuides:
                 "GGCAGTTACTGAACCAGACC",
             ],
             "pam_sequence": ["TGG", "TGG", "TGG"],
-            "be_preset": ["ABE-NW1", "ABE-Umax", "ABE8e"],
+            "base_editor": ["ABE-NW1", "ABE-Umax", "ABE8e"],
             "bystander_effect": ["silent", "silent", "missense"],
             "simulated_outcome": ["", "", ""],
             "aa_wanted": ["X", "X", "X"],
@@ -189,4 +189,4 @@ class TestFilterGuides:
         criteria = {"mode": "silent"}
         result = filter_guides(df, criteria)
         assert len(result) == 2
-        assert set(result["be_preset"].values) == {"ABE-NW1", "ABE-Umax"}
+        assert set(result["base_editor"].values) == {"ABE-NW1", "ABE-Umax"}

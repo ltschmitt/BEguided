@@ -17,7 +17,7 @@ logger = logging.getLogger("beguided.guidefinder")
 
 def process_target(
     genome_seq, chromosome, position, target_base, desired_base,
-    genome_base, preset_config, extra_columns=None
+    genome_base, base_editor_config, extra_columns=None
 ):
     """Process a single target and return list of GuideResult objects.
 
@@ -31,8 +31,8 @@ def process_target(
     extra = extra_columns if extra_columns else {}
 
     if (
-        preset_config.target_base != target_base
-        or preset_config.desired_base != desired_base
+        base_editor_config.target_base != target_base
+        or base_editor_config.desired_base != desired_base
     ):
         return [
             GuideResult(
@@ -40,20 +40,20 @@ def process_target(
                 position=position,
                 target_base=target_base,
                 desired_base=desired_base,
-                guide_rna_sequence="**Base-edit doesn't match preset**",
+                guide_rna_sequence="**Base-edit doesn't match base editor profile**",
                 genome_base=genome_base,
                 pam_sequence="XXX",
                 editing_position=0,
-                strand_used=preset_config.strand,
+                strand_used=base_editor_config.strand,
                 extra_columns=extra.copy(),
             )
         ]
 
-    guide_length = preset_config.guide_length
-    pam_length = preset_config.pam_length
-    min_pos = preset_config.high_edit_start
-    max_pos = preset_config.high_edit_end
-    strand = preset_config.strand
+    guide_length = base_editor_config.guide_length
+    pam_length = base_editor_config.pam_length
+    min_pos = base_editor_config.high_edit_start
+    max_pos = base_editor_config.high_edit_end
+    strand = base_editor_config.strand
 
     start_search, end_search = calculate_search_range(
         position, min_pos, max_pos, strand, guide_length, pam_length
@@ -64,7 +64,7 @@ def process_target(
 
     pams_found = find_pams_regex(
         genome_seq, start_search, end_search,
-        preset_config.pam_regex, pam_length
+        base_editor_config.pam_regex, pam_length
     )
 
     if not pams_found:
@@ -114,12 +114,12 @@ def process_target(
         final_guide, pam_seq = apply_reverse_complement_if_needed(
             modified_guide,
             genome_seq[pam_pos:pam_pos + pam_length],
-            preset_config.reverse_complement,
+            base_editor_config.reverse_complement,
         )
 
         # Calculate CRISPRater on-target score (requires exactly 20 nt)
         guide_score = None
-        if preset_config.guide_length == 20:
+        if base_editor_config.guide_length == 20:
             try:
                 guide_score = get_crisprater_score(final_guide)
             except Exception:
@@ -131,15 +131,15 @@ def process_target(
         else:
             logger.warning(
                 "CRISPRater score skipped: guide_length=%d != 20 "
-                "for preset %s",
-                preset_config.guide_length,
-                preset_config.name,
+                "for base editor %s",
+                base_editor_config.guide_length,
+                base_editor_config.name,
             )
 
         bystander_positions = find_bystander_edits(
             final_guide, target_base, editing_pos,
-            preset_config.general_edit_start,
-            preset_config.general_edit_end,
+            base_editor_config.general_edit_start,
+            base_editor_config.general_edit_end,
             strand,
         )
 
@@ -200,10 +200,10 @@ _CORE_INPUT_COLS = {
 
 
 def run_genome_wide(
-    genome, targets_df, presets, preset_names,
+    genome, targets_df, profiles, base_editor_names,
     progress_callback=None, passthrough_extras=True,
 ):
-    """Run guidefinder across all targets and presets.
+    """Run guidefinder across all targets and base editor profiles.
 
     Args:
         genome: dict of chromosome -> sequence.
@@ -211,8 +211,8 @@ def run_genome_wide(
             chromosome, position, target_base, desired_base.
             Any additional columns are passed through to output unless
             ``passthrough_extras`` is ``False``.
-        presets: Presets dict from load_presets.
-        preset_names: List of preset names to use.
+        profiles: Profiles dict from load_base_editor_profiles.
+        base_editor_names: List of base editor names to use.
         progress_callback: Optional callable(chrom, pos) for progress reporting.
         passthrough_extras: If ``True`` (default), any input columns beyond the
             four core columns (``chromosome``, ``position``, ``target_base``,
@@ -262,16 +262,16 @@ def run_genome_wide(
 
         editor_key = (target_base, desired_base)
 
-        for preset_name in preset_names:
-            if editor_key in presets and preset_name in presets[editor_key]:
-                preset_config = presets[editor_key][preset_name]
+        for base_editor_name in base_editor_names:
+            if editor_key in profiles and base_editor_name in profiles[editor_key]:
+                base_editor_config = profiles[editor_key][base_editor_name]
                 target_results = process_target(
                     genome_seq, chromosome, position,
                     target_base, desired_base,
-                    genome_base, preset_config, extra_columns=extra_columns
+                    genome_base, base_editor_config, extra_columns=extra_columns
                 )
                 for result in target_results:
-                    result.be_preset = preset_name
+                    result.base_editor = base_editor_name
                 results.extend(target_results)
             else:
                 results.append(
@@ -285,7 +285,7 @@ def run_genome_wide(
                         pam_sequence="XXX",
                         editing_position=0,
                         strand_used="",
-                        be_preset=preset_name,
+                        base_editor=base_editor_name,
                         extra_columns=extra_columns.copy(),
                     )
                 )
@@ -358,7 +358,7 @@ def results_to_dataframe(results, passthrough_extras=True):
             seen.add(c)
     df = df[col_order]
     df = df.sort_values(
-        by=["chromosome", "position", "be_preset", "editing_position"],
+        by=["chromosome", "position", "base_editor", "editing_position"],
         ascending=[True, True, True, True]
     )
     return df

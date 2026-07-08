@@ -300,7 +300,7 @@ class TestExtractMinusStrandCodonBoundary:
         guide_offset = 10
         trees = self._one_exon_trees(tmp_path, "-", 90, 120)
 
-        seq, cos, coe, strand = extract_coding_sequence_from_region(
+        seq, cos, coe, strand, _es, _ee = extract_coding_sequence_from_region(
             "chr1", 95, 115, cds_info, region, guide_offset,
             interval_trees=trees,
         )
@@ -324,7 +324,7 @@ class TestExtractMinusStrandCodonBoundary:
         guide_offset = 2
         trees = self._one_exon_trees(tmp_path, "-", 100, 106)
 
-        seq, cos, coe, strand = extract_coding_sequence_from_region(
+        seq, cos, coe, strand, _es, _ee = extract_coding_sequence_from_region(
             "chr1", 101, 105, cds_info, region, guide_offset,
             interval_trees=trees,
         )
@@ -341,7 +341,7 @@ class TestExtractMinusStrandCodonBoundary:
         guide_offset = 10
         trees = self._one_exon_trees(tmp_path, "+", 90, 120)
 
-        seq, cos, coe, strand = extract_coding_sequence_from_region(
+        seq, cos, coe, strand, _es, _ee = extract_coding_sequence_from_region(
             "chr1", 95, 115, cds_info, region, guide_offset,
             interval_trees=trees,
         )
@@ -499,7 +499,7 @@ class TestExtractSplicesAcrossExons:
         # Build a genome-backed mock and confirm the codon-aligned window
         # that crosses exon 1 is spliced correctly.
         genome = {"chr1": genome_seq}
-        seq, cos, coe, strand = extract_coding_sequence_from_region(
+        seq, cos, coe, strand, _es, _ee = extract_coding_sequence_from_region(
             "chr1", guide_start, guide_end, cds_info, region, guide_offset,
             genome=genome, interval_trees=trees,
         )

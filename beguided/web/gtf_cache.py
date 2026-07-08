@@ -21,17 +21,48 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 from beguided.bystander.annotation import load_gtf_to_interval_tree
 
 logger = logging.getLogger("beguided.web.gtf_cache")
 
+# Captures the assembly identifier from an Ensembl-style GTF filename.
+# Examples:
+#   Homo_sapiens.GRCh38.112.gtf                -> "GRCh38.112"
+#   Homo_sapiens.GRCh38.chr_patch_hapl_scaff.gtf -> "GRCh38"
+_GTF_ASSEMBLY_RE = re.compile(
+    r"^Homo_sapiens\.([A-Za-z0-9.]+?)(?:\.chr_|\.gtf$|\.gff$|\.gff3$|$)"
+)
+
+
+def derive_gtf_label(gtf_path: str) -> str:
+    """Best-effort extraction of the assembly label from an Ensembl-style
+    GTF filename.
+
+    Examples:
+        ``Homo_sapiens.GRCh38.112.gtf`` -> ``"GRCh38.112"``
+        ``Homo_sapiens.GRCh38.chr_patch_hapl_scaff.gtf`` -> ``"GRCh38"``
+        ``/data/anything.gtf`` -> ``"GRCh38"`` (fallback)
+
+    The fallback matches the on-disk fixtures shipped with BEguided so
+    operators see a sensible label even for non-Ensembl filenames.
+    """
+    name = Path(gtf_path).name
+    m = _GTF_ASSEMBLY_RE.match(name)
+    if m:
+        return m.group(1)
+    return "GRCh38"
+
+
 _state: dict = {
     "status": "not_loaded",        # not_loaded | loading | ready | error
     "path": None,
+    "label": "",
     "chromosome_count": 0,
     "error": None,
     "started_at": None,
@@ -49,6 +80,7 @@ def _reset_for_test() -> None:
     with _cond:
         _state["status"] = "not_loaded"
         _state["path"] = None
+        _state["label"] = ""
         _state["chromosome_count"] = 0
         _state["error"] = None
         _state["started_at"] = None
@@ -64,6 +96,7 @@ def get_status() -> dict:
         return {
             "status": _state["status"],
             "path": _state["path"],
+            "label": _state["label"],
             "chromosome_count": _state["chromosome_count"],
             "error": _state["error"],
             "started_at": _state["started_at"],
@@ -101,11 +134,15 @@ def _load_blocking(path: str) -> None:
         _interval_trees = interval_trees
         _state["status"] = "ready"
         _state["chromosome_count"] = chrom_count
+        # Derive an assembly label (e.g. "GRCh38.112") from the filename now
+        # that the load succeeded, mirroring genome_cache behaviour.
+        _state["label"] = derive_gtf_label(path)
         _state["finished_at"] = time.time()
         _cond.notify_all()
     logger.info(
-        "GTF preload complete: %d chromosomes with MANE_Select CDS",
+        "GTF preload complete: %d chromosomes with MANE_Select CDS (label=%s)",
         chrom_count,
+        _state["label"],
     )
 
 
@@ -129,6 +166,7 @@ def preload_async(path: str) -> None:
             )
         _state["status"] = "loading"
         _state["path"] = path
+        _state["label"] = ""
         _state["chromosome_count"] = 0
         _state["error"] = None
         _state["started_at"] = time.time()

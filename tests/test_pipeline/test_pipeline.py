@@ -72,11 +72,11 @@ class TestPassthroughExtras:
             "input": {
                 "targets": str(targets_path),
                 "genome": sample_fasta_file,
-                "presets": str(presets_path),
+                "base_editor_profiles": str(presets_path),
                 "gff_file": str(gtf_path),
             },
             "output_prefix": str(tmp_path / "out"),
-            "use_presets": "all",
+            "use_base_editors": "all",
             "keep_bystanders": "no_bystanders",
             "search_offtargets": False,
         }
@@ -172,11 +172,11 @@ class TestPipelineSkipOffTarget:
             "input": {
                 "targets": str(targets_path),
                 "genome": sample_fasta_file,
-                "presets": str(presets_path),
+                "base_editor_profiles": str(presets_path),
                 "gff_file": str(gtf_path),
             },
             "output_prefix": str(base_dir),
-            "use_presets": "all",
+            "use_base_editors": "all",
             "keep_bystanders": "all",
             "search_offtargets": False,
             "offtargets": {
@@ -228,11 +228,11 @@ class TestPipelineAlwaysRunBystander:
             "input": {
                 "targets": str(targets_path),
                 "genome": sample_fasta_file,
-                "presets": str(presets_path),
+                "base_editor_profiles": str(presets_path),
                 "gff_file": str(gtf_path),
             },
             "output_prefix": str(tmp_path / "out"),
-            "use_presets": "all",
+            "use_base_editors": "all",
             "keep_bystanders": keep_bystanders,
             "search_offtargets": False,
         }
@@ -309,7 +309,7 @@ class TestPipelineAlwaysRunBystander:
             "strand_used": ["+", "-"],
             "editing_position": [3, 18],
             "guide_rna_sequence": ["GTACAGCTAGCTAGCTAGCT", "CCCCAGCTAGCTAGCTAGCT"],
-            "be_preset": ["ABE8e", "ABE8e"],
+            "base_editor": ["ABE8e", "ABE8e"],
         })
         out_path = tmp_path / "bgo_input.tsv"
         _prepare_beguidedoff_input(df, out_path)
@@ -317,7 +317,7 @@ class TestPipelineAlwaysRunBystander:
         result = pd.read_csv(out_path, sep="\t")
         assert list(result.columns) == [
             "chromosome", "position", "guide_rna_sequence",
-            "be_preset", "strand_used",
+            "base_editor", "strand_used",
         ]
 
         plus_row = result[result["strand_used"] == "+"].iloc[0]
@@ -339,7 +339,7 @@ class TestPipelineAlwaysRunBystander:
             "strand_used": ["+", "+"],
             "editing_position": [5, 5],
             "guide_rna_sequence": ["AAAAAAAAAAAAAAAAAAAA", "**No guide possible**"],
-            "be_preset": ["ABE8e", "ABE8e"],
+            "base_editor": ["ABE8e", "ABE8e"],
         })
         out_path = tmp_path / "bgo_input.tsv"
         _prepare_beguidedoff_input(df, out_path)
@@ -361,7 +361,7 @@ class TestPipelineAlwaysRunBystander:
             "strand_used": [],
             "editing_position": [],
             "guide_rna_sequence": [],
-            "be_preset": [],
+            "base_editor": [],
         })
         out_path = tmp_path / "bgo_input.tsv"
         _prepare_beguidedoff_input(df, out_path)
@@ -411,7 +411,7 @@ class TestPipelineWithBEguidedOFF:
             "editing_position": [10],
             "guide_rna_sequence": ["CCCCCCCCCCCCCCCCCCCC"],
             "pam_sequence": ["TGG"],
-            "be_preset": ["ABE8e"],
+            "base_editor": ["ABE8e"],
             "bystander_effect": ["no_bystanders"],
             "simulated_outcome": ["CCCCCCCCCCCCCCCCCCCC"],
             "aa_wanted": ["P"],
@@ -429,10 +429,10 @@ class TestPipelineWithBEguidedOFF:
             "input": {
                 "targets": str(tmp_path / "targets.tsv"),
                 "genome": str(fasta),
-                "presets": str(presets_path),
+                "base_editor_profiles": str(presets_path),
             },
             "output_prefix": str(base_dir),
-            "use_presets": "all",
+            "use_base_editors": "all",
             "keep_bystanders": "all",
             "search_offtargets": True,
             "offtargets": {
@@ -491,7 +491,7 @@ class TestPipelineWithBEguidedOFF:
             "editing_position": [3],
             "guide_rna_sequence": ["GTACAGCTAGCTAGCTAGCT"],
             "pam_sequence": ["GGG"],
-            "be_preset": ["ABE8e"],
+            "base_editor": ["ABE8e"],
             "bystander_effect": ["no_bystanders"],
             "simulated_outcome": ["GTACGGCTAGCTAGCTAGCT"],
             "aa_wanted": ["P"],
@@ -507,10 +507,10 @@ class TestPipelineWithBEguidedOFF:
             "input": {
                 "targets": str(tmp_path / "targets.tsv"),
                 "genome": str(fasta),
-                "presets": str(presets_path),
+                "base_editor_profiles": str(presets_path),
             },
             "output_prefix": str(base_dir),
-            "use_presets": "all",
+            "use_base_editors": "all",
             "keep_bystanders": "all",
             "search_offtargets": True,
             "offtargets": {
@@ -571,11 +571,11 @@ class TestPipelineWithBEguidedOFF:
             "input": {
                 "targets": str(targets_path),
                 "genome": str(fasta),
-                "presets": str(presets_path),
+                "base_editor_profiles": str(presets_path),
                 "gff_file": str(gtf_path),
             },
             "output_prefix": str(base_dir),
-            "use_presets": "all",
+            "use_base_editors": "all",
             "keep_bystanders": "all",
             "search_offtargets": True,
             "offtargets": {
@@ -614,10 +614,10 @@ class TestPipelineFailFast:
             "input": {
                 "targets": str(targets_path),
                 "genome": sample_fasta_file,
-                "presets": str(presets_path),
+                "base_editor_profiles": str(presets_path),
             },
             "output_prefix": str(tmp_path / "out"),
-            "use_presets": "all",
+            "use_base_editors": "all",
             "keep_bystanders": "no_bystanders",
             "search_offtargets": False,
             "guide_score_threshold": 0.5,
@@ -652,10 +652,10 @@ class TestPipelineFailFast:
             "input": {
                 "targets": str(targets_path),
                 "genome": sample_fasta_file,
-                "presets": str(presets_path),
+                "base_editor_profiles": str(presets_path),
             },
             "output_prefix": str(base_dir),
-            "use_presets": "all",
+            "use_base_editors": "all",
             "keep_bystanders": "no_bystanders",
             "search_offtargets": False,
             "offtargets": {
@@ -705,11 +705,11 @@ class TestRunPipelineGenomeKwarg:
             "input": {
                 "targets": str(targets_path),
                 "genome": sample_fasta_file,
-                "presets": str(presets_path),
+                "base_editor_profiles": str(presets_path),
                 "gff_file": str(gtf_path),
             },
             "output_prefix": str(base_dir),
-            "use_presets": "all",
+            "use_base_editors": "all",
             "keep_bystanders": "no_bystanders",
             "search_offtargets": False,
             "offtargets": {
@@ -765,11 +765,11 @@ class TestRunPipelineGenomeKwarg:
             "input": {
                 "targets": str(targets_path),
                 "genome": sample_fasta_file,
-                "presets": str(presets_path),
+                "base_editor_profiles": str(presets_path),
                 "gff_file": str(gtf_path),
             },
             "output_prefix": str(base_dir),
-            "use_presets": "all",
+            "use_base_editors": "all",
             "keep_bystanders": "no_bystanders",
             "search_offtargets": False,
             "offtargets": {
@@ -831,11 +831,11 @@ class TestPipelineScaffoldFilter:
             "input": {
                 "targets": str(targets_path),
                 "genome": str(fasta),
-                "presets": str(presets_path),
+                "base_editor_profiles": str(presets_path),
                 "gff_file": str(gtf_path),
             },
             "output_prefix": str(base_dir),
-            "use_presets": "all",
+            "use_base_editors": "all",
             "keep_bystanders": "no_bystanders",
             "search_offtargets": False,
             "offtargets": {

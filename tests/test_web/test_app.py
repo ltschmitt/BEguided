@@ -30,11 +30,11 @@ def cfg_and_db(tmp_path, monkeypatch):
     presets = tmp_path / "presets.tsv"
     presets.write_text(
         "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
-        "high_edit_start\thigh_edit_end\tguide_length\tpam\tcas\tsource\n"
-        "ABE8e\tA-to-G\t2\t13\t3\t8\t20\tNGG\tspCas9\tNature2022\n"
+        "high_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+        "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\n"
     )
     set_config(WebConfig(
-        presets_file=str(presets),
+            base_editor_profiles_file=str(presets),
         genome_fasta="/nonexistent",  # web /run checks chromosomes; we won't trigger that
         gtf_path="/nonexistent",
         beguidedoff_genome="",
@@ -89,7 +89,7 @@ def test_run_returns_job_id_and_token(cfg_and_db):
         "/run",
         data={
             "raw_b64": _targets_tsv_b64(),
-            "preset": "ABE8e",
+            "base_editor": "ABE8e",
         },
     )
     assert res.status_code == 200, res.text
@@ -133,7 +133,7 @@ def test_run_returns_429_on_cooldown(cfg_and_db):
             "/run",
             data={
                 "raw_b64": _targets_tsv_b64(),
-                "preset": "ABE8e",
+                "base_editor": "ABE8e",
             },
         )
         assert first.status_code == 200
@@ -142,7 +142,7 @@ def test_run_returns_429_on_cooldown(cfg_and_db):
             "/run",
             data={
                 "raw_b64": _targets_tsv_b64(),
-                "preset": "ABE8e",
+                "base_editor": "ABE8e",
             },
         )
         assert second.status_code == 429
@@ -164,17 +164,17 @@ def test_run_rejects_oversized_upload(cfg_and_db):
     assert res.status_code in (413, 400)
 
 
-def test_run_rejects_unknown_preset(cfg_and_db):
+def test_run_rejects_unknown_base_editor(cfg_and_db):
     client = _client(cfg_and_db)
     res = client.post(
         "/run",
         data={
             "raw_b64": _targets_tsv_b64(),
-            "preset": "totally-fake-preset",
+            "base_editor": "totally-fake-preset",
         },
     )
     assert res.status_code == 400
-    assert "Unknown preset" in res.json()["error"]
+    assert "Unknown base editor" in res.json()["error"]
 
 
 def test_cancel_requires_valid_token(cfg_and_db):
@@ -194,7 +194,7 @@ def test_cancel_requires_valid_token(cfg_and_db):
         "/run",
         data={
             "raw_b64": _targets_tsv_b64(),
-            "preset": "ABE8e",
+            "base_editor": "ABE8e",
         },
     ).json()
 
@@ -340,7 +340,7 @@ def test_run_pipeline_invoked_with_unfiltered_defaults(cfg_and_db):
 
     res = client.post(
         "/run",
-        data={"raw_b64": _targets_tsv_b64(), "preset": "ABE8e"},
+        data={"raw_b64": _targets_tsv_b64(), "base_editor": "ABE8e"},
     )
     assert res.status_code == 200
     body = res.json()
@@ -377,7 +377,7 @@ def test_run_ignores_legacy_form_fields(cfg_and_db):
         "/run",
         data={
             "raw_b64": _targets_tsv_b64(),
-            "preset": "ABE8e",
+            "base_editor": "ABE8e",
             "filter_mode": "silent",
             "guide_score_threshold": "0.9",
             "search_offtargets": "true",
@@ -423,7 +423,7 @@ def test_results_returns_full_unfiltered_records(cfg_and_db):
 
     submit = client.post(
         "/run",
-        data={"raw_b64": _targets_tsv_b64(), "preset": "ABE8e"},
+        data={"raw_b64": _targets_tsv_b64(), "base_editor": "ABE8e"},
     ).json()
     for _ in range(40):
         s = client.get("/status", params={"job_id": submit["job_id"]}).json()
@@ -463,7 +463,7 @@ def test_download_results_applies_dynamic_filters(cfg_and_db):
     client = _client(cfg_and_db)
     submit = client.post(
         "/run",
-        data={"raw_b64": _targets_tsv_b64(), "preset": "ABE8e"},
+        data={"raw_b64": _targets_tsv_b64(), "base_editor": "ABE8e"},
     ).json()
     for _ in range(40):
         s = client.get("/status", params={"job_id": submit["job_id"]}).json()
@@ -546,7 +546,7 @@ def test_download_results_filename_reflects_filters(cfg_and_db):
     client = _client(cfg_and_db)
     submit = client.post(
         "/run",
-        data={"raw_b64": _targets_tsv_b64(), "preset": "ABE8e"},
+        data={"raw_b64": _targets_tsv_b64(), "base_editor": "ABE8e"},
     ).json()
     for _ in range(40):
         s = client.get("/status", params={"job_id": submit["job_id"]}).json()
@@ -598,7 +598,7 @@ def test_download_results_xlsx(cfg_and_db):
     client = _client(cfg_and_db)
     submit = client.post(
         "/run",
-        data={"raw_b64": _targets_tsv_b64(), "preset": "ABE8e"},
+        data={"raw_b64": _targets_tsv_b64(), "base_editor": "ABE8e"},
     ).json()
     for _ in range(40):
         s = client.get("/status", params={"job_id": submit["job_id"]}).json()

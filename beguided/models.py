@@ -5,8 +5,8 @@ import re
 
 
 @dataclass
-class PresetConfig:
-    """Configuration for a single base editor preset on a specific strand."""
+class BaseEditorConfig:
+    """Configuration for a single base editor profile on a specific strand."""
 
     name: str
     pam_pattern: str
@@ -37,7 +37,7 @@ class GuideResult:
     editing_position: int
     strand_used: str
     bystander_positions: str = ""
-    be_preset: str = ""
+    base_editor: str = ""
     genomic_context_upstream: str = ""
     genomic_context_downstream: str = ""
     guide_score: Optional[float] = None
@@ -61,7 +61,7 @@ CORE_COLUMN_ORDER = [
     "desired_base",
     "genome_base",
     "gene_edit_desired",
-    "be_preset",
+    "base_editor",
     "guide_rna_sequence",
     "pam_sequence",
     "strand_used",

@@ -6,9 +6,9 @@ import pytest
 
 from beguided.editing.presets import (
     pam_to_regex,
-    load_presets,
-    get_available_preset_names,
-    get_preset_names_by_type,
+    load_base_editor_profiles,
+    get_available_base_editor_names,
+    get_base_editor_names_by_type,
     get_supported_editor_keys,
     filter_compatible_targets,
 )
@@ -69,24 +69,24 @@ class TestLoadPresets:
     def test_load_valid_presets(self, tmp_path, valid_preset_tsv):
         preset_file = tmp_path / "valid_presets.tsv"
         preset_file.write_text(valid_preset_tsv)
-        presets = load_presets(str(preset_file))
+        profiles = load_base_editor_profiles(str(preset_file))
 
-        assert ("A", "G") in presets
-        assert ("T", "C") in presets
-        assert "ABE8e" in presets[("A", "G")]
-        assert "ABE8e" in presets[("T", "C")]
+        assert ("A", "G") in profiles
+        assert ("T", "C") in profiles
+        assert "ABE8e" in profiles[("A", "G")]
+        assert "ABE8e" in profiles[("T", "C")]
 
     def test_sense_antisense_pair_generation(self, tmp_path, valid_preset_tsv):
         preset_file = tmp_path / "valid_presets.tsv"
         preset_file.write_text(valid_preset_tsv)
-        presets = load_presets(str(preset_file))
+        profiles = load_base_editor_profiles(str(preset_file))
 
-        sense = presets[("A", "G")]["ABE8e"]
+        sense = profiles[("A", "G")]["ABE8e"]
         assert sense.strand == "+"
         assert sense.pam_pattern == "NGG"
         assert not sense.reverse_complement
 
-        antisense = presets[("T", "C")]["ABE8e"]
+        antisense = profiles[("T", "C")]["ABE8e"]
         assert antisense.strand == "-"
         assert antisense.pam_pattern == "CCN"
         assert antisense.reverse_complement
@@ -94,8 +94,8 @@ class TestLoadPresets:
     def test_preset_parameters_loaded(self, tmp_path, valid_preset_tsv):
         preset_file = tmp_path / "valid_presets.tsv"
         preset_file.write_text(valid_preset_tsv)
-        presets = load_presets(str(preset_file))
-        abe8e = presets[("A", "G")]["ABE8e"]
+        profiles = load_base_editor_profiles(str(preset_file))
+        abe8e = profiles[("A", "G")]["ABE8e"]
 
         assert abe8e.high_edit_start == 3
         assert abe8e.high_edit_end == 8
@@ -107,22 +107,22 @@ class TestLoadPresets:
         preset_file = tmp_path / "duplicate_presets.tsv"
         preset_file.write_text(duplicate_preset_tsv)
         with pytest.raises(ValueError) as exc_info:
-            load_presets(str(preset_file))
-        assert "Duplicate preset names" in str(exc_info.value)
+            load_base_editor_profiles(str(preset_file))
+        assert "Duplicate base editor names" in str(exc_info.value)
         assert "ABE8e" in str(exc_info.value)
 
     def test_missing_file(self):
         with pytest.raises(FileNotFoundError):
-            load_presets("nonexistent_file.tsv")
+            load_base_editor_profiles("nonexistent_file.tsv")
 
     def test_multiple_presets(self, tmp_path, valid_preset_tsv):
         preset_file = tmp_path / "valid_presets.tsv"
         preset_file.write_text(valid_preset_tsv)
-        presets = load_presets(str(preset_file))
+        profiles = load_base_editor_profiles(str(preset_file))
 
-        assert "ABE8e" in presets[("A", "G")]
-        assert "saABE8e" in presets[("A", "G")]
-        assert "ABE9" in presets[("A", "G")]
+        assert "ABE8e" in profiles[("A", "G")]
+        assert "saABE8e" in profiles[("A", "G")]
+        assert "ABE9" in profiles[("A", "G")]
 
 
 class TestSupportedEditorKeys:
@@ -131,9 +131,9 @@ class TestSupportedEditorKeys:
     def test_returns_sense_and_antisense_keys(self, tmp_path, valid_preset_tsv):
         preset_file = tmp_path / "valid_presets.tsv"
         preset_file.write_text(valid_preset_tsv)
-        presets = load_presets(str(preset_file))
+        profiles = load_base_editor_profiles(str(preset_file))
 
-        keys = get_supported_editor_keys(presets, ["ABE8e"])
+        keys = get_supported_editor_keys(profiles, ["ABE8e"])
         assert ("A", "G") in keys
         assert ("T", "C") in keys
         assert ("C", "T") not in keys
@@ -141,9 +141,9 @@ class TestSupportedEditorKeys:
     def test_subset_of_presets(self, tmp_path, valid_preset_tsv):
         preset_file = tmp_path / "valid_presets.tsv"
         preset_file.write_text(valid_preset_tsv)
-        presets = load_presets(str(preset_file))
+        profiles = load_base_editor_profiles(str(preset_file))
 
-        keys = get_supported_editor_keys(presets, ["saABE8e"])
+        keys = get_supported_editor_keys(profiles, ["saABE8e"])
         assert ("A", "G") in keys
         assert ("T", "C") in keys
         assert ("C", "T") not in keys
@@ -156,7 +156,7 @@ class TestFilterCompatibleTargets:
         import pandas as pd
         preset_file = tmp_path / "valid_presets.tsv"
         preset_file.write_text(valid_preset_tsv)
-        presets = load_presets(str(preset_file))
+        profiles = load_base_editor_profiles(str(preset_file))
 
         targets = pd.DataFrame({
             "chromosome": ["chr1", "chr1", "chr1"],
@@ -165,7 +165,7 @@ class TestFilterCompatibleTargets:
             "desired_base": ["G", "C", "T"],
         })
 
-        compatible, incompatible = filter_compatible_targets(targets, presets, ["ABE8e"])
+        compatible, incompatible = filter_compatible_targets(targets, profiles, ["ABE8e"])
         assert len(compatible) == 2
         assert len(incompatible) == 1
         assert list(compatible["target_base"]) == ["A", "T"]
@@ -175,7 +175,7 @@ class TestFilterCompatibleTargets:
         import pandas as pd
         preset_file = tmp_path / "valid_presets.tsv"
         preset_file.write_text(valid_preset_tsv)
-        presets = load_presets(str(preset_file))
+        profiles = load_base_editor_profiles(str(preset_file))
 
         targets = pd.DataFrame({
             "chromosome": ["chr1", "chr1"],
@@ -184,7 +184,7 @@ class TestFilterCompatibleTargets:
             "desired_base": ["G", "C"],
         })
 
-        compatible, incompatible = filter_compatible_targets(targets, presets, ["ABE8e"])
+        compatible, incompatible = filter_compatible_targets(targets, profiles, ["ABE8e"])
         assert len(compatible) == 2
         assert len(incompatible) == 0
 
@@ -192,61 +192,61 @@ class TestFilterCompatibleTargets:
         import pandas as pd
         preset_file = tmp_path / "valid_presets.tsv"
         preset_file.write_text(valid_preset_tsv)
-        presets = load_presets(str(preset_file))
+        profiles = load_base_editor_profiles(str(preset_file))
 
         targets = pd.DataFrame(columns=["chromosome", "position", "target_base", "desired_base"])
-        compatible, incompatible = filter_compatible_targets(targets, presets, ["ABE8e"])
+        compatible, incompatible = filter_compatible_targets(targets, profiles, ["ABE8e"])
         assert len(compatible) == 0
         assert len(incompatible) == 0
 
 
-class TestGetPresetNamesByType:
-    """Tests for get_preset_names_by_type."""
+class TestGetBaseEditorNamesByType:
+    """Tests for get_base_editor_names_by_type."""
 
     def test_classifies_abe_and_cbe(self, tmp_path, valid_preset_tsv):
         preset_file = tmp_path / "valid_presets.tsv"
         preset_file.write_text(valid_preset_tsv)
-        presets = load_presets(str(preset_file))
+        profiles = load_base_editor_profiles(str(preset_file))
 
-        type_map = get_preset_names_by_type(presets)
+        type_map = get_base_editor_names_by_type(profiles)
         assert "abe" in type_map
         assert "cbe" in type_map
         assert "ABE8e" in type_map["abe"]
         assert "saABE8e" in type_map["abe"]
         assert "ABE9" in type_map["abe"]
-        # valid_preset_tsv has no CBE presets, so cbe list should be empty
+        # valid_preset_tsv has no CBE profiles, so cbe list should be empty
         assert type_map["cbe"] == []
 
     def test_no_duplicate_names(self, tmp_path, valid_preset_tsv):
         preset_file = tmp_path / "valid_presets.tsv"
         preset_file.write_text(valid_preset_tsv)
-        presets = load_presets(str(preset_file))
+        profiles = load_base_editor_profiles(str(preset_file))
 
-        type_map = get_preset_names_by_type(presets)
+        type_map = get_base_editor_names_by_type(profiles)
         # Antisense variants (T->C) should NOT appear in the ABE list
         abe_set = set(type_map["abe"])
         assert len(type_map["abe"]) == len(abe_set)
 
 
-class TestResolvePresetNames:
-    """Tests for _resolve_preset_names in pipeline (via presets on presets)."""
+class TestResolveBaseEditorNames:
+    """Tests for _resolve_base_editor_names in pipeline (via profiles)."""
 
     def test_all_abes_expansion(self, tmp_path, valid_preset_tsv):
-        from beguided.pipeline import _resolve_preset_names
+        from beguided.pipeline import _resolve_base_editor_names
         preset_file = tmp_path / "valid_presets.tsv"
         preset_file.write_text(valid_preset_tsv)
-        presets = load_presets(str(preset_file))
+        profiles = load_base_editor_profiles(str(preset_file))
 
-        names = _resolve_preset_names(presets, "all ABEs")
+        names = _resolve_base_editor_names(profiles, "all ABEs")
         assert "ABE8e" in names
         assert "saABE8e" in names
         assert "ABE9" in names
 
     def test_all_cbes_empty_when_no_cbe_presets(self, tmp_path, valid_preset_tsv):
-        from beguided.pipeline import _resolve_preset_names
+        from beguided.pipeline import _resolve_base_editor_names
         preset_file = tmp_path / "valid_presets.tsv"
         preset_file.write_text(valid_preset_tsv)
-        presets = load_presets(str(preset_file))
+        profiles = load_base_editor_profiles(str(preset_file))
 
-        names = _resolve_preset_names(presets, "all CBEs")
+        names = _resolve_base_editor_names(profiles, "all CBEs")
         assert names == []

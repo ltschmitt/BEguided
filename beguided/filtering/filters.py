@@ -52,7 +52,7 @@ def load_filter_criteria(config_file=None, mode=None, guide_score_threshold=None
 def _apply_threshold(df, threshold):
     """Remove guides with guide_score < threshold.
 
-    Guides without a score (NaN) are kept so that non-20-nt presets or
+    Guides without a score (NaN) are kept so that non-20-nt base editors or
     pre-existing data are not silently discarded.
     """
     if "guide_score" not in df.columns:

@@ -2,7 +2,7 @@
 
 // DOM elements
 const fileInput = document.getElementById("fileInput");
-const presetSelect = document.getElementById("presetSelect");
+const baseEditorSelect = document.getElementById("baseEditorSelect");
 const runBtn = document.getElementById("runBtn");
 const cancelBtn = document.getElementById("cancelBtn");
 const statusBadge = document.getElementById("statusBadge");
@@ -46,9 +46,9 @@ let pollHandle = null;
 let genomePollHandle = null;
 let gtfPollHandle = null;
 let currentRecords = [];
-let matchedPresetCount = 0;
+let matchedBaseEditorCount = 0;
 
-// Fetch server config + preset table on load (BEguidedOFF availability, scheduler limits)
+// Fetch server config + base editor table on load (BEguidedOFF availability, scheduler limits)
 (async function init() {
     try {
         const res = await fetch("/config");
@@ -77,24 +77,24 @@ let matchedPresetCount = 0;
     } catch (err) {
         console.warn("Failed to fetch gtf status:", err);
     }
-    // Load the condensed preset table for the Guide tab.
+    // Load the condensed base editor table for the Guide tab.
     try {
-        const res = await fetch("/preset-table");
+        const res = await fetch("/base-editor-table");
         const data = await res.json();
-        const container = document.getElementById("presetTableContainer");
+        const container = document.getElementById("baseEditorTableContainer");
         if (data.ok && container) {
-            container.innerHTML = renderPresetTable(data.rows);
+            container.innerHTML = renderBaseEditorTable(data.rows);
         } else if (container) {
             container.innerHTML =
                 `<p style="color:var(--danger);">` +
-                `Failed to load presets: ${escapeHtml(data.error || "unknown error")}` +
+                `Failed to load base editor profiles: ${escapeHtml(data.error || "unknown error")}` +
                 `</p>`;
         }
     } catch (err) {
-        const container = document.getElementById("presetTableContainer");
+        const container = document.getElementById("baseEditorTableContainer");
         if (container) {
             container.innerHTML =
-                `<p style="color:var(--danger);">Failed to load presets: ${escapeHtml(String(err))}</p>`;
+                `<p style="color:var(--danger);">Failed to load base editor profiles: ${escapeHtml(String(err))}</p>`;
         }
     }
 })();
@@ -211,8 +211,8 @@ async function refreshGtfStatus() {
     }
 
     if (data.status === "ready") {
-        const chromCount = data.chromosome_count || 0;
-        badge.textContent = `gtf: ready (${chromCount} chrom)`;
+        const label = (data.label || "").trim();
+        badge.textContent = label ? `gtf: ${label}` : "gtf: ready";
         badge.className = "badge ready";
         badge.title = data.path || "";
         if (gtfPollHandle) {
@@ -279,7 +279,7 @@ function setMode(mode) {
     // irrelevant for sequence input and vice-versa.
     uploadedRawB64 = null;
     customGenomeB64 = null;
-    matchedPresetCount = 0;
+    matchedBaseEditorCount = 0;
     runBtn.disabled = true;
     compatibilityInfo.textContent = "";
     checkAlert.style.display = "none";
@@ -298,7 +298,7 @@ async function runCompatibilityCheck() {
     if (!uploadedRawB64) return;
     const form = new FormData();
     form.append("raw_b64", uploadedRawB64);
-    form.append("preset", presetSelect.value);
+    form.append("base_editor", baseEditorSelect.value);
     try {
         const res = await fetch("/check", { method: "POST", body: form });
         const data = await res.json();
@@ -306,19 +306,19 @@ async function runCompatibilityCheck() {
 
         if (data.can_run) {
             checkAlert.style.display = "none";
-            compatibilityInfo.textContent = `${data.matched}/${data.total} targets match preset(s)`;
+            compatibilityInfo.textContent = `${data.matched}/${data.total} targets match the selected base editor profile(s)`;
             compatibilityInfo.style.color = "var(--success)";
-            matchedPresetCount = data.matched;
+            matchedBaseEditorCount = data.matched;
             runBtn.disabled = false;
         } else {
             showAlert(checkAlert, "error",
-                `${data.mismatched}/${data.total} target(s) do not match the selected presets. ` +
-                `Supported types: ${data.preset_types.join(", ")}. ` +
-                `Please choose a different preset or fix your input.`
+                `${data.mismatched}/${data.total} target(s) do not match the selected base editor profile(s). ` +
+                `Supported types: ${data.editor_types.join(", ")}. ` +
+                `Please choose a different profile or fix your input.`
             );
-            compatibilityInfo.textContent = `${data.matched}/${data.total} targets match preset(s)`;
+            compatibilityInfo.textContent = `${data.matched}/${data.total} targets match the selected base editor profile(s)`;
             compatibilityInfo.style.color = "var(--danger)";
-            matchedPresetCount = data.matched;
+            matchedBaseEditorCount = data.matched;
             runBtn.disabled = true;
         }
     } catch (err) {
@@ -334,7 +334,7 @@ async function parseSequences() {
     if (!text.trim()) {
         showAlert(inputAlert, "error", "Paste at least one sequence.");
         runBtn.disabled = true;
-        matchedPresetCount = 0;
+        matchedBaseEditorCount = 0;
         compatibilityInfo.textContent = "";
         checkAlert.style.display = "none";
         inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">Paste sequences first.</p>`;
@@ -361,7 +361,7 @@ async function parseSequences() {
         showAlert(inputAlert, "error", data.error);
         uploadedRawB64 = null;
         customGenomeB64 = null;
-        matchedPresetCount = 0;
+        matchedBaseEditorCount = 0;
         runBtn.disabled = true;
         compatibilityInfo.textContent = "";
         checkAlert.style.display = "none";
@@ -405,7 +405,7 @@ fileInput.addEventListener("change", async () => {
     if (!data.ok) {
         showAlert(inputAlert, "error", data.error);
         uploadedRawB64 = null;
-        matchedPresetCount = 0;
+        matchedBaseEditorCount = 0;
         runBtn.disabled = true;
         compatibilityInfo.textContent = "";
         checkAlert.style.display = "none";
@@ -421,8 +421,8 @@ fileInput.addEventListener("change", async () => {
     switchTab("inputTab");
 });
 
-// Re-check when preset changes
-presetSelect.addEventListener("change", async () => {
+// Re-check when base editor selection changes
+baseEditorSelect.addEventListener("change", async () => {
     if (uploadedRawB64) {
         await runCompatibilityCheck();
     }
@@ -468,7 +468,7 @@ runBtn.addEventListener("click", async () => {
 
     const form = new FormData();
     form.append("raw_b64", uploadedRawB64);
-    form.append("preset", presetSelect.value);
+    form.append("base_editor", baseEditorSelect.value);
     form.append("mode", currentMode);
     if (currentMode === "sequence") {
         form.append("custom_genome_b64", customGenomeB64 || "");
@@ -642,9 +642,9 @@ function displayColumnName(name) {
     return name.replace(/_/g, " ");
 }
 
-function renderPresetTable(rows) {
+function renderBaseEditorTable(rows) {
     if (!rows || rows.length === 0) {
-        return `<p style="color:var(--muted);">No presets available.</p>`;
+        return `<p style="color:var(--muted);">No base editor profiles available.</p>`;
     }
     const cols = ["name", "editing", "general", "high", "pam", "cas"];
     const labels = {
@@ -756,7 +756,7 @@ async function fetchResults(jobId) {
         ).size;
         resultsGuideStatus.innerHTML =
             `Found guides for ` +
-            `<span class="results-guide-count">${foundTargets}/${matchedPresetCount}</span> ` +
+            `<span class="results-guide-count">${foundTargets}/${matchedBaseEditorCount}</span> ` +
             `targets with the selected base editors`;
         resultsGuideStatus.style.display = "block";
     }
@@ -863,8 +863,8 @@ function setSummaryPlaceholder(visible, text) {
     }
 }
 
-// Pivoted per-preset summary of distinct targets visible under the current
-// filters. Two rows: the top header row holds the be_preset names with
+// Pivoted per-base-editor summary of distinct targets visible under the current
+// filters. Two rows: the top header row holds the base_editor names with
 // "all" first, the second row holds the corresponding count of distinct
 // (chromosome, position) targets.
 function renderResultsSummary(filtered) {
@@ -876,32 +876,32 @@ function renderResultsSummary(filtered) {
         return;
     }
 
-    const perPreset = new Map();
+    const perBaseEditor = new Map();
     const allTargets = new Set();
     for (const row of filtered) {
-        const preset = (row.be_preset ?? "").toString() || "(unknown)";
+        const baseEditor = (row.base_editor ?? "").toString() || "(unknown)";
         const key = `${row.chromosome ?? ""}__${row.position ?? ""}`;
-        if (!perPreset.has(preset)) perPreset.set(preset, new Set());
-        perPreset.get(preset).add(key);
+        if (!perBaseEditor.has(baseEditor)) perBaseEditor.set(baseEditor, new Set());
+        perBaseEditor.get(baseEditor).add(key);
         allTargets.add(key);
     }
 
-    const presets = [...perPreset.keys()].sort((a, b) => {
+    const baseEditors = [...perBaseEditor.keys()].sort((a, b) => {
         if (a === "(unknown)") return 1;
         if (b === "(unknown)") return -1;
         return a.localeCompare(b);
     });
 
     let html = `<table class="data-table summary-table"><thead><tr>`;
-    html += `<th>${escapeHtml(displayColumnName("be_preset"))}</th><th>all</th>`;
-    for (const p of presets) {
-        html += `<th>${escapeHtml(p)}</th>`;
+    html += `<th>${escapeHtml(displayColumnName("base_editor"))}</th><th>all</th>`;
+    for (const be of baseEditors) {
+        html += `<th>${escapeHtml(be)}</th>`;
     }
     html += `</tr></thead><tbody>`;
     html += `<tr><th scope="row">targets</th>`;
     html += `<td>${allTargets.size}</td>`;
-    for (const p of presets) {
-        html += `<td>${perPreset.get(p).size}</td>`;
+    for (const be of baseEditors) {
+        html += `<td>${perBaseEditor.get(be).size}</td>`;
     }
     html += `</tr></tbody></table>`;
 

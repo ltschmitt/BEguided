@@ -253,7 +253,7 @@ body {
     margin-top: 16px;
 }
 
-/* Compact preset/target summary card between toolbar and results table */
+/* Compact base editor / target summary card between toolbar and results table */
 .results-summary {
     max-height: 180px;
     overflow: auto;
@@ -586,7 +586,7 @@ body {
     margin-bottom: 4px;
 }
 
-#presetTableContainer {
+#baseEditorTableContainer {
     margin-top: 12px;
     max-height: 360px;
     overflow: auto;

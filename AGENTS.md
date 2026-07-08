@@ -12,14 +12,14 @@ BEguided is a Python package for generating Cas9 base editor guide RNA sequences
 beguided/                  # Main package
 ├── cli.py                   # Single CLI entry with argparse subcommands
 ├── pipeline.py              # Pipeline orchestrator (function calls, no subprocess)
-├── models.py                # Shared dataclasses (PresetConfig, GuideResult, etc.)
+├── models.py                # Shared dataclasses (BaseEditorConfig, GuideResult, etc.)
 ├── genome/                  # Shared genome I/O and sequence operations
 │   ├── io.py                # FASTA loading
 │   ├── sequence.py          # Reverse complement, mutation helpers
 │   ├── coordinates.py       # Coordinate math (0-based vs 1-based)
 │   └── context.py           # Genomic region reconstruction
 ├── editing/                 # Core base-editing logic
-│   ├── presets.py           # Preset loading, PAM regex, validation
+│   ├── presets.py           # Base editor profile loading, PAM regex, validation
 │   ├── search.py            # PAM regex search
 │   └── mutations.py         # Editing simulation, bystander detection
 ├── guidefinder/             # Step 1: Guide generation
@@ -34,7 +34,7 @@ beguided/                  # Main package
 │   └── filters.py           # Guide filtering logic
 └── web/                     # FastAPI web interface
     ├── app.py               # FastAPI routes
-    ├── config.py            # Web config and preset groups
+    ├── config.py            # Web config and base editor groups
     ├── sse_logger.py        # SSE log streaming handler
     ├── tasks.py             # Async pipeline task wrapper
     ├── sequence_input.py    # Sequence-mode parser ([X>Y] bracket syntax)
@@ -73,7 +73,7 @@ python -m beguided.cli guidefinder \
     --input sample_targets.tsv \
     --output results.tsv \
     --genome sample_genome.fasta \
-    --presets ABE8e
+    --base-editors ABE8e
 ```
 
 ### Single CLI with Subcommands
@@ -84,7 +84,7 @@ beguided bystander       --input ... --genome ... --gtf-annotation ... --output 
 beguided filter          --input ... --output ... --mode no_bystanders
 beguided run-pipeline    --config config.yaml [--from-step 3]
 beguided web             [--host 0.0.0.0] [--port 8000] [--reload] \
-                         [--presets-file ...] [--genome-fasta ...] \
+                         [--base-editor-profiles-file ...] [--genome-fasta ...] \
                          [--gtf-path ...] [--beguidedoff-genome ...] \
                          [--preload-genome | --no-preload-genome] \
                          [--preload-gtf | --no-preload-gtf] \
@@ -201,13 +201,13 @@ python -m pytest tests/test_editing/test_presets.py::TestPAMToRegex -v
 1. Use sample files to verify output
 2. Test edge cases (chromosome not found, no valid PAMs)
 3. Verify both A→G and T→C conversions
-4. Test with different presets
+4. Test with different base editor profiles
 
 ### Test Fixtures
 - `tests/fixtures/sample_targets.tsv`: Small test input
 - `tests/fixtures/sample_genome.fasta`: Test genome
 - `tests/fixtures/mini_genome.npz`: BEguidedOFF-encoded mini genome for off-target tests
-- `be_presets.tsv`: Base editor preset configurations
+- `base_editor_profiles.tsv`: Base editor profile configurations
 
 ## Important Implementation Details
 
@@ -282,12 +282,12 @@ Both back the `run_pipeline(..., genome=..., interval_trees=...)` kwargs in `beg
 
 - FastAPI-based, started via `beguided web`
 - Config via CLI flags (override env variables):
-  - `--presets-file`
+  - `--base-editor-profiles-file`
   - `--genome-fasta`
   - `--gtf-path`
   - `--beguidedoff-genome`
 - Or via environment variables:
-  - `BEGUIDED_PRESETS_FILE`
+  - `BEGUIDED_BASE_EDITOR_PROFILES_FILE`
   - `BEGUIDED_GENOME_FASTA`
   - `BEGUIDED_GTF_PATH`
   - `BEGUIDED_BEGUIDEDOFF_GENOME`
@@ -305,7 +305,7 @@ The web UI has two input modes, switched at the top of the page:
   A→G edit.
 
 Accepted bracket directions: `[A>G]`, `[T>C]`, `[C>T]`, `[G>A]`
-(the four directions actually supported by BEguided presets including
+(the four directions actually supported by BEguided base editor profiles including
 sense + antisense complement). Anything else (including IUPAC codes
 inside the bracket) is rejected.
 
