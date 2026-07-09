@@ -40,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy source and install BEguided (core only)
 COPY pyproject.toml README.md ./
 COPY beguided/ ./beguided/
+COPY base_editor_profiles.tsv ./
 RUN pip install --no-cache-dir -e "."
 
 # Create directories for user-provided data
@@ -55,6 +56,7 @@ CMD ["--help"]
 FROM base AS web
 
 RUN pip install --no-cache-dir -e ".[web]"
+RUN mkdir -p /var/lib/beguided
 
 ENV PYTHONUNBUFFERED=1
 ENV BEGUIDED_BASE_EDITOR_PROFILES_FILE=/app/base_editor_profiles.tsv
@@ -120,6 +122,7 @@ FROM base-gpu AS cli-cuda
 FROM base-gpu AS web-cuda
 
 RUN pip install --no-cache-dir -e ".[web]"
+RUN mkdir -p /var/lib/beguided
 
 ENV PYTHONUNBUFFERED=1
 ENV BEGUIDED_BASE_EDITOR_PROFILES_FILE=/app/base_editor_profiles.tsv

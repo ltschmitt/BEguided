@@ -1,0 +1,66 @@
+# BEguided web server — CPU (no CUDA).
+#
+# Build the `web` target from the repo Dockerfile and run the FastAPI server
+# on http://localhost:8000.
+#
+# Usage:
+#   docker compose build
+#   docker compose up -d
+#   docker compose logs -f web
+#   docker compose down
+#
+# Configuration via `.env` (or shell env):
+#   GENOME_HOST_DIR  Host directory with the reference FASTA + GTF
+#                    (default: ./genome). Set this to your real reference
+#                    directory if `./genome` is a symlink farm — bind mounts
+#                    do not follow symlinks to paths outside the mount source.
+#   PORT             Host port to publish (default: 8000).
+#   BEGUIDED_GENOME_LABEL  Display label shown in the UI (default: GRCh38.112).
+#
+# Off-target search is intentionally disabled (BEGUIDED_BEGUIDEDOFF_GENOME=""
+# and the CPU web image does not install BEguidedOFF). The UI's off-target
+# checkbox will surface a clear error if enabled.
+#
+# Scheduler knobs (queue_max, cooldown, upload cap) are NOT read from env by
+# beguided.web.config.WebConfig — they are passed as CLI args in `command:`
+# below. To change them, edit the `command:` block.
+
+services:
+  web:
+    build:
+      context: .
+      target: web
+    image: beguided:web
+    container_name: beguided-web
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - "${GENOME_HOST_DIR:-./genome}:/app/genome:ro"
+      - beguided-jobs:/var/lib/beguided
+    environment:
+      PYTHONUNBUFFERED: "1"
+      BEGUIDED_BASE_EDITOR_PROFILES_FILE: /app/base_editor_profiles.tsv
+      BEGUIDED_GENOME_FASTA: /app/genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa
+      BEGUIDED_GTF_PATH: /app/genome/Homo_sapiens.GRCh38.112.gtf
+      BEGUIDED_BEGUIDEDOFF_GENOME: ""
+      BEGUIDED_DB_PATH: /var/lib/beguided/jobs.db
+      BEGUIDED_PRELOAD_GENOME: "true"
+      BEGUIDED_PRELOAD_GTF: "true"
+      BEGUIDED_GENOME_LABEL: "${BEGUIDED_GENOME_LABEL:-GRCh38.112}"
+    command:
+      - beguided
+      - web
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --queue-max
+      - "8"
+      - --cooldown-seconds
+      - "15"
+      - --max-upload-mb
+      - "2"
+    restart: unless-stopped
+
+volumes:
+  beguided-jobs:

@@ -13,5 +13,6 @@ __pycache__/
 results*
 config.yaml
 run_web.sh
+.env
 pixi.lock
 beguided.egg-info/*
