@@ -63,6 +63,9 @@ class WebConfig:
     preload_gtf: bool = field(
         default_factory=lambda: _env_bool("BEGUIDED_PRELOAD_GTF", True)
     )
+    default_base_editor_profiles_file: str = ""
+    max_profile_upload_mb: int = 1
+
     # Scheduler / safety knobs
     db_path: str = field(
         default_factory=lambda: os.getenv("BEGUIDED_DB_PATH", "/var/lib/beguided/jobs.db")
@@ -88,6 +91,8 @@ _config: WebConfig = WebConfig()
 def set_config(cfg: WebConfig) -> None:
     """Override the global web config singleton."""
     global _config
+    if not cfg.default_base_editor_profiles_file:
+        cfg.default_base_editor_profiles_file = cfg.base_editor_profiles_file
     _config = cfg
 
 

@@ -35,6 +35,10 @@ const spreadsheetPanel = document.getElementById("spreadsheetPanel");
 const sequencePanel = document.getElementById("sequencePanel");
 const sequenceInput = document.getElementById("sequenceInput");
 const parseSequenceBtn = document.getElementById("parseSequenceBtn");
+const profilesUpload = document.getElementById("profilesUpload");
+const profilesAlert = document.getElementById("profilesAlert");
+const profilesSource = document.getElementById("profilesSource");
+const profilesTableContainer = document.getElementById("profilesTableContainer");
 
 let currentMode = "spreadsheet";
 let uploadedRawB64 = null;
@@ -47,6 +51,11 @@ let genomePollHandle = null;
 let gtfPollHandle = null;
 let currentRecords = [];
 let matchedBaseEditorCount = 0;
+let customEditorKey = "custom";
+let customEditorLabel = "Custom (uploaded)";
+let customProfilesLoaded = false;
+let lastProfilesTableSource = null;
+let lastValidBaseEditorValue = null;
 
 // Fetch server config + base editor table on load (BEguidedOFF availability, scheduler limits)
 (async function init() {
@@ -77,26 +86,13 @@ let matchedBaseEditorCount = 0;
     } catch (err) {
         console.warn("Failed to fetch gtf status:", err);
     }
-    // Load the condensed base editor table for the Guide tab.
+    // Hydrate the custom profiles state and render the Base Editors table.
     try {
-        const res = await fetch("/base-editor-table");
-        const data = await res.json();
-        const container = document.getElementById("baseEditorTableContainer");
-        if (data.ok && container) {
-            container.innerHTML = renderBaseEditorTable(data.rows);
-        } else if (container) {
-            container.innerHTML =
-                `<p style="color:var(--danger);">` +
-                `Failed to load base editor profiles: ${escapeHtml(data.error || "unknown error")}` +
-                `</p>`;
-        }
+        await refreshProfilesStatus({ keepDropdownValue: true });
     } catch (err) {
-        const container = document.getElementById("baseEditorTableContainer");
-        if (container) {
-            container.innerHTML =
-                `<p style="color:var(--danger);">Failed to load base editor profiles: ${escapeHtml(String(err))}</p>`;
-        }
+        console.warn("Failed to fetch profiles status:", err);
     }
+    await refreshProfilesTable();
 })();
 
 // Toast helper for transient errors (429, 503, network).
@@ -423,9 +419,15 @@ fileInput.addEventListener("change", async () => {
 
 // Re-check when base editor selection changes
 baseEditorSelect.addEventListener("change", async () => {
+    if (baseEditorSelect.value === customEditorKey && !customProfilesLoaded) {
+        showToast("error", "Upload a custom profiles TSV before selecting 'Custom (uploaded)'.");
+        baseEditorSelect.value = lastValidBaseEditorValue || "all";
+    }
+    lastValidBaseEditorValue = baseEditorSelect.value;
     if (uploadedRawB64) {
         await runCompatibilityCheck();
     }
+    await refreshProfilesTable();
 });
 
 // Run pipeline
@@ -670,6 +672,149 @@ function renderBaseEditorTable(rows) {
     });
     html += `</tbody></table>`;
     return html;
+}
+
+function activeProfilesSource() {
+    if (baseEditorSelect.value === customEditorKey && customProfilesLoaded) {
+        return "custom";
+    }
+    return "default";
+}
+
+async function refreshProfilesStatus(opts = {}) {
+    const keepValue = opts.keepDropdownValue === true;
+    let data;
+    try {
+        const res = await fetch("/base-editor-profiles/status");
+        data = await res.json();
+    } catch (err) {
+        profilesAlert.style.display = "block";
+        profilesAlert.className = "alert error";
+        profilesAlert.textContent = `Failed to fetch profiles status: ${err}`;
+        return;
+    }
+
+    if (!data.ok) return;
+
+    customEditorKey = data.key || customEditorKey;
+    customEditorLabel = data.label || customEditorLabel;
+    customProfilesLoaded = !!data.loaded;
+
+    const existingCustom = baseEditorSelect.querySelector(
+        `option[value="${customEditorKey}"]`
+    );
+    if (customProfilesLoaded && !existingCustom) {
+        const opt = document.createElement("option");
+        opt.value = customEditorKey;
+        opt.textContent = customEditorLabel;
+        baseEditorSelect.insertBefore(opt, baseEditorSelect.firstChild);
+    } else if (!customProfilesLoaded && existingCustom) {
+        existingCustom.remove();
+        if (baseEditorSelect.value === customEditorKey) {
+            baseEditorSelect.value = "all";
+            lastValidBaseEditorValue = "all";
+        }
+    }
+
+    if (
+        customProfilesLoaded &&
+        !keepValue &&
+        baseEditorSelect.value !== customEditorKey
+    ) {
+        baseEditorSelect.value = customEditorKey;
+    }
+    if (baseEditorSelect.value !== customEditorKey) {
+        lastValidBaseEditorValue = baseEditorSelect.value;
+    }
+}
+
+async function refreshProfilesTable() {
+    const source = activeProfilesSource();
+    if (lastProfilesTableSource === source) return;
+    let data;
+    try {
+        const res = await fetch(
+            `/base-editor-table?source=${encodeURIComponent(source)}`
+        );
+        data = await res.json();
+    } catch (err) {
+        profilesTableContainer.innerHTML =
+            `<p style="color:var(--danger);">Failed to load base editor profiles: ${escapeHtml(String(err))}</p>`;
+        return;
+    }
+    if (data.ok) {
+        profilesTableContainer.innerHTML = renderBaseEditorTable(data.rows);
+    } else {
+        profilesTableContainer.innerHTML =
+            `<p style="color:var(--danger);">Failed to load base editor profiles: ${escapeHtml(data.error || "unknown error")}</p>`;
+    }
+    profilesSource.textContent =
+        source === "custom"
+            ? `Source: ${customEditorLabel} (${data.rows.length} profiles)`
+            : `Source: default (${data.rows.length} profiles)`;
+    lastProfilesTableSource = source;
+}
+
+function showProfilesAlert(kind, msg) {
+    profilesAlert.style.display = "block";
+    profilesAlert.className = "alert " + kind;
+    profilesAlert.textContent = msg;
+}
+
+function hideProfilesAlert() {
+    profilesAlert.style.display = "none";
+    profilesAlert.textContent = "";
+}
+
+if (profilesUpload) {
+    profilesUpload.addEventListener("change", async () => {
+        const file = profilesUpload.files[0];
+        if (!file) return;
+        const form = new FormData();
+        form.append("file", file);
+
+        let res, data;
+        try {
+            res = await fetch("/base-editor-profiles/upload", {
+                method: "POST",
+                body: form,
+            });
+            data = await res.json();
+        } catch (err) {
+            showProfilesAlert("error", `Upload failed: ${err}`);
+            profilesUpload.value = "";
+            return;
+        }
+
+        if (res.status === 413) {
+            showProfilesAlert("error", data.error || "File too large.");
+            profilesUpload.value = "";
+            return;
+        }
+
+        if (!data.ok) {
+            showProfilesAlert("error", data.error);
+            profilesUpload.value = "";
+            return;
+        }
+
+        hideProfilesAlert();
+        showProfilesAlert(
+            "success",
+            `Loaded ${data.count} profile(s). Selecting "${customEditorLabel}" in the Base Editors dropdown.`
+        );
+
+        lastProfilesTableSource = null;
+        await refreshProfilesStatus({ keepDropdownValue: false });
+        await refreshProfilesTable();
+
+        if (uploadedRawB64) {
+            await runCompatibilityCheck();
+        }
+
+        profilesUpload.value = "";
+        switchTab("baseEditorTab");
+    });
 }
 
 // SSE log streaming

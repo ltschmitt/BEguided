@@ -53,6 +53,8 @@ class StubRunner:
         passthrough_extras=False,
         mode="spreadsheet",
         custom_genome_b64=None,
+        use_custom_profiles=False,
+        custom_profiles_b64=None,
     ):
         with self._lock:
             self._counter += 1

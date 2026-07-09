@@ -60,6 +60,7 @@
 
 <div class="tabs">
     <button class="tab-button active" data-tab="guideTab">Guide</button>
+    <button class="tab-button" data-tab="baseEditorTab">Base Editors</button>
     <button class="tab-button" data-tab="inputTab">Input</button>
     <button class="tab-button" data-tab="logTab">Logging</button>
     <button class="tab-button" data-tab="resultsTab">Results</button>
@@ -134,11 +135,42 @@
             of the guide, where the base editor is active.
             <em>General</em> = the full window where some editing occurs;
             <em>High-activity</em> = the narrower window where editing is most
-            efficient.
+            efficient. The full profile table lives on the
+            <em>Base Editors</em> tab, where you can also upload a custom
+            profiles TSV.
         </p>
-        <div id="baseEditorTableContainer">
+    </div>
+</div>
+
+<div id="baseEditorTab" class="tab-panel">
+    <div class="panel">
+        <h2 style="margin-top:0;">Base editor profiles</h2>
+        <p style="color:var(--muted);">
+            The profiles currently in use are shown below. Uploading a custom
+            TSV replaces the active profiles for the lifetime of this server.
+        </p>
+
+        <div class="group">
+            <label for="profilesUpload">Upload custom profiles (TSV)</label>
+            <input type="file" id="profilesUpload" accept=".tsv" />
+            <a id="downloadProfiles" class="btn btn-secondary" href="/base-editor-profiles/download" download>Download default profiles</a>
+        </div>
+
+        <div id="profilesAlert" class="alert info" style="display:none;"></div>
+        <div id="profilesSource" class="muted" style="margin: 8px 0;">Source: default</div>
+
+        <div id="profilesTableContainer">
             <p style="color:var(--muted);">Loading base editor profiles&hellip;</p>
         </div>
+
+        <p style="color:var(--muted); font-size:12px; margin-top:12px;">
+            Constraints for uploads: TSV with the columns
+            <code>name</code>, <code>editing</code>,
+            <code>general_edit_start</code>, <code>general_edit_end</code>,
+            <code>high_edit_start</code>, <code>high_edit_end</code>,
+            <code>pam</code>; at most 10 profiles; PAM at most 6 bases;
+            file size at most 1&nbsp;MB.
+        </p>
     </div>
 </div>
 

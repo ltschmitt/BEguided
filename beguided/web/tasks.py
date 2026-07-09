@@ -34,6 +34,8 @@ def _build_config(
     passthrough_extras: bool = False,
     genome_fasta: Optional[str] = None,
     skip_bystander: bool = False,
+    use_custom_profiles: bool = False,
+    custom_profiles_b64: Optional[str] = None,
 ) -> dict:
     """Build a pipeline config dict from web UI parameters.
 
@@ -53,6 +55,12 @@ def _build_config(
         skip_bystander: When True, skip the bystander analysis step AND skip
             the bystander filter in step 3. Used by sequence-mode jobs
             (no GTF annotation available).
+        use_custom_profiles: When True, decode ``custom_profiles_b64`` and
+            write it to ``work_dir / custom_profiles.tsv``; that file replaces
+            the operator-configured default for this job and every profile it
+            contains is considered (via ``use_base_editors="all"``).
+        custom_profiles_b64: Base64-encoded TSV bytes of the user-uploaded
+            profiles. Required when ``use_custom_profiles`` is True.
 
     Returns:
         dict: Compatible with run_pipeline().
@@ -61,15 +69,28 @@ def _build_config(
     targets_path = Path(work_dir) / "targets.tsv"
     targets_df.to_csv(targets_path, sep="\t", index=False)
 
+    if use_custom_profiles:
+        if not custom_profiles_b64:
+            raise ValueError(
+                "use_custom_profiles=True requires custom_profiles_b64."
+            )
+        profiles_path = Path(work_dir) / "custom_profiles.tsv"
+        profiles_path.write_bytes(base64.b64decode(custom_profiles_b64))
+        profiles_file = str(profiles_path)
+        use_base_editors = "all"
+    else:
+        profiles_file = cfg.base_editor_profiles_file
+        use_base_editors = ",".join(base_editor_names)
+
     return {
         "input": {
             "targets": str(targets_path),
             "genome": genome_fasta if genome_fasta is not None else cfg.genome_fasta,
-            "base_editor_profiles": cfg.base_editor_profiles_file,
+            "base_editor_profiles": profiles_file,
             "gff_file": cfg.gtf_path,
         },
         "output_prefix": str(work_dir),
-        "use_base_editors": ",".join(base_editor_names),
+        "use_base_editors": use_base_editors,
         "keep_bystanders": filter_mode,
         "guide_score_threshold": guide_score_threshold,
         "search_offtargets": search_offtargets,
@@ -137,6 +158,8 @@ def execute_job(
     passthrough_extras: bool = False,
     mode: str = "spreadsheet",
     custom_genome_b64: Optional[str] = None,
+    use_custom_profiles: bool = False,
+    custom_profiles_b64: Optional[str] = None,
 ) -> dict:
     """Run a single job synchronously. Called from the scheduler worker thread.
 
@@ -153,6 +176,11 @@ def execute_job(
             + off-target search off.
         custom_genome_b64: Base64-encoded FASTA text containing the user's
             sequences. Required when ``mode="sequence"``.
+        use_custom_profiles: When True, ``custom_profiles_b64`` is decoded
+            into ``work_dir / custom_profiles.tsv`` and used as the profiles
+            file for this job (with all profiles considered).
+        custom_profiles_b64: Base64-encoded profiles TSV. Required when
+            ``use_custom_profiles`` is True.
 
     Returns:
         dict with keys: job_id, status, message, records.
@@ -316,6 +344,8 @@ def execute_job(
             passthrough_extras,
             genome_fasta=custom_fasta_path,
             skip_bystander=skip_bystander,
+            use_custom_profiles=use_custom_profiles,
+            custom_profiles_b64=custom_profiles_b64,
         )
         final_output = Path(work_dir) / "beguided_results.tsv"
 

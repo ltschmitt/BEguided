@@ -24,6 +24,11 @@ from beguided.web.config import (
 )
 from beguided.editing.presets import load_base_editor_profiles, get_supported_editor_keys
 from beguided.web import genome_cache, gtf_cache
+from beguided.web.profiles_store import (
+    ProfilesUploadError,
+    get_store as get_profiles_store,
+    validate_uploaded_profiles,
+)
 from beguided.web.sequence_input import (
     SequenceParseError,
     parse_sequence_text,
@@ -49,6 +54,8 @@ logger = logging.getLogger("beguided.web.app")
 REQUIRED_COLUMNS = {"chromosome", "position", "target_base", "desired_base"}
 VALID_FILTER_MODES = ("all", "no_bystanders", "silent")
 VALID_INPUT_MODES = ("spreadsheet", "sequence")
+CUSTOM_EDITOR_KEY = "custom"
+CUSTOM_EDITOR_LABEL = "Custom (uploaded)"
 
 
 def _render_template(name, **kwargs) -> str:
@@ -71,6 +78,66 @@ def _decode_targets(raw_b64: str) -> pd.DataFrame:
         raise HTTPException(400, f"Failed to parse targets TSV: {exc}") from exc
     df.columns = df.columns.str.strip()
     return df
+
+
+def _load_profiles_for_check(base_editor: str):
+    """Resolve a base_editor dropdown value to (profiles, names, error_dict).
+
+    ``profiles`` is the result of ``load_base_editor_profiles``; ``names`` is
+    the list of editor names the user actually selected. On failure the
+    third element is a JSON error body and the first two are ``None``.
+    """
+    if base_editor == CUSTOM_EDITOR_KEY:
+        store = get_profiles_store()
+        if not store.is_loaded():
+            return None, None, {"ok": False, "error": "No custom profiles uploaded."}
+        content = store.get_bytes()
+        try:
+            profiles = load_base_editor_profiles(io.BytesIO(content))
+        except (ValueError, KeyError) as exc:
+            return None, None, {"ok": False, "error": f"Invalid custom profiles: {exc}"}
+        return profiles, store.names(), None
+
+    cfg = get_config()
+    groups = load_base_editor_groups()
+    if base_editor not in groups:
+        return None, None, {
+            "ok": False,
+            "error": f"Unknown base editor group: {base_editor!r}",
+        }
+    try:
+        profiles = load_base_editor_profiles(cfg.base_editor_profiles_file)
+    except (ValueError, KeyError) as exc:
+        return None, None, {"ok": False, "error": f"Failed to load profiles: {exc}"}
+    return profiles, groups[base_editor], None
+
+
+def _resolve_base_editor_for_run(base_editor: str):
+    """Resolve a base_editor dropdown value for a pipeline run.
+
+    Returns (payload_dict, error_dict). Exactly one is None.
+    """
+    if base_editor == CUSTOM_EDITOR_KEY:
+        store = get_profiles_store()
+        if not store.is_loaded():
+            return None, {"ok": False, "error": "No custom profiles uploaded."}
+        return {
+            "base_editor_names": store.names(),
+            "use_custom_profiles": True,
+            "custom_profiles_b64": store.get_b64(),
+        }, None
+
+    groups = load_base_editor_groups()
+    if base_editor not in groups:
+        return None, {
+            "ok": False,
+            "error": f"Unknown base editor group: {base_editor!r}",
+        }
+    return {
+        "base_editor_names": groups[base_editor],
+        "use_custom_profiles": False,
+        "custom_profiles_b64": None,
+    }, None
 
 
 def create_app() -> FastAPI:
@@ -186,15 +253,26 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/base-editor-table")
-    def base_editor_table() -> dict:
-        """Return a condensed view of the base editor profiles TSV for the Guide tab.
+    def base_editor_table(source: str = "default") -> dict:
+        """Return a condensed view of the base editor profiles TSV.
 
-        Merges general_edit_start/end into a ``general`` column and
-        high_edit_start/end into a ``high`` column, each formatted as
+        ``source=custom`` reads the in-memory uploaded TSV (rejected if no
+        upload has happened). Any other value reads the operator-configured
+        default file. Merges general_edit_start/end into a ``general`` column
+        and high_edit_start/end into a ``high`` column, each formatted as
         ``"start-end"``.
         """
         try:
-            df = pd.read_csv(get_config().base_editor_profiles_file, sep="\t")
+            if source == "custom":
+                store = get_profiles_store()
+                if not store.is_loaded():
+                    return {
+                        "ok": False,
+                        "error": "No custom profiles uploaded.",
+                    }
+                df = pd.read_csv(io.BytesIO(store.get_bytes()), sep="\t")
+            else:
+                df = pd.read_csv(get_config().base_editor_profiles_file, sep="\t")
         except Exception as exc:
             return {"ok": False, "error": f"Failed to load base editor profiles: {exc}"}
         rows = []
@@ -205,9 +283,76 @@ def create_app() -> FastAPI:
                 "general": f"{int(r['general_edit_start'])}-{int(r['general_edit_end'])}",
                 "high": f"{int(r['high_edit_start'])}-{int(r['high_edit_end'])}",
                 "pam": str(r["pam"]),
-                "cas": str(r["cas"]),
+                "cas": str(r.get("cas", "")),
             })
-        return {"ok": True, "rows": rows}
+        return {"ok": True, "rows": rows, "source": source}
+
+    @app.post("/base-editor-profiles/upload")
+    async def upload_profiles(file: UploadFile = File(...)) -> JSONResponse:
+        """Validate and store a custom base editor profiles TSV in memory."""
+        content = await file.read()
+        cfg = get_config()
+        try:
+            validate_uploaded_profiles(
+                content, cfg.max_profile_upload_mb * 1024 * 1024
+            )
+        except ProfilesUploadError as exc:
+            return JSONResponse(
+                {"ok": False, "error": str(exc)},
+                status_code=exc.status_code,
+            )
+
+        try:
+            load_base_editor_profiles(io.BytesIO(content))
+        except (ValueError, KeyError) as exc:
+            return JSONResponse(
+                {"ok": False, "error": f"Invalid profiles: {exc}"},
+                status_code=400,
+            )
+
+        store = get_profiles_store()
+        store.set(content)
+        names = store.names()
+        return JSONResponse({
+            "ok": True,
+            "names": names,
+            "count": len(names),
+            "label": CUSTOM_EDITOR_LABEL,
+            "key": CUSTOM_EDITOR_KEY,
+        })
+
+    @app.get("/base-editor-profiles/download")
+    def download_profiles() -> Response:
+        """Serve the operator-configured default profiles TSV."""
+        cfg = get_config()
+        path = cfg.default_base_editor_profiles_file or cfg.base_editor_profiles_file
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError as exc:
+            return PlainTextResponse(
+                f"Failed to read profiles: {exc}",
+                status_code=500,
+            )
+        return Response(
+            data,
+            media_type="text/tab-separated-values",
+            headers={
+                "Content-Disposition": "attachment; filename=base_editor_profiles.tsv"
+            },
+        )
+
+    @app.get("/base-editor-profiles/status")
+    def profiles_status() -> dict:
+        """Report whether custom profiles are loaded."""
+        store = get_profiles_store()
+        return {
+            "ok": True,
+            "loaded": store.is_loaded(),
+            "names": store.names(),
+            "label": CUSTOM_EDITOR_LABEL,
+            "key": CUSTOM_EDITOR_KEY,
+        }
 
     @app.post("/upload")
     async def upload(file: UploadFile = File(...)) -> dict:
@@ -325,10 +470,10 @@ def create_app() -> FastAPI:
         """Pre-run compatibility check: report target->base editor matching."""
         df = _decode_targets(raw_b64)
 
-        cfg = get_config()
-        groups = load_base_editor_groups()
-        base_editor_names = groups.get(base_editor, [base_editor])
-        profiles = load_base_editor_profiles(cfg.base_editor_profiles_file)
+        profiles, base_editor_names, error = _load_profiles_for_check(base_editor)
+        if error is not None:
+            return error
+
         expected_keys = get_supported_editor_keys(profiles, base_editor_names)
 
         matched = 0
@@ -387,13 +532,12 @@ def create_app() -> FastAPI:
 
         df = _decode_targets(raw_b64)
 
-        groups = load_base_editor_groups()
-        if base_editor not in groups:
-            return JSONResponse(
-                {"ok": False, "error": f"Unknown base editor group: {base_editor!r}"},
-                status_code=400,
-            )
-        base_editor_names = groups[base_editor]
+        resolved, error = _resolve_base_editor_for_run(base_editor)
+        if error is not None:
+            return JSONResponse(error, status_code=400)
+        base_editor_names = resolved["base_editor_names"]
+        use_custom_profiles = resolved["use_custom_profiles"]
+        custom_profiles_b64 = resolved["custom_profiles_b64"]
 
         custom_genome_b64 = custom_genome_b64.strip()
         if mode == "sequence":
@@ -423,6 +567,8 @@ def create_app() -> FastAPI:
                     "passthrough_extras": False,
                     "mode": mode,
                     "custom_genome_b64": custom_genome_b64 or None,
+                    "use_custom_profiles": use_custom_profiles,
+                    "custom_profiles_b64": custom_profiles_b64,
                 },
             )
         except Cooldown as exc:
