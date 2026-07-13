@@ -23,6 +23,17 @@ from beguided.web.config import get_config
 
 logger = logging.getLogger("beguided.web.tasks")
 
+# Columns that are dropped from the records returned to the web UI for
+# sequence-mode jobs. ``position`` and ``genome_base`` are redundant with the
+# user-supplied input (the bracket parser places the edit position, and
+# ``genome_base == target_base`` by construction). ``strand_used`` references
+# the genomic strand concept that has no analogue in sequence input.
+SEQUENCE_MODE_DROP_COLUMNS: tuple[str, ...] = (
+    "position",
+    "genome_base",
+    "strand_used",
+)
+
 
 def _build_config(
     targets_df: pd.DataFrame,
@@ -141,11 +152,22 @@ def _validate_offtarget_config(search_offtargets: bool) -> None:
         )
 
 
-def _df_to_records(path: Path) -> list[dict]:
-    """Read a TSV from ``path`` and return JSON-safe records."""
+def _df_to_records(path: Path, drop_columns: tuple[str, ...] = ()) -> list[dict]:
+    """Read a TSV from ``path`` and return JSON-safe records.
+
+    ``drop_columns`` lists columns that should be removed from each record
+    before it is returned. Used by sequence-mode jobs to hide columns that
+    carry no information beyond what the user supplied on the input side
+    (``position`` and ``genome_base`` are equal to the user's input by
+    construction; ``strand_used`` references the genomic strand concept
+    that has no analogue in sequence input). The on-disk TSV is left
+    untouched.
+    """
     if not path.exists():
         return []
     df = pd.read_csv(path, sep="\t")
+    if drop_columns:
+        df = df.drop(columns=[c for c in drop_columns if c in df.columns])
     out = []
     for row in df.to_dict(orient="records"):
         record = {k: (None if pd.isna(v) else v) for k, v in row.items()}
@@ -371,7 +393,10 @@ def execute_job(
                 genome=genome,
                 interval_trees=interval_trees,
             )
-            records = _df_to_records(final_output)
+            records = _df_to_records(
+                final_output,
+                drop_columns=SEQUENCE_MODE_DROP_COLUMNS if sequence_mode else (),
+            )
             if not records:
                 return {
                     "job_id": job_id,

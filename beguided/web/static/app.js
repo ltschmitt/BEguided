@@ -18,8 +18,7 @@ const resultsPlaceholder = document.getElementById("resultsPlaceholder");
 const resultsSummary = document.getElementById("resultsSummary");
 const resultsGuideStatus = document.getElementById("resultsGuideStatus");
 const bystanderFilter = document.getElementById("bystanderFilter");
-const scoreRange = document.getElementById("scoreRange");
-const scoreInput = document.getElementById("scoreInput");
+const scoreFilter = document.getElementById("scoreFilter");
 const filterSummary = document.getElementById("filterSummary");
 const downloadResults = document.getElementById("downloadResults");
 const downloadResultsXlsx = document.getElementById("downloadResultsXlsx");
@@ -34,12 +33,14 @@ const spreadsheetPanel = document.getElementById("spreadsheetPanel");
 const sequencePanel = document.getElementById("sequencePanel");
 const sequenceInput = document.getElementById("sequenceInput");
 const parseSequenceBtn = document.getElementById("parseSequenceBtn");
+const loadSequenceExampleBtn = document.getElementById("loadSequenceExampleBtn");
+const loadSpreadsheetExampleBtn = document.getElementById("loadSpreadsheetExampleBtn");
 const profilesUpload = document.getElementById("profilesUpload");
 const profilesAlert = document.getElementById("profilesAlert");
 const profilesSource = document.getElementById("profilesSource");
 const profilesTableContainer = document.getElementById("profilesTableContainer");
 
-let currentMode = "spreadsheet";
+let currentMode = "sequence";
 let uploadedRawB64 = null;
 let customGenomeB64 = null;
 let currentJobId = null;
@@ -696,11 +697,37 @@ async function parseSequences() {
 
 parseSequenceBtn.addEventListener("click", parseSequences);
 
+// Sequence-mode "Load example" button. Populates the textarea with a small
+// multi-record FASTA (matches the example shown in the textarea's explanation
+// text) and then runs the regular parse flow.
+const SEQUENCE_EXAMPLE_FASTA =
+    ">my_target_1\n" +
+    "ATAGAGTATAGACCC[A>G]CTATCCAGTCTACCTAGGGAATC\n" +
+    ">my_target_2\n" +
+    "GGGCATAGCCATGTAGCATT[T>C]GCAATTGGCCATGCATTTACC";
+
+if (loadSequenceExampleBtn) {
+    loadSequenceExampleBtn.addEventListener("click", () => {
+        if (currentMode !== "sequence") setMode("sequence");
+        sequenceInput.value = SEQUENCE_EXAMPLE_FASTA;
+        parseSequences();
+    });
+}
+
 // File upload
 fileInput.addEventListener("change", async () => {
     if (currentMode !== "spreadsheet") return;
     const file = fileInput.files[0];
     if (!file) return;
+    await uploadTargetsFile(file);
+    fileInput.value = "";
+});
+
+// Reusable upload pipeline for spreadsheet-mode targets. Used by both the
+// <input type="file"> change handler and the "Load example" button (which
+// synthesizes a File from in-memory text).
+async function uploadTargetsFile(file) {
+    if (currentMode !== "spreadsheet") return;
 
     // Switch to the Input tab immediately so the user sees feedback — and any
     // error messages — the moment they pick a file.
@@ -744,7 +771,28 @@ fileInput.addEventListener("change", async () => {
     uploadedRawB64 = data.raw_b64;
     inputPanel.innerHTML = renderTable(data.preview, data.columns);
     await runCompatibilityCheck();
-});
+}
+
+// Spreadsheet-mode "Load example" button. Posts a small in-memory TSV
+// through the same /upload pipeline as a real file pick.
+const SPREADSHEET_EXAMPLE_TSV = [
+    "chromosome\tposition\ttarget_base\tdesired_base",
+    "12\t25245350\tT\tC",
+    "12\t25245347\tT\tC",
+    "17\t7675088\tT\tC",
+].join("\n");
+
+if (loadSpreadsheetExampleBtn) {
+    loadSpreadsheetExampleBtn.addEventListener("click", async () => {
+        if (currentMode !== "spreadsheet") setMode("spreadsheet");
+        const file = new File(
+            [SPREADSHEET_EXAMPLE_TSV],
+            "example_targets.tsv",
+            { type: "text/tab-separated-values" }
+        );
+        await uploadTargetsFile(file);
+    });
+}
 
 // Run pipeline
 runBtn.addEventListener("click", async () => {
@@ -1221,12 +1269,15 @@ async function fetchResults(jobId) {
     switchSubTab("guidesSubtab");
 }
 
+// Map the Guide score filter dropdown value to a numeric on-target score
+// threshold. "all" disables the score filter (0.0 keeps every guide); the
+// "okay" / "good" presets match the legacy slider defaults.
+const SCORE_FILTER_THRESHOLDS = { all: 0.0, okay: 0.5, good: 0.75 };
+
 // Dynamic filtering for the Results tab. Mirrors beguided.filtering.filters.
 function getActiveFilters() {
-    let score = parseFloat(scoreInput.value);
-    if (!Number.isFinite(score)) score = 0.0;
-    if (score < 0) score = 0;
-    if (score > 1) score = 1;
+    const key = scoreFilter.value || "all";
+    const score = SCORE_FILTER_THRESHOLDS[key] ?? 0.0;
     return {
         mode: bystanderFilter.value,
         score,
@@ -1361,19 +1412,10 @@ function renderResultsSummary(filtered) {
     setSummaryPlaceholder(false);
 }
 
-// Filter event wiring (two-way slider/number sync).
+// Filter event wiring.
 bystanderFilter.addEventListener("change", () => {
     if (currentRecords.length > 0) renderResultsTable();
 });
-scoreRange.addEventListener("input", () => {
-    scoreInput.value = scoreRange.value;
-    if (currentRecords.length > 0) renderResultsTable();
-});
-scoreInput.addEventListener("input", () => {
-    let v = parseFloat(scoreInput.value);
-    if (!Number.isFinite(v)) return;
-    if (v < 0) v = 0;
-    if (v > 1) v = 1;
-    scoreRange.value = v.toString();
+scoreFilter.addEventListener("change", () => {
     if (currentRecords.length > 0) renderResultsTable();
 });

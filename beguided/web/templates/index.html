@@ -8,8 +8,8 @@
     <div class="group">
         <label>Input mode</label>
         <div class="mode-switch" role="tablist">
-            <button id="modeSpreadsheet" class="mode-switch-btn active" data-mode="spreadsheet" type="button">Spreadsheet</button>
-            <button id="modeSequence" class="mode-switch-btn" data-mode="sequence" type="button">Sequence</button>
+            <button id="modeSequence" class="mode-switch-btn active" data-mode="sequence" type="button">Sequence</button>
+            <button id="modeSpreadsheet" class="mode-switch-btn" data-mode="spreadsheet" type="button">Spreadsheet</button>
         </div>
     </div>
     <div class="group">
@@ -36,7 +36,7 @@
     <button id="cancelBtn" class="btn btn-danger" style="display:none;">Cancel</button>
 </div>
 
-<div id="spreadsheetPanel" class="input-panel">
+<div id="spreadsheetPanel" class="input-panel" style="display:none;">
     <div class="input-meta-row input-title-row">
         <span id="limitsInfo" class="input-panel-title"></span>
         <div class="input-panel-statuses">
@@ -47,11 +47,12 @@
     <div class="input-meta-row input-actions-row">
         <input type="file" id="fileInput" accept=".tsv,.csv,.xlsx,.xls" />
         <a href="/download/template" class="btn btn-secondary" download>Template</a>
+        <button id="loadSpreadsheetExampleBtn" class="btn btn-secondary" type="button">Load example</button>
         <button id="runBtn" class="btn btn-primary right" disabled>Run</button>
     </div>
 </div>
 
-<div id="sequencePanel" class="input-panel" style="display:none;">
+<div id="sequencePanel" class="input-panel">
     <div class="group" style="align-items:flex-start;">
         <label for="sequenceInput" style="margin-top:10px;">Sequences</label>
         <div style="flex:1; min-width:0;">
@@ -61,6 +62,7 @@
                 <span id="sequenceHint" class="muted">
                     One <code>[X&gt;Y]</code> bracket per sequence, where X and Y are A/C/G/T.
                 </span>
+                <button id="loadSequenceExampleBtn" class="btn btn-secondary right" type="button">Load example</button>
                 <button id="parseSequenceBtn" class="btn btn-primary right" type="button">Parse</button>
             </div>
         </div>
@@ -226,9 +228,12 @@
             </select>
         </div>
         <div class="group">
-            <label for="scoreRange">Guide score filter</label>
-            <input type="range" id="scoreRange" min="0" max="1" step="0.01" value="0.5" />
-            <input type="number" id="scoreInput" min="0" max="1" step="0.01" value="0.5" style="width:70px;" />
+            <label for="scoreFilter">Guide score filter</label>
+            <select id="scoreFilter">
+                <option value="all">all</option>
+                <option value="okay" selected>okay (score &gt; 0.5)</option>
+                <option value="good">good (score &gt; 0.75)</option>
+            </select>
         </div>
         <span id="filterSummary" class="muted">Showing 0 of 0</span>
     </div>

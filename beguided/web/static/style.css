@@ -472,16 +472,6 @@ body {
     color: var(--text);
 }
 
-.results-toolbar input[type="range"] {
-    width: 160px;
-    accent-color: var(--primary);
-    cursor: pointer;
-}
-
-.results-toolbar input[type="number"] {
-    width: 70px;
-}
-
 .results-toolbar .muted {
     margin-left: auto;
     font-size: 13px;
