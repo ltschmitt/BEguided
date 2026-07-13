@@ -1,6 +1,6 @@
 # BEguided Pipeline Configuration Template
 # Copy this file and fill in your local paths before running:
-#   beguided run-pipeline --config your_config.yaml
+#   beguided --config your_config.yaml
 
 # =============================================================================
 # INPUT FILES

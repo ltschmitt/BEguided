@@ -62,13 +62,11 @@ let lastValidBaseEditorValue = null;
     try {
         const res = await fetch("/config");
         const data = await res.json();
-        if (data.ok && data.queue_max != null) {
-            // Combined limits summary in the info row.
+        if (data.ok && data.max_input_targets != null) {
+            // Upload limits summary shown inside the spreadsheet input panel.
             limitsInfo.textContent =
-                `Queue ${data.queue_max} · ` +
-                `${data.cooldown_seconds}s cooldown · ` +
-                `${data.max_input_targets} targets · ` +
-                `${data.max_upload_mb} MB upload`;
+                `Upload a table of genomic targets below (max. ${data.max_input_targets} targets ` +
+                `and ${data.max_upload_mb} MB)`;
         }
     } catch (err) {
         console.warn("Failed to fetch server config:", err);
@@ -271,6 +269,18 @@ function setMode(mode) {
     spreadsheetPanel.style.display = mode === "spreadsheet" ? "" : "none";
     sequencePanel.style.display = mode === "sequence" ? "" : "none";
 
+    // Move the shared Run button into the active input panel's action row so
+    // it stays visually anchored next to the input controls. The 'right' class
+    // pushes it to the far edge of the row in spreadsheet mode; in sequence
+    // mode it must sit immediately after the Parse button, so we strip it.
+    const targetRow = mode === "spreadsheet"
+        ? spreadsheetPanel.querySelector(".input-actions-row")
+        : sequencePanel.querySelector(".input-meta-row");
+    if (targetRow) {
+        targetRow.appendChild(runBtn);
+    }
+    runBtn.classList.toggle("right", mode === "spreadsheet");
+
     // Reset state when switching modes: a previously uploaded file is
     // irrelevant for sequence input and vice-versa.
     uploadedRawB64 = null;
@@ -328,14 +338,21 @@ async function runCompatibilityCheck() {
 async function parseSequences() {
     const text = sequenceInput.value;
     if (!text.trim()) {
-        showAlert(inputAlert, "error", "Paste at least one sequence.");
+        showToast("error", "Paste at least one sequence.");
         runBtn.disabled = true;
         matchedBaseEditorCount = 0;
         compatibilityInfo.textContent = "";
         checkAlert.style.display = "none";
-        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">Paste sequences first.</p>`;
         return;
     }
+
+    // Switch to the Input tab immediately so the user sees feedback — and any
+    // error messages — the moment they click Parse.
+    switchTab("inputTab");
+    inputAlert.style.display = "none";
+    checkAlert.style.display = "none";
+    compatibilityInfo.textContent = "";
+    inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">Parsing sequences\u2026</p>`;
 
     const form = new FormData();
     form.append("text", text);
@@ -345,11 +362,13 @@ async function parseSequences() {
         data = await res.json();
     } catch (err) {
         showAlert(inputAlert, "error", `Parse failed: ${err}`);
+        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">Parse failed.</p>`;
         return;
     }
 
     if (res.status === 413) {
         showAlert(inputAlert, "error", data.error || "Input too large.");
+        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">${escapeHtml(data.error || "Input too large.")}</p>`;
         return;
     }
 
@@ -370,7 +389,6 @@ async function parseSequences() {
     customGenomeB64 = data.custom_genome_b64;
     inputPanel.innerHTML = renderSequencePreview(data.preview);
     await runCompatibilityCheck();
-    switchTab("inputTab");
 }
 
 parseSequenceBtn.addEventListener("click", parseSequences);
@@ -381,6 +399,14 @@ fileInput.addEventListener("change", async () => {
     const file = fileInput.files[0];
     if (!file) return;
 
+    // Switch to the Input tab immediately so the user sees feedback — and any
+    // error messages — the moment they pick a file.
+    switchTab("inputTab");
+    inputAlert.style.display = "none";
+    checkAlert.style.display = "none";
+    compatibilityInfo.textContent = "";
+    inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">Uploading "${escapeHtml(file.name)}"\u2026</p>`;
+
     const form = new FormData();
     form.append("file", file);
 
@@ -390,11 +416,13 @@ fileInput.addEventListener("change", async () => {
         data = await res.json();
     } catch (err) {
         showToast("error", `Upload failed: ${err}`);
+        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">Upload failed: ${escapeHtml(String(err))}</p>`;
         return;
     }
 
     if (res.status === 413) {
         showToast("error", data.error || "File too large.");
+        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">${escapeHtml(data.error || "File too large.")}</p>`;
         return;
     }
 
@@ -413,8 +441,6 @@ fileInput.addEventListener("change", async () => {
     uploadedRawB64 = data.raw_b64;
     inputPanel.innerHTML = renderTable(data.preview, data.columns);
     await runCompatibilityCheck();
-    // Switch to the Input tab so the user sees their data.
-    switchTab("inputTab");
 });
 
 // Re-check when base editor selection changes

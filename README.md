@@ -52,7 +52,7 @@ pixi install
 # + Web server
 pixi install --features web
 # or use the dedicated web environment:
-# pixi run --environment web beguided web
+# pixi run --environment web beguided-web
 
 # + CUDA support for GPU-accelerated off-target search
 pixi install --features cuda
@@ -106,10 +106,8 @@ docker build --target web-cuda -t beguided:web-cuda .
 
 **Run CPU CLI:**
 ```bash
-docker run -v $(pwd)/data:/app/data beguided:cli guidefinder \
-    --input /app/data/targets.tsv \
-    --output /app/data/results.tsv \
-    --genome /app/data/genome.fa
+docker run -v $(pwd)/data:/app/data beguided:cli \
+    --config /app/data/config.yaml
 ```
 
 **Run CPU web server:**
@@ -124,7 +122,7 @@ docker run -p 8000:8000 \
 ```bash
 docker run --gpus all \
   -v $(pwd)/data:/app/data \
-  beguided:cli-cuda run-pipeline --config /app/data/config.yaml
+  beguided:cli-cuda --config /app/data/config.yaml
 ```
 
 **Run GPU web server:**
@@ -160,62 +158,23 @@ chr2	80	A	G
 
 ## Usage
 
-BEguided provides a single CLI entrypoint with subcommands. You can run individual steps for development/debugging or execute the full pipeline in one go.
-
-### 1. Generate guide RNAs
-
-```bash
-beguided guidefinder \
-    --input tests/fixtures/sample_targets.tsv \
-    --output results_guides.tsv \
-    --genome tests/fixtures/sample_genome.fasta \
-    --base-editors all \
-    --base-editor-profiles-file base_editor_profiles.tsv
-```
-
-Preset options:
-- `--base-editors all` — run every available base editor profile
-- `--base-editors all ABEs` — run only ABE (A→G / T→C) profiles (e.g. ABE8e, ABE9, Sa-ABE8e)
-- `--base-editors all CBEs` — run only CBE (C→T / G→A) profiles (e.g. CBE6d, TadCBEd)
-- `--base-editors ABE8e,ABE9` — comma-separated list of specific base editors
-
-### 2. Analyse bystander effects
-
-```bash
-beguided bystander \
-    --input results_guides.tsv \
-    --output results_bystander.tsv \
-    --genome genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa \
-    --gtf-annotation genome/Homo_sapiens.GRCh38.112.gtf
-```
-
-### 3. Filter guides
-
-```bash
-beguided filter \
-    --input results_bystander.tsv \
-    --output results_filtered.tsv \
-    --mode silent
-```
-
-Filter modes:
-- `all` – keep everything (default)
-- `no_bystanders` – only guides with no bystander edits (skips bystander analysis when used in the pipeline)
-- `silent` – guides that are silent or have no bystanders
+BEguided provides two commands: `beguided` (run the pipeline) and `beguided-web` (start the web server).
 
 ### Run the complete pipeline
 
-All steps are executed in one command via a YAML config file:
+All steps (guide generation, bystander analysis, filtering, off-target search, merge) are executed via a YAML config file:
 
 ```bash
-beguided run-pipeline --config config.yaml
+beguided --config config.yaml
 ```
 
-You can also run a subset of steps, e.g. steps 3-6:
+You can also start from a later step, e.g. steps 3-5:
 
 ```bash
-beguided run-pipeline --config config.yaml --from-step 3
+beguided --config config.yaml --from-step 3
 ```
+
+Use `-v` for DEBUG logging, and `--no-passthrough-extras` to drop non-core columns from the input TSV.
 
 See `template.yaml` for a commented configuration template.
 
@@ -243,16 +202,16 @@ BEguided includes a FastAPI-based web interface that can be run locally or serve
 
 ```bash
 # Default: http://localhost:8000
-beguided web
+beguided-web
 
 # Custom address
-beguided web --host 0.0.0.0 --port 8080
+beguided-web --host 0.0.0.0 --port 8080
 
 # Development with auto-reload
-beguided web --reload
+beguided-web --reload
 
 # Override file paths (recommended for production)
-beguided web \
+beguided-web \
   --base-editor-profiles-file base_editor_profiles.tsv \
   --genome-fasta genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa \
   --gtf-path genome/Homo_sapiens.GRCh38.112.gtf \

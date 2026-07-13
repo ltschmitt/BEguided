@@ -15,6 +15,9 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("fastapi")
+pytest.importorskip("uvicorn")
+
 from beguided.web.scheduler import Cooldown, Job, QueueFull, Scheduler
 from beguided.web.safety import (
     MaxBodySizeMiddleware,

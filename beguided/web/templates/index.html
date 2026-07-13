@@ -20,16 +20,22 @@
             {% endfor %}
         </select>
     </div>
-    <span id="statusBadge" class="badge">idle</span>
+    <span id="statusBadge" class="badge right">idle</span>
     <button id="cancelBtn" class="btn btn-danger" style="display:none;">Cancel</button>
-    <button id="runBtn" class="btn btn-primary right" disabled>Run</button>
 </div>
 
 <div id="spreadsheetPanel" class="input-panel">
-    <div class="group">
-        <label for="fileInput">Targets</label>
+    <div class="input-meta-row input-title-row">
+        <span id="limitsInfo" class="input-panel-title"></span>
+        <div class="input-panel-statuses">
+            <span id="genomeStatus" class="badge" data-preload="{{ 'true' if preload_genome else 'false' }}">&hellip;</span>
+            <span id="gtfStatus" class="badge" data-preload="{{ 'true' if preload_gtf else 'false' }}">&hellip;</span>
+        </div>
+    </div>
+    <div class="input-meta-row input-actions-row">
         <input type="file" id="fileInput" accept=".tsv,.csv,.xlsx,.xls" />
         <a href="/download/template" class="btn btn-secondary" download>Template</a>
+        <button id="runBtn" class="btn btn-primary right" disabled>Run</button>
     </div>
 </div>
 
@@ -39,21 +45,18 @@
         <div style="flex:1; min-width:0;">
             <textarea id="sequenceInput" class="sequence-textarea" rows="8"
                 placeholder="Paste a single sequence or FASTA. Mark the edit with [A>G], [T>C], [C>T] or [G>A].&#10;&#10;The bracket becomes the base at that position. Example:&#10;ATAG[T>C]GACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACG&#10;  position 5 = T (from bracket), position 6 = G (was after `]`)&#10;&#10;Multiple sequences (FASTA):&#10;&gt;my_target_1&#10;ATAGAGTATAGACCC[A>G]CTATCCAGTCTACCTAGGGAATC&#10;&gt;my_target_2&#10;GGGCATAGCCATGTAGCATT[T>C]GCAATTGGCCATGCATTTACC"></textarea>
-            <div style="margin-top:8px;">
-                <button id="parseSequenceBtn" class="btn btn-primary" type="button">Parse</button>
-                <span id="sequenceHint" class="muted" style="margin-left:8px;">
+            <div class="input-meta-row" style="margin-top:10px;">
+                <span id="sequenceHint" class="muted">
                     One <code>[X&gt;Y]</code> bracket per sequence, where X and Y are A/C/G/T.
                 </span>
+                <button id="parseSequenceBtn" class="btn btn-primary right" type="button">Parse</button>
             </div>
         </div>
     </div>
 </div>
 
 <div class="info-row">
-    <span id="genomeStatus" class="badge" data-preload="{{ 'true' if preload_genome else 'false' }}">&hellip;</span>
-    <span id="gtfStatus" class="badge" data-preload="{{ 'true' if preload_gtf else 'false' }}">&hellip;</span>
     <span id="compatibilityInfo"></span>
-    <span id="limitsInfo" class="right"></span>
 </div>
 
 <div id="toastContainer" style="position:fixed; top:16px; right:16px; z-index:1000; max-width:420px;"></div>
@@ -70,18 +73,23 @@
     <div class="panel">
         <h2 style="margin-top:0;">What BEguided does</h2>
         <p>
-            BEguided designs single-guide RNAs (sgRNAs) for CRISPR base editors.
-            For every target base you supply, it searches the genome for nearby
+            BEguided designs guide RNAs (sgRNAs) for CRISPR base editors.
+            For every target you supply and each base editor you select, it searches for nearby
             PAM sites, predicts which editable window (relative to the PAM) the
-            base falls into, scores the guide, annotates bystander editing, and
-            (optionally) runs an off-target search.
+            base falls into, scores the guide and annotates bystander editing.
         </p>
         <p>
             Upload a targets file (TSV / CSV / XLSX) using the field above to
             get started. Use the <em>Template</em> button to download a sample.
         </p>
 
-        <h3>Input format (1-based positions)</h3>
+        <h3>Spreadsheet input</h3>
+        <p>
+            Provide a Spreadsheet of genomic targets you want to edit. BEguided
+            will design guides for all targets provided and base editors selected.
+            Target bases not present in the genome will be replaced with the target
+             base.
+        </p>
         <p>
             The <code>position</code> column is <strong>1-based</strong>:
             position 1 is the first nucleotide of the chromosome, position 2
@@ -130,7 +138,7 @@
         </p>
 
         <h3>Available base editor profiles</h3>
-        <p style="color:var(--muted); font-size:13px;">
+        <p>
             Editing windows are position ranges, counted from the PAM-distal end
             of the guide, where the base editor is active.
             <em>General</em> = the full window where some editing occurs;

@@ -68,28 +68,22 @@ pixi install --features web
 # Install BEguided in editable mode (always required)
 pip install -e .
 
-# Run guidefinder
-python -m beguided.cli guidefinder \
-    --input sample_targets.tsv \
-    --output results.tsv \
-    --genome sample_genome.fasta \
-    --base-editors ABE8e
+# Run the pipeline
+beguided --config config.yaml
 ```
 
-### Single CLI with Subcommands
+### CLI Commands
 
 ```
-beguided guidefinder     --input ... --genome ... --output ...
-beguided bystander       --input ... --genome ... --gtf-annotation ... --output ...
-beguided filter          --input ... --output ... --mode no_bystanders
-beguided run-pipeline    --config config.yaml [--from-step 3]
-beguided web             [--host 0.0.0.0] [--port 8000] [--reload] \
+beguided                 --config config.yaml [--from-step 3] [-v] \
+                         [--passthrough-extras | --no-passthrough-extras]
+beguided-web             [--host 0.0.0.0] [--port 8000] [--reload] \
                          [--base-editor-profiles-file ...] [--genome-fasta ...] \
                          [--gtf-path ...] [--beguidedoff-genome ...] \
                          [--preload-genome | --no-preload-genome] \
                          [--preload-gtf | --no-preload-gtf] \
                          [--genome-label ...]
-                         # Requires web extra: pixi run --environment web beguided web
+                         # Requires web extra: pixi run --environment web beguided-web
 ```
 
 ### Running Tests
@@ -149,7 +143,7 @@ Pixi resolves the environment by combining `[project.dependencies]` + `[tool.pix
 
 Run a command in a specific environment:
 ```bash
-pixi run --environment web beguided web
+pixi run --environment web beguided-web
 ```
 
 ### CUDA status
@@ -280,7 +274,7 @@ Both back the `run_pipeline(..., genome=..., interval_trees=...)` kwargs in `beg
 
 ### Web Interface
 
-- FastAPI-based, started via `beguided web`
+- FastAPI-based, started via `beguided-web`
 - Config via CLI flags (override env variables):
   - `--base-editor-profiles-file`
   - `--genome-fasta`

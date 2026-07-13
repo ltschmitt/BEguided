@@ -15,7 +15,7 @@
 #   docker build --target web-cuda -t beguided:web-cuda .
 #
 # Run GPU targets (requires NVIDIA Container Toolkit):
-#   docker run --gpus all beguided:cli-cuda guidefinder --help
+#   docker run --gpus all beguided:cli-cuda --help
 #   docker run --gpus all -p 8000:8000 beguided:web-cuda
 #
 # Off-target search via BEguidedOFF is optional — install it manually if needed.
@@ -68,7 +68,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 ENTRYPOINT []
 
-CMD ["beguided", "web", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["beguided-web", "--host", "0.0.0.0", "--port", "8000"]
 
 # ============================================================================
 # 3. GPU BASE — CUDA 12.4 runtime, CLI-capable
@@ -134,4 +134,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 ENTRYPOINT []
 
-CMD ["beguided", "web", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["beguided-web", "--host", "0.0.0.0", "--port", "8000"]

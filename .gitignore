@@ -12,7 +12,7 @@ __pycache__/
 .pytest_cache/
 results*
 config.yaml
-run_web.sh
 .env
 pixi.lock
 beguided.egg-info/*
+scripts/*

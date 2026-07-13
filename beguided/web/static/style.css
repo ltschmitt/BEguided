@@ -128,6 +128,76 @@ body {
     gap: 8px;
 }
 
+/* Title row inside an input panel (currently only the spreadsheet panel).
+   The left side carries a single-line instruction with the upload limits,
+   the right side carries the genome/GTF preload status badges. */
+.input-panel .input-panel-title {
+    font-size: 16px;
+    font-weight: 400;
+    color: var(--text);
+    padding-left: 16px;
+}
+
+/* Group of status badges inside an input-panel row. Pushed to the far right
+   via margin-left: auto so the badges never visually "hug" the title text. */
+.input-panel .input-panel-statuses {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+/* A little extra space between the prominent upload button and the
+   Template button on the spreadsheet input panel's actions row. */
+.input-panel .input-actions-row > .btn-secondary {
+    margin-left: 12px;
+}
+
+/* Prominent file-upload control inside an input panel. Sized up with
+   primary-colored text so the upload affordance is immediately visible,
+   without a heavy border. */
+.input-panel input[type="file"] {
+    padding: 10px 16px;
+    font-size: 15px;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--primary);
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.input-panel input[type="file"]:hover {
+    background: #eff6ff;
+}
+
+.input-panel input[type="file"]:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+/* Action row inside an input panel. In spreadsheet mode it sits on top
+   (Template button, upload-limits info, Run button). In sequence mode it
+   sits at the bottom (bracket-format hint, Parse button, shared Run
+   button). */
+.input-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 13px;
+}
+
+.input-meta-row .right {
+    margin-left: auto;
+}
+
+/* Generic muted text color (also used by .info-row spans). */
+.muted {
+    color: var(--muted);
+}
+
 .sequence-textarea {
     width: 100%;
     padding: 10px 12px;

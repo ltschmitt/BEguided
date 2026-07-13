@@ -48,8 +48,7 @@ services:
       BEGUIDED_PRELOAD_GTF: "true"
       BEGUIDED_GENOME_LABEL: "${BEGUIDED_GENOME_LABEL:-GRCh38.112}"
     command:
-      - beguided
-      - web
+      - beguided-web
       - --host
       - 0.0.0.0
       - --port
