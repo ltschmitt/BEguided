@@ -2,7 +2,6 @@
 
 // DOM elements
 const fileInput = document.getElementById("fileInput");
-const baseEditorSelect = document.getElementById("baseEditorSelect");
 const runBtn = document.getElementById("runBtn");
 const cancelBtn = document.getElementById("cancelBtn");
 const statusBadge = document.getElementById("statusBadge");
@@ -55,7 +54,21 @@ let customEditorKey = "custom";
 let customEditorLabel = "Custom (uploaded)";
 let customProfilesLoaded = false;
 let lastProfilesTableSource = null;
-let lastValidBaseEditorValue = null;
+
+// Base editor multi-select state. `availableEditors` is the list of editors
+// rendered as checkboxes (fetched from /base-editor-table?source=default).
+// `selectedEditors` is the Set of editor names the user has checked.
+// Custom profiles are merged into `availableEditors` via source="combined",
+// so there is no separate "custom mode" — the multi-select stays active
+// whenever any profiles (default or custom) are available.
+const beMultiselect = document.getElementById("beMultiselect");
+const beMultiselectBtn = document.getElementById("beMultiselectBtn");
+const beMultiselectPanel = document.getElementById("beMultiselectPanel");
+const beMultiselectLabel = document.getElementById("beMultiselectLabel");
+const beCheckboxGroups = document.getElementById("beCheckboxGroups");
+let availableEditors = [];
+let selectedEditors = new Set();
+let customProfilesCount = 0;
 
 // Fetch server config + base editor table on load (BEguidedOFF availability, scheduler limits)
 (async function init() {
@@ -91,7 +104,289 @@ let lastValidBaseEditorValue = null;
         console.warn("Failed to fetch profiles status:", err);
     }
     await refreshProfilesTable();
+
+    // Load the default base editor profiles into the multi-select.
+    try {
+        await loadAvailableEditors();
+    } catch (err) {
+        console.warn("Failed to load available editors:", err);
+    }
+
+    wireMultiselectEvents();
 })();
+
+// ---------------------------------------------------------------------------
+// Base editor multi-select
+// ---------------------------------------------------------------------------
+
+// Fetch the combined (default + custom) profiles table and build the
+// grouped checkbox panel.
+async function loadAvailableEditors() {
+    const res = await fetch(
+        `/base-editor-table?source=${encodeURIComponent("combined")}`
+    );
+    const data = await res.json();
+    if (!data.ok) {
+        beCheckboxGroups.innerHTML =
+            `<p style="color:var(--danger);padding:8px;">Failed to load base editor profiles: ` +
+            `${escapeHtml(data.error || "unknown error")}</p>`;
+        return;
+    }
+    availableEditors = data.rows.map(r => ({
+        name: r.name,
+        editing: r.editing,
+        cas: r.cas || "",
+        pam: r.pam,
+        source: r.source,
+    }));
+    // Default: all editors selected.
+    selectedEditors = new Set(availableEditors.map(r => r.name));
+    renderCheckboxGroups();
+    updateMultiselectLabel();
+    updateCustomToggleVisibility();
+}
+
+// Show or hide the "All Custom" quick-toggle based on whether any custom
+// editors are present.
+function updateCustomToggleVisibility() {
+    const btn = beMultiselectPanel.querySelector(
+        '.be-quick-toggles button[data-toggle="custom"]'
+    );
+    if (!btn) return;
+    const hasCustom = availableEditors.some(ed => ed.source === "custom");
+    btn.style.display = hasCustom ? "" : "none";
+}
+
+// Render the checkbox groups. Order:
+//   Custom (with optional Cas subgroups) -> ABE -> CBE.
+function renderCheckboxGroups() {
+    if (availableEditors.length === 0) {
+        beCheckboxGroups.innerHTML = "";
+        return;
+    }
+
+    const customEditors = availableEditors.filter(ed => ed.source === "custom");
+    const defaultEditors = availableEditors.filter(ed => ed.source !== "custom");
+
+    let html = "";
+
+    // 1. Custom group (only when there are custom editors).
+    if (customEditors.length > 0) {
+        html += renderOneGroup("Custom", customEditors, {
+            dataSource: "custom",
+            headerClass: "be-group-header be-group-header-custom",
+        });
+    }
+
+    // 2. Default groups (ABE / CBE) — grouped by editing -> cas.
+    const editingOrder = ["ABE", "CBE"];
+    const groups = new Map();
+    for (const ed of defaultEditors) {
+        if (!groups.has(ed.editing)) groups.set(ed.editing, new Map());
+        const casMap = groups.get(ed.editing);
+        if (!casMap.has(ed.cas)) casMap.set(ed.cas, []);
+        casMap.get(ed.cas).push(ed);
+    }
+    const editingKeys = [...groups.keys()].sort((a, b) => {
+        const ia = editingOrder.indexOf(a);
+        const ib = editingOrder.indexOf(b);
+        if (ia === -1 && ib === -1) return a.localeCompare(b);
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+    });
+    for (const editing of editingKeys) {
+        html += renderOneGroup(editing, defaultEditors.filter(
+            ed => ed.editing === editing
+        ));
+    }
+
+    beCheckboxGroups.innerHTML = html;
+
+    // Wire up change listeners on the freshly rendered checkboxes.
+    beCheckboxGroups.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener("change", onCheckboxChange);
+    });
+}
+
+// A checkbox was toggled by the user.
+function onCheckboxChange(ev) {
+    const name = ev.target.dataset.name;
+    if (!name) return;
+    if (ev.target.checked) {
+        selectedEditors.add(name);
+    } else {
+        selectedEditors.delete(name);
+    }
+    updateMultiselectLabel();
+    onSelectionChanged();
+}
+
+// Render a single group block. If any editor in the group has a non-empty
+// `cas`, sub-group by Cas. Otherwise list directly under the group header
+// with no Cas subgroup.
+function renderOneGroup(label, editors, opts = {}) {
+    const headerClass = opts.headerClass || "be-group-header";
+    const dataSource = opts.dataSource || "";
+    const dsAttr = dataSource ? ` data-source="${escapeHtml(dataSource)}"` : "";
+    let html = `<div class="be-group"${dsAttr}>`;
+    html += `<div class="${escapeHtml(headerClass)}">${escapeHtml(label)}</div>`;
+
+    const useSubgroup = editors.some(ed => ed.cas && ed.cas.length > 0);
+    if (useSubgroup) {
+        const casMap = new Map();
+        for (const ed of editors) {
+            const key = ed.cas || "";
+            if (!casMap.has(key)) casMap.set(key, []);
+            casMap.get(key).push(ed);
+        }
+        const casKeys = [...casMap.keys()].sort((a, b) => {
+            // Empty Cas sorts last so it sits below named Cas variants.
+            if (!a) return 1;
+            if (!b) return -1;
+            return a.localeCompare(b);
+        });
+        for (const cas of casKeys) {
+            html += `<div class="be-subgroup" data-cas="${escapeHtml(cas)}">`;
+            if (cas) {
+                html += `<div class="be-subgroup-header">${escapeHtml(cas)}</div>`;
+            }
+            const casEditors = casMap.get(cas).sort((a, b) =>
+                a.name.localeCompare(b.name)
+            );
+            for (const ed of casEditors) {
+                html += renderCheckboxRow(ed);
+            }
+            html += `</div>`;
+        }
+    } else {
+        const sorted = [...editors].sort((a, b) => a.name.localeCompare(b.name));
+        for (const ed of sorted) {
+            html += renderCheckboxRow(ed);
+        }
+    }
+
+    html += `</div>`;
+    return html;
+}
+
+function renderCheckboxRow(ed) {
+    let html = `<label class="be-checkbox-row" data-name="${escapeHtml(ed.name)}">`;
+    html += `<input type="checkbox" data-name="${escapeHtml(ed.name)}"`;
+    if (selectedEditors.has(ed.name)) html += " checked";
+    html += `>`;
+    html += `<span class="be-name">${escapeHtml(ed.name)}</span>`;
+    if (ed.pam) {
+        html += `<span class="be-pam">${escapeHtml(ed.pam)}</span>`;
+    }
+    html += `</label>`;
+    return html;
+}
+
+// Update the dropdown button label based on the current selection.
+function updateMultiselectLabel() {
+    const total = availableEditors.length;
+    const n = selectedEditors.size;
+    if (total === 0) {
+        beMultiselectLabel.textContent = "Loading...";
+        return;
+    }
+    if (n === 0) {
+        beMultiselectLabel.textContent = "None selected";
+    } else if (n === total) {
+        beMultiselectLabel.textContent = `All (${total})`;
+    } else {
+        beMultiselectLabel.textContent = `${n} selected`;
+    }
+}
+
+// Quick toggle: all / abe / cbe / custom / none.
+function applyQuickToggle(toggle) {
+    if (toggle === "all") {
+        selectedEditors = new Set(availableEditors.map(r => r.name));
+    } else if (toggle === "abe") {
+        selectedEditors = new Set(
+            availableEditors
+                .filter(r => r.editing === "ABE")
+                .map(r => r.name)
+        );
+    } else if (toggle === "cbe") {
+        selectedEditors = new Set(
+            availableEditors
+                .filter(r => r.editing === "CBE")
+                .map(r => r.name)
+        );
+    } else if (toggle === "custom") {
+        selectedEditors = new Set(
+            availableEditors
+                .filter(r => r.source === "custom")
+                .map(r => r.name)
+        );
+    } else if (toggle === "none") {
+        selectedEditors = new Set();
+    }
+    // Reflect in the rendered checkboxes.
+    beCheckboxGroups.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.checked = selectedEditors.has(cb.dataset.name);
+    });
+    updateMultiselectLabel();
+    onSelectionChanged();
+}
+
+// Toggle the dropdown panel open/closed.
+function toggleMultiselectPanel(force) {
+    const isHidden = beMultiselectPanel.hasAttribute("hidden");
+    const shouldOpen = force === true || (force !== false && isHidden);
+    if (shouldOpen) {
+        beMultiselectPanel.removeAttribute("hidden");
+        beMultiselectBtn.setAttribute("aria-expanded", "true");
+    } else {
+        beMultiselectPanel.setAttribute("hidden", "");
+        beMultiselectBtn.setAttribute("aria-expanded", "false");
+    }
+}
+
+function closeMultiselectPanel() {
+    toggleMultiselectPanel(false);
+}
+
+// Wire up the multi-select DOM events.
+function wireMultiselectEvents() {
+    beMultiselectBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (beMultiselect.classList.contains("disabled")) return;
+        toggleMultiselectPanel();
+    });
+
+    beMultiselectPanel.addEventListener("click", (ev) => ev.stopPropagation());
+
+    beMultiselectPanel.querySelectorAll(".be-quick-toggles button").forEach(btn => {
+        btn.addEventListener("click", () => applyQuickToggle(btn.dataset.toggle));
+    });
+
+    document.addEventListener("click", (ev) => {
+        if (!beMultiselect.contains(ev.target)) closeMultiselectPanel();
+    });
+
+    document.addEventListener("keydown", (ev) => {
+        if (ev.key === "Escape") closeMultiselectPanel();
+    });
+}
+
+// Re-run compatibility check + refresh the Base Editors table whenever the
+// selection changes.
+function onSelectionChanged() {
+    lastProfilesTableSource = null; // force table refresh on next ask
+    if (uploadedRawB64) {
+        runCompatibilityCheck();
+    }
+}
+
+// Return the value to send to /check and /run: always a comma-separated
+// list of the currently checked editor names (default + custom mixed).
+function baseEditorSelectionValue() {
+    return [...selectedEditors].sort().join(",");
+}
 
 // Toast helper for transient errors (429, 503, network).
 function showToast(kind, msg, ttlMs = 8000) {
@@ -302,9 +597,17 @@ modeSequenceBtn.addEventListener("click", () => setMode("sequence"));
 
 async function runCompatibilityCheck() {
     if (!uploadedRawB64) return;
+    // Refuse to check with an empty selection.
+    if (selectedEditors.size === 0) {
+        runBtn.disabled = true;
+        compatibilityInfo.textContent = "Select at least one base editor.";
+        compatibilityInfo.style.color = "var(--muted)";
+        matchedBaseEditorCount = 0;
+        return;
+    }
     const form = new FormData();
     form.append("raw_b64", uploadedRawB64);
-    form.append("base_editor", baseEditorSelect.value);
+    form.append("base_editor", baseEditorSelectionValue());
     try {
         const res = await fetch("/check", { method: "POST", body: form });
         const data = await res.json();
@@ -443,22 +746,13 @@ fileInput.addEventListener("change", async () => {
     await runCompatibilityCheck();
 });
 
-// Re-check when base editor selection changes
-baseEditorSelect.addEventListener("change", async () => {
-    if (baseEditorSelect.value === customEditorKey && !customProfilesLoaded) {
-        showToast("error", "Upload a custom profiles TSV before selecting 'Custom (uploaded)'.");
-        baseEditorSelect.value = lastValidBaseEditorValue || "all";
-    }
-    lastValidBaseEditorValue = baseEditorSelect.value;
-    if (uploadedRawB64) {
-        await runCompatibilityCheck();
-    }
-    await refreshProfilesTable();
-});
-
 // Run pipeline
 runBtn.addEventListener("click", async () => {
     if (!uploadedRawB64) return;
+    if (selectedEditors.size === 0) {
+        showToast("error", "Select at least one base editor.");
+        return;
+    }
     if (currentMode === "sequence" && !customGenomeB64) {
         showToast("error", "Parse sequences before running.");
         return;
@@ -496,7 +790,7 @@ runBtn.addEventListener("click", async () => {
 
     const form = new FormData();
     form.append("raw_b64", uploadedRawB64);
-    form.append("base_editor", baseEditorSelect.value);
+    form.append("base_editor", baseEditorSelectionValue());
     form.append("mode", currentMode);
     if (currentMode === "sequence") {
         form.append("custom_genome_b64", customGenomeB64 || "");
@@ -701,14 +995,15 @@ function renderBaseEditorTable(rows) {
 }
 
 function activeProfilesSource() {
-    if (baseEditorSelect.value === customEditorKey && customProfilesLoaded) {
-        return "custom";
+    // With merged behavior, the Base Editors tab always shows the combined
+    // list when custom profiles are loaded, otherwise just the defaults.
+    if (customProfilesLoaded) {
+        return "combined";
     }
     return "default";
 }
 
 async function refreshProfilesStatus(opts = {}) {
-    const keepValue = opts.keepDropdownValue === true;
     let data;
     try {
         const res = await fetch("/base-editor-profiles/status");
@@ -722,35 +1017,20 @@ async function refreshProfilesStatus(opts = {}) {
 
     if (!data.ok) return;
 
+    const wasLoaded = customProfilesLoaded;
     customEditorKey = data.key || customEditorKey;
     customEditorLabel = data.label || customEditorLabel;
     customProfilesLoaded = !!data.loaded;
+    customProfilesCount = (data.names || []).length;
 
-    const existingCustom = baseEditorSelect.querySelector(
-        `option[value="${customEditorKey}"]`
-    );
-    if (customProfilesLoaded && !existingCustom) {
-        const opt = document.createElement("option");
-        opt.value = customEditorKey;
-        opt.textContent = customEditorLabel;
-        baseEditorSelect.insertBefore(opt, baseEditorSelect.firstChild);
-    } else if (!customProfilesLoaded && existingCustom) {
-        existingCustom.remove();
-        if (baseEditorSelect.value === customEditorKey) {
-            baseEditorSelect.value = "all";
-            lastValidBaseEditorValue = "all";
+    // When the custom-profiles set changes (upload or clear), re-fetch the
+    // combined editor list so the multi-select reflects the new state.
+    if (wasLoaded !== customProfilesLoaded || customProfilesLoaded) {
+        try {
+            await loadAvailableEditors();
+        } catch (err) {
+            console.warn("Failed to refresh available editors:", err);
         }
-    }
-
-    if (
-        customProfilesLoaded &&
-        !keepValue &&
-        baseEditorSelect.value !== customEditorKey
-    ) {
-        baseEditorSelect.value = customEditorKey;
-    }
-    if (baseEditorSelect.value !== customEditorKey) {
-        lastValidBaseEditorValue = baseEditorSelect.value;
     }
 }
 
@@ -775,8 +1055,8 @@ async function refreshProfilesTable() {
             `<p style="color:var(--danger);">Failed to load base editor profiles: ${escapeHtml(data.error || "unknown error")}</p>`;
     }
     profilesSource.textContent =
-        source === "custom"
-            ? `Source: ${customEditorLabel} (${data.rows.length} profiles)`
+        source === "combined"
+            ? `Source: default + custom (${data.rows.length} profiles)`
             : `Source: default (${data.rows.length} profiles)`;
     lastProfilesTableSource = source;
 }
@@ -827,7 +1107,7 @@ if (profilesUpload) {
         hideProfilesAlert();
         showProfilesAlert(
             "success",
-            `Loaded ${data.count} profile(s). Selecting "${customEditorLabel}" in the Base Editors dropdown.`
+            `Loaded ${data.count} profile(s). Switched to "${customEditorLabel}" mode.`
         );
 
         lastProfilesTableSource = null;

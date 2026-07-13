@@ -36,6 +36,7 @@ def _build_config(
     skip_bystander: bool = False,
     use_custom_profiles: bool = False,
     custom_profiles_b64: Optional[str] = None,
+    merged_profiles_b64: Optional[str] = None,
 ) -> dict:
     """Build a pipeline config dict from web UI parameters.
 
@@ -61,6 +62,11 @@ def _build_config(
             contains is considered (via ``use_base_editors="all"``).
         custom_profiles_b64: Base64-encoded TSV bytes of the user-uploaded
             profiles. Required when ``use_custom_profiles`` is True.
+        merged_profiles_b64: Base64-encoded TSV bytes of a merged profiles
+            file combining custom + default editors. When provided, written
+            to ``work_dir / merged_profiles.tsv`` and used as the profiles
+            file for this job (with ``base_editor_names`` controlling which
+            profiles are considered).
 
     Returns:
         dict: Compatible with run_pipeline().
@@ -69,7 +75,12 @@ def _build_config(
     targets_path = Path(work_dir) / "targets.tsv"
     targets_df.to_csv(targets_path, sep="\t", index=False)
 
-    if use_custom_profiles:
+    if merged_profiles_b64:
+        profiles_path = Path(work_dir) / "merged_profiles.tsv"
+        profiles_path.write_bytes(base64.b64decode(merged_profiles_b64))
+        profiles_file = str(profiles_path)
+        use_base_editors = ",".join(base_editor_names)
+    elif use_custom_profiles:
         if not custom_profiles_b64:
             raise ValueError(
                 "use_custom_profiles=True requires custom_profiles_b64."
@@ -160,6 +171,7 @@ def execute_job(
     custom_genome_b64: Optional[str] = None,
     use_custom_profiles: bool = False,
     custom_profiles_b64: Optional[str] = None,
+    merged_profiles_b64: Optional[str] = None,
 ) -> dict:
     """Run a single job synchronously. Called from the scheduler worker thread.
 
@@ -346,6 +358,7 @@ def execute_job(
             skip_bystander=skip_bystander,
             use_custom_profiles=use_custom_profiles,
             custom_profiles_b64=custom_profiles_b64,
+            merged_profiles_b64=merged_profiles_b64,
         )
         final_output = Path(work_dir) / "beguided_results.tsv"
 

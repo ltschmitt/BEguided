@@ -18,8 +18,8 @@ HEADER = (
 )
 SAMPLE_PROFILES = (
     HEADER
-    + "ABE8e\tABE\t2\t13\t3\t8\tNGG\n"
-    + "CBE6d\tCBE\t2\t10\t6\t6\tNGG\n"
+    + "CustomABE1\tABE\t2\t13\t3\t8\tNGG\n"
+    + "CustomCBE1\tCBE\t2\t10\t6\t6\tNGG\n"
 )
 
 
@@ -95,7 +95,7 @@ def test_upload_valid_profiles(cfg_and_db):
     body = res.json()
     assert body["ok"] is True
     assert body["count"] == 2
-    assert body["names"] == ["ABE8e", "CBE6d"]
+    assert body["names"] == ["CustomABE1", "CustomCBE1"]
     assert body["key"] == "custom"
     assert body["label"] == "Custom (uploaded)"
 
@@ -113,7 +113,7 @@ def test_upload_missing_required_columns(cfg_and_db):
 
 def test_upload_duplicate_names_rejected(cfg_and_db):
     client = _client(cfg_and_db)
-    bad = HEADER + "ABE8e\tABE\t2\t13\t3\t8\tNGG\n" + "ABE8e\tCBE\t2\t10\t6\t6\tNGG\n"
+    bad = HEADER + "Dup1\tABE\t2\t13\t3\t8\tNGG\n" + "Dup1\tCBE\t2\t10\t6\t6\tNGG\n"
     res = client.post(
         "/base-editor-profiles/upload",
         files={"file": ("p.tsv", io.BytesIO(bad.encode()), "text/tab-separated-values")},
@@ -137,7 +137,7 @@ def test_upload_too_many_profiles(cfg_and_db):
 
 def test_upload_pam_too_long(cfg_and_db):
     client = _client(cfg_and_db)
-    bad = HEADER + "ABE8e\tABE\t2\t13\t3\t8\tNNNNNNN\n"
+    bad = HEADER + "Custom1\tABE\t2\t13\t3\t8\tNNNNNNN\n"
     res = client.post(
         "/base-editor-profiles/upload",
         files={"file": ("p.tsv", io.BytesIO(bad.encode()), "text/tab-separated-values")},
@@ -148,7 +148,7 @@ def test_upload_pam_too_long(cfg_and_db):
 
 def test_upload_pam_exactly_six_bases_accepted(cfg_and_db):
     client = _client(cfg_and_db)
-    ok = HEADER + "ABE8e\tABE\t2\t13\t3\t8\tNNNNNN\n"
+    ok = HEADER + "Custom1\tABE\t2\t13\t3\t8\tNNNNNN\n"
     res = client.post(
         "/base-editor-profiles/upload",
         files={"file": ("p.tsv", io.BytesIO(ok.encode()), "text/tab-separated-values")},
@@ -162,7 +162,7 @@ def test_upload_extra_columns_dropped(cfg_and_db):
     body = (
         "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
         "high_edit_start\thigh_edit_end\tpam\tcas\tsource\textra\n"
-        "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\tdropped\n"
+        "Custom1\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\tdropped\n"
     )
     res = client.post(
         "/base-editor-profiles/upload",
@@ -175,7 +175,7 @@ def test_upload_extra_columns_dropped(cfg_and_db):
     assert table["ok"] is True
     row_keys = set(table["rows"][0].keys())
     assert "extra" not in row_keys
-    assert row_keys == {"name", "editing", "general", "high", "pam", "cas"}
+    assert row_keys == {"name", "editing", "general", "high", "pam", "cas", "source"}
 
 
 def test_max_upload_mb_is_one_by_default(cfg_and_db):
@@ -183,14 +183,68 @@ def test_max_upload_mb_is_one_by_default(cfg_and_db):
     assert cfg.max_profile_upload_mb == 1
 
 
-def test_download_serves_default(cfg_and_db):
+def test_download_serves_profiles_template(cfg_and_db):
+    """The /base-editor-profiles/download endpoint serves a template TSV
+    containing a placeholder ``example`` row plus a real example row
+    (ABE8e). The required schema columns are present, plus the optional
+    ``cas`` column; the ``source`` column is intentionally omitted."""
     cfg, _ = cfg_and_db
     client = _client(cfg_and_db)
     res = client.get("/base-editor-profiles/download")
     assert res.status_code == 200
     assert res.headers["content-type"].startswith("text/tab-separated-values")
+    assert "template" in res.headers["content-disposition"].lower()
+    # Required header columns + the optional ``cas`` column.
+    header_line = res.text.splitlines()[0]
+    for col in (
+        "name", "editing", "general_edit_start", "general_edit_end",
+        "high_edit_start", "high_edit_end", "pam", "cas",
+    ):
+        assert col in header_line
+    # The ``source`` column is intentionally not in the template.
+    assert "source" not in header_line
+    # Body rows: one ``example`` placeholder and one ABE8e example.
+    assert "example" in res.text
     assert "ABE8e" in res.text
-    assert "Nature2022" in res.text
+
+
+def test_upload_rejects_name_collision_with_default(cfg_and_db):
+    """Uploading a custom profile whose name already exists in the default
+    profiles file must be rejected with a clear collision error."""
+    client = _client(cfg_and_db)
+    # cfg_and_db's default file already contains ABE8e
+    colliding = HEADER + "ABE8e\tABE\t2\t13\t3\t8\tNGG\n"
+    res = client.post(
+        "/base-editor-profiles/upload",
+        files={"file": ("p.tsv", io.BytesIO(colliding.encode()), "text/tab-separated-values")},
+    )
+    assert res.status_code == 400
+    assert "Name collision" in res.json()["error"]
+    assert "ABE8e" in res.json()["error"]
+
+
+def test_base_editor_table_combined_source(cfg_and_db):
+    """source=combined returns default + custom profiles with a source tag."""
+    client = _client(cfg_and_db)
+    # Initial state: no custom profiles uploaded; combined == default.
+    res = client.get("/base-editor-table?source=combined").json()
+    assert res["ok"] is True
+    assert all(row["source"] == "default" for row in res["rows"])
+    default_names = [row["name"] for row in res["rows"]]
+
+    # Upload custom profiles; combined now contains both.
+    client.post(
+        "/base-editor-profiles/upload",
+        files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    )
+    res = client.get("/base-editor-table?source=combined").json()
+    assert res["ok"] is True
+    sources = {row["name"]: row["source"] for row in res["rows"]}
+    # Custom profiles are listed first.
+    assert sources["CustomABE1"] == "custom"
+    assert sources["CustomCBE1"] == "custom"
+    assert sources["ABE8e"] == "default"
+    assert len(res["rows"]) == len(default_names) + 2
 
 
 def test_status_initial_loaded_false(cfg_and_db):
@@ -212,7 +266,7 @@ def test_status_reflects_upload(cfg_and_db):
     res = client.get("/base-editor-profiles/status")
     body = res.json()
     assert body["loaded"] is True
-    assert body["names"] == ["ABE8e", "CBE6d"]
+    assert body["names"] == ["CustomABE1", "CustomCBE1"]
 
 
 def test_check_uses_custom_profiles(cfg_and_db):
@@ -289,8 +343,8 @@ def test_run_payload_with_custom_profiles(cfg_and_db, monkeypatch):
     assert captured["use_custom_profiles"] is True
     assert captured["custom_profiles_b64"] is not None
     decoded = base64.b64decode(captured["custom_profiles_b64"])
-    assert b"ABE8e" in decoded
-    assert captured["base_editor_names"] == ["ABE8e", "CBE6d"]
+    assert b"CustomABE1" in decoded
+    assert captured["base_editor_names"] == ["CustomABE1", "CustomCBE1"]
 
 
 def test_run_default_after_upload_does_not_use_custom(cfg_and_db, monkeypatch):
@@ -376,7 +430,7 @@ def test_build_config_writes_custom_profiles_to_workdir(cfg_and_db, tmp_path):
     custom_b64 = _b64.b64encode(SAMPLE_PROFILES.encode()).decode("ascii")
     config = _build_config(
         targets,
-        base_editor_names=["ABE8e", "CBE6d"],
+        base_editor_names=["CustomABE1", "CustomCBE1"],
         filter_mode="all",
         work_dir=str(work_dir),
         use_custom_profiles=True,
@@ -389,4 +443,199 @@ def test_build_config_writes_custom_profiles_to_workdir(cfg_and_db, tmp_path):
     from pathlib import Path
     written = Path(expected)
     assert written.exists()
-    assert "ABE8e" in written.read_text()
+    assert "CustomABE1" in written.read_text()
+
+
+def test_check_accepts_comma_separated_editor_names(cfg_and_db):
+    """Multi-select UI sends comma-separated individual editor names."""
+    from pathlib import Path
+    from beguided.web.profiles_store import get_store
+
+    cfg, _ = cfg_and_db
+    # Inject a second preset so the resolver has more than one editor to pick.
+    presets = Path(cfg.base_editor_profiles_file)
+    presets.write_text(
+        "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
+        "high_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+        "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\n"
+        "CBE6d\tCBE\t2\t10\t6\t6\tNGG\tSpCas9\tNature2023\n"
+    )
+    get_store().clear()
+
+    client = _client(cfg_and_db)
+    res = client.post(
+        "/check",
+        data={
+            "raw_b64": _targets_tsv_b64(),
+            "base_editor": "ABE8e,CBE6d",
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["can_run"] is True
+
+
+def test_check_comma_separated_rejects_unknown_name(cfg_and_db):
+    """Unknown editor names in a comma-separated list are rejected."""
+    from beguided.web.profiles_store import get_store
+    get_store().clear()
+
+    client = _client(cfg_and_db)
+    res = client.post(
+        "/check",
+        data={
+            "raw_b64": _targets_tsv_b64(),
+            "base_editor": "ABE8e,totally-fake",
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is False
+    assert "totally-fake" in body["error"]
+
+
+def test_run_resolves_comma_separated_editor_names(cfg_and_db, monkeypatch):
+    """Comma-separated names flow through to the pipeline as a list."""
+    from pathlib import Path
+    from beguided.web.profiles_store import get_store
+
+    cfg, _ = cfg_and_db
+    presets = Path(cfg.base_editor_profiles_file)
+    presets.write_text(
+        "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
+        "high_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+        "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\n"
+        "CBE6d\tCBE\t2\t10\t6\t6\tNGG\tSpCas9\tNature2023\n"
+    )
+    get_store().clear()
+
+    captured = {}
+
+    def fake_execute_job(**kwargs):
+        captured.update(kwargs)
+        return {
+            "job_id": kwargs["job_id"],
+            "status": "complete",
+            "message": "ok",
+            "records": [],
+        }
+
+    import beguided.web.scheduler as sched_mod
+    sched_mod.execute_job = fake_execute_job
+
+    client = _client(cfg_and_db)
+    res = client.post(
+        "/run",
+        data={
+            "raw_b64": _targets_tsv_b64(),
+            "base_editor": "CBE6d,ABE8e",
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    status = _wait_for_status(client, body["job_id"])
+    assert status == "complete"
+
+    assert captured["use_custom_profiles"] is False
+    assert sorted(captured["base_editor_names"]) == ["ABE8e", "CBE6d"]
+
+
+def test_check_single_name_still_works_as_backward_compat(cfg_and_db):
+    """A single editor name (no commas) is still accepted as a 1-element list."""
+    from beguided.web.profiles_store import get_store
+    get_store().clear()
+
+    client = _client(cfg_and_db)
+    res = client.post(
+        "/check",
+        data={
+            "raw_b64": _targets_tsv_b64(),
+            "base_editor": "ABE8e",
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["can_run"] is True
+
+
+def test_check_mixed_custom_and_default_names(cfg_and_db):
+    """Comma-separated names spanning custom + default sources resolve
+    correctly via a merged profiles dict."""
+    from beguided.web.profiles_store import get_store
+    get_store().clear()
+
+    client = _client(cfg_and_db)
+    client.post(
+        "/base-editor-profiles/upload",
+        files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    )
+    # Default fixture has ABE8e (ABE); SAMPLE_PROFILES has CustomABE1 + CustomCBE1.
+    # Sending a mix should succeed and match both editing directions.
+    targets = (
+        "chromosome\tposition\ttarget_base\tdesired_base\n"
+        "chr1\t50\tA\tG\n"      # matched by ABE8e (sense A→G)
+        "chr1\t100\tC\tT\n"     # matched by CustomCBE1 (sense C→T)
+    )
+    raw_b64 = base64.b64encode(targets.encode()).decode("ascii")
+    res = client.post(
+        "/check",
+        data={
+            "raw_b64": raw_b64,
+            "base_editor": "ABE8e,CustomCBE1",
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["can_run"] is True
+    assert body["matched"] == 2
+
+
+def test_run_mixed_custom_and_default_includes_merged_profiles_b64(
+    cfg_and_db, monkeypatch
+):
+    """A run with mixed sources carries a merged_profiles_b64 payload."""
+    from beguided.web.profiles_store import get_store
+    get_store().clear()
+
+    captured = {}
+
+    def fake_execute_job(**kwargs):
+        captured.update(kwargs)
+        return {
+            "job_id": kwargs["job_id"],
+            "status": "complete",
+            "message": "ok",
+            "records": [],
+        }
+
+    import beguided.web.scheduler as sched_mod
+    sched_mod.execute_job = fake_execute_job
+
+    client = _client(cfg_and_db)
+    client.post(
+        "/base-editor-profiles/upload",
+        files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    )
+    res = client.post(
+        "/run",
+        data={
+            "raw_b64": _targets_tsv_b64(),
+            "base_editor": "ABE8e,CustomABE1",
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    status = _wait_for_status(client, body["job_id"])
+    assert status == "complete"
+
+    assert captured["use_custom_profiles"] is False
+    assert captured["merged_profiles_b64"] is not None
+    merged_bytes = base64.b64decode(captured["merged_profiles_b64"])
+    assert b"ABE8e" in merged_bytes
+    assert b"CustomABE1" in merged_bytes
+    assert sorted(captured["base_editor_names"]) == ["ABE8e", "CustomABE1"]

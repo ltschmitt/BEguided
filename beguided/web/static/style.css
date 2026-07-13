@@ -79,6 +79,181 @@ body {
     cursor: pointer;
 }
 
+/* Base editor multi-select dropdown (lives in the top-bar). */
+.be-multiselect {
+    position: relative;
+    display: inline-block;
+}
+
+.be-multiselect-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 160px;
+    max-width: 280px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 400;
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.be-multiselect-btn:hover {
+    border-color: var(--primary);
+}
+
+.be-multiselect-btn:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.be-multiselect-btn[aria-expanded="true"] {
+    border-color: var(--primary);
+}
+
+.be-multiselect-btn .be-caret {
+    font-size: 11px;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+}
+
+.be-multiselect-btn[aria-expanded="true"] .be-caret {
+    transform: rotate(180deg);
+}
+
+.be-multiselect-btn #beMultiselectLabel {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.be-multiselect-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 200;
+    min-width: 320px;
+    max-width: 420px;
+    max-height: 420px;
+    overflow: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
+    padding: 8px 0;
+}
+
+.be-quick-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 0 10px 8px 10px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 6px;
+    position: sticky;
+    top: 0;
+    background: var(--panel);
+    z-index: 1;
+}
+
+.be-quick-toggles button {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.be-quick-toggles button:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.be-checkbox-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 10px 8px 10px;
+}
+
+.be-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.be-group-header {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    padding: 6px 4px 4px 4px;
+}
+
+.be-group-header-custom {
+    color: var(--primary);
+}
+
+.be-subgroup {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-left: 8px;
+    padding-left: 8px;
+    border-left: 2px solid var(--border);
+}
+
+.be-subgroup-header {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    padding: 4px 4px 2px 4px;
+}
+
+.be-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.1s ease;
+}
+
+.be-checkbox-row:hover {
+    background: var(--bg);
+}
+
+.be-checkbox-row input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--primary);
+    cursor: pointer;
+    margin: 0;
+}
+
+.be-checkbox-row .be-name {
+    flex: 1;
+}
+
+.be-checkbox-row .be-pam {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 /* Mode switch (Spreadsheet / Sequence) sits inside the top-bar */
 .mode-switch {
     display: inline-flex;
@@ -573,6 +748,19 @@ body {
     padding: 16px;
     box-shadow: 0 1px 2px rgba(0,0,0,0.04);
     overflow: auto;
+}
+
+/* Upload row on the Base Editors tab: label + file input on the left with
+   a 10px gap, template-download link pushed to the far right. */
+.be-upload-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 0;
+}
+
+.be-upload-row > a.btn-secondary {
+    margin-left: auto;
 }
 
 /* Tables */

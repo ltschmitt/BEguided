@@ -58,6 +58,7 @@ class StubRunner:
         custom_genome_b64=None,
         use_custom_profiles=False,
         custom_profiles_b64=None,
+        merged_profiles_b64=None,
     ):
         with self._lock:
             self._counter += 1

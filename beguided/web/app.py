@@ -22,7 +22,11 @@ from beguided.web.config import (
     get_base_editor_display_names,
     load_base_editor_groups,
 )
-from beguided.editing.presets import load_base_editor_profiles, get_supported_editor_keys
+from beguided.editing.presets import (
+    get_available_base_editor_names,
+    get_supported_editor_keys,
+    load_base_editor_profiles,
+)
 from beguided.web import genome_cache, gtf_cache
 from beguided.web.profiles_store import (
     ProfilesUploadError,
@@ -66,6 +70,23 @@ def _render_template(name, **kwargs) -> str:
     return template.render(**kwargs)
 
 
+def _df_to_table_rows(df: pd.DataFrame, source: str) -> list[dict]:
+    """Convert a profiles DataFrame to the condensed row format used by
+    the API. Each row includes a ``source`` field ("default" / "custom")."""
+    rows = []
+    for _, r in df.iterrows():
+        rows.append({
+            "name": str(r["name"]),
+            "editing": str(r["editing"]),
+            "general": f"{int(r['general_edit_start'])}-{int(r['general_edit_end'])}",
+            "high": f"{int(r['high_edit_start'])}-{int(r['high_edit_end'])}",
+            "pam": str(r["pam"]),
+            "cas": str(r.get("cas", "")) if "cas" in df.columns else "",
+            "source": source,
+        })
+    return rows
+
+
 def _decode_targets(raw_b64: str) -> pd.DataFrame:
     """Decode a base64-encoded TSV into a DataFrame. Raises HTTPException(400)."""
     try:
@@ -80,12 +101,67 @@ def _decode_targets(raw_b64: str) -> pd.DataFrame:
     return df
 
 
+def _partition_names_by_source(names: list[str]):
+    """Split a list of editor names into the subset that lives in the
+    custom-profiles store vs the default profiles file.
+
+    Returns (custom_names, default_names, missing_names).
+    """
+    store = get_profiles_store()
+    custom_names = set(store.names()) if store.is_loaded() else set()
+    try:
+        default_df = pd.read_csv(
+            get_config().base_editor_profiles_file, sep="\t"
+        )
+        default_names = set(default_df["name"].astype(str).tolist())
+    except Exception:
+        default_names = set()
+
+    selected = set(names)
+    custom_subset = sorted(selected & custom_names)
+    default_subset = sorted(selected & default_names)
+    missing = sorted(selected - custom_names - default_names)
+    return custom_subset, default_subset, missing
+
+
+def _build_merged_profiles_b64(custom_names: list[str], default_names: list[str]):
+    """Build a base64-encoded TSV that contains the union of custom + default
+    profiles, restricted to the requested names. Returns the base64 string,
+    or None if no merge is needed (only one source in play)."""
+    if not custom_names and not default_names:
+        return None
+    if not custom_names:
+        return None  # default-only: caller uses the default file directly
+    if not default_names:
+        return None  # custom-only: caller uses the custom bytes directly
+
+    store = get_profiles_store()
+    custom_df = pd.read_csv(io.BytesIO(store.get_bytes()), sep="\t")
+    default_df = pd.read_csv(
+        get_config().base_editor_profiles_file, sep="\t"
+    )
+    custom_rows = custom_df[custom_df["name"].isin(custom_names)]
+    default_rows = default_df[default_df["name"].isin(default_names)]
+    merged = pd.concat([custom_rows, default_rows], ignore_index=True)
+    return base64.b64encode(merged.to_csv(sep="\t", index=False).encode()).decode("ascii")
+
+
 def _load_profiles_for_check(base_editor: str):
     """Resolve a base_editor dropdown value to (profiles, names, error_dict).
 
     ``profiles`` is the result of ``load_base_editor_profiles``; ``names`` is
     the list of editor names the user actually selected. On failure the
     third element is a JSON error body and the first two are ``None``.
+
+    Accepted forms for ``base_editor``:
+      * ``"custom"`` — all uploaded custom profile names.
+      * A group key (``"all"``, ``"all ABEs"``, ``"all CBEs"``, or any single
+        editor name) — resolved via ``load_base_editor_groups`` (backward
+        compatibility for the single-select dropdown).
+      * A comma-separated list of individual editor names — each name is
+        looked up in the custom store first, then the default file.
+        When both sources are involved, a merged profiles dict is loaded
+        from a temporary TSV built on the fly.
     """
     if base_editor == CUSTOM_EDITOR_KEY:
         store = get_profiles_store()
@@ -100,22 +176,58 @@ def _load_profiles_for_check(base_editor: str):
 
     cfg = get_config()
     groups = load_base_editor_groups()
-    if base_editor not in groups:
+    if base_editor in groups:
+        try:
+            profiles = load_base_editor_profiles(cfg.base_editor_profiles_file)
+        except (ValueError, KeyError) as exc:
+            return None, None, {"ok": False, "error": f"Failed to load profiles: {exc}"}
+        return profiles, groups[base_editor], None
+
+    # Comma-separated list of individual editor names (multi-select UI).
+    requested = [n.strip() for n in base_editor.split(",") if n.strip()]
+    if not requested:
+        return None, None, {"ok": False, "error": "No base editor selected."}
+
+    custom_subset, default_subset, missing = _partition_names_by_source(requested)
+    if missing:
         return None, None, {
             "ok": False,
-            "error": f"Unknown base editor group: {base_editor!r}",
+            "error": f"Unknown base editor(s): {', '.join(missing)}",
         }
-    try:
-        profiles = load_base_editor_profiles(cfg.base_editor_profiles_file)
-    except (ValueError, KeyError) as exc:
-        return None, None, {"ok": False, "error": f"Failed to load profiles: {exc}"}
-    return profiles, groups[base_editor], None
+
+    merged_b64 = _build_merged_profiles_b64(custom_subset, default_subset)
+    if merged_b64 is not None:
+        try:
+            profiles = load_base_editor_profiles(
+                io.BytesIO(base64.b64decode(merged_b64.encode("ascii")))
+            )
+        except (ValueError, KeyError) as exc:
+            return None, None, {"ok": False, "error": f"Failed to load merged profiles: {exc}"}
+    elif custom_subset:
+        try:
+            profiles = load_base_editor_profiles(
+                io.BytesIO(get_profiles_store().get_bytes())
+            )
+        except (ValueError, KeyError) as exc:
+            return None, None, {"ok": False, "error": f"Invalid custom profiles: {exc}"}
+    else:
+        try:
+            profiles = load_base_editor_profiles(cfg.base_editor_profiles_file)
+        except (ValueError, KeyError) as exc:
+            return None, None, {"ok": False, "error": f"Failed to load profiles: {exc}"}
+
+    return profiles, requested, None
 
 
 def _resolve_base_editor_for_run(base_editor: str):
     """Resolve a base_editor dropdown value for a pipeline run.
 
     Returns (payload_dict, error_dict). Exactly one is None.
+
+    Accepted forms for ``base_editor``: see ``_load_profiles_for_check``.
+    For comma-separated individual editor names spanning both the custom
+    store and the default file, a ``merged_profiles_b64`` is included so
+    the pipeline can load a single merged TSV.
     """
     if base_editor == CUSTOM_EDITOR_KEY:
         store = get_profiles_store()
@@ -128,15 +240,35 @@ def _resolve_base_editor_for_run(base_editor: str):
         }, None
 
     groups = load_base_editor_groups()
-    if base_editor not in groups:
+    if base_editor in groups:
+        return {
+            "base_editor_names": groups[base_editor],
+            "use_custom_profiles": False,
+            "custom_profiles_b64": None,
+            "merged_profiles_b64": None,
+        }, None
+
+    requested = [n.strip() for n in base_editor.split(",") if n.strip()]
+    if not requested:
+        return None, {"ok": False, "error": "No base editor selected."}
+
+    custom_subset, default_subset, missing = _partition_names_by_source(requested)
+    if missing:
         return None, {
             "ok": False,
-            "error": f"Unknown base editor group: {base_editor!r}",
+            "error": f"Unknown base editor(s): {', '.join(missing)}",
         }
+
+    merged_b64 = _build_merged_profiles_b64(custom_subset, default_subset)
+    if merged_b64 is None and custom_subset:
+        # custom-only selection: write the full custom TSV
+        merged_b64 = get_profiles_store().get_b64()
+
     return {
-        "base_editor_names": groups[base_editor],
+        "base_editor_names": requested,
         "use_custom_profiles": False,
         "custom_profiles_b64": None,
+        "merged_profiles_b64": merged_b64,
     }, None
 
 
@@ -256,36 +388,47 @@ def create_app() -> FastAPI:
     def base_editor_table(source: str = "default") -> dict:
         """Return a condensed view of the base editor profiles TSV.
 
+        ``source=default`` reads the operator-configured default file.
         ``source=custom`` reads the in-memory uploaded TSV (rejected if no
-        upload has happened). Any other value reads the operator-configured
-        default file. Merges general_edit_start/end into a ``general`` column
-        and high_edit_start/end into a ``high`` column, each formatted as
+        upload has happened). ``source=combined`` returns the union of
+        default + custom profiles in one list, with each row tagged via its
+        ``source`` field.
+
+        Merges general_edit_start/end into a ``general`` column and
+        high_edit_start/end into a ``high`` column, each formatted as
         ``"start-end"``.
         """
         try:
-            if source == "custom":
-                store = get_profiles_store()
-                if not store.is_loaded():
-                    return {
-                        "ok": False,
-                        "error": "No custom profiles uploaded.",
-                    }
-                df = pd.read_csv(io.BytesIO(store.get_bytes()), sep="\t")
-            else:
-                df = pd.read_csv(get_config().base_editor_profiles_file, sep="\t")
+            default_df = pd.read_csv(get_config().base_editor_profiles_file, sep="\t")
         except Exception as exc:
-            return {"ok": False, "error": f"Failed to load base editor profiles: {exc}"}
-        rows = []
-        for _, r in df.iterrows():
-            rows.append({
-                "name": str(r["name"]),
-                "editing": str(r["editing"]),
-                "general": f"{int(r['general_edit_start'])}-{int(r['general_edit_end'])}",
-                "high": f"{int(r['high_edit_start'])}-{int(r['high_edit_end'])}",
-                "pam": str(r["pam"]),
-                "cas": str(r.get("cas", "")),
-            })
-        return {"ok": True, "rows": rows, "source": source}
+            return {"ok": False, "error": f"Failed to load default profiles: {exc}"}
+
+        if source == "custom":
+            store = get_profiles_store()
+            if not store.is_loaded():
+                return {"ok": False, "error": "No custom profiles uploaded."}
+            try:
+                custom_df = pd.read_csv(io.BytesIO(store.get_bytes()), sep="\t")
+            except Exception as exc:
+                return {"ok": False, "error": f"Failed to load custom profiles: {exc}"}
+            rows = _df_to_table_rows(custom_df, "custom")
+            return {"ok": True, "rows": rows, "source": "custom"}
+
+        if source == "combined":
+            rows = _df_to_table_rows(default_df, "default")
+            store = get_profiles_store()
+            if store.is_loaded():
+                try:
+                    custom_df = pd.read_csv(io.BytesIO(store.get_bytes()), sep="\t")
+                    # Custom profiles are listed first so the multi-select UI
+                    # can render them in their own group at the top.
+                    rows = _df_to_table_rows(custom_df, "custom") + rows
+                except Exception:
+                    pass
+            return {"ok": True, "rows": rows, "source": "combined"}
+
+        rows = _df_to_table_rows(default_df, "default")
+        return {"ok": True, "rows": rows, "source": "default"}
 
     @app.post("/base-editor-profiles/upload")
     async def upload_profiles(file: UploadFile = File(...)) -> JSONResponse:
@@ -294,7 +437,9 @@ def create_app() -> FastAPI:
         cfg = get_config()
         try:
             validate_uploaded_profiles(
-                content, cfg.max_profile_upload_mb * 1024 * 1024
+                content,
+                cfg.max_profile_upload_mb * 1024 * 1024,
+                default_profiles_file=cfg.base_editor_profiles_file,
             )
         except ProfilesUploadError as exc:
             return JSONResponse(
@@ -323,22 +468,26 @@ def create_app() -> FastAPI:
 
     @app.get("/base-editor-profiles/download")
     def download_profiles() -> Response:
-        """Serve the operator-configured default profiles TSV."""
-        cfg = get_config()
-        path = cfg.default_base_editor_profiles_file or cfg.base_editor_profiles_file
-        try:
-            with open(path, "rb") as f:
-                data = f.read()
-        except OSError as exc:
-            return PlainTextResponse(
-                f"Failed to read profiles: {exc}",
-                status_code=500,
-            )
+        """Serve a base editor profiles TSV template.
+
+        The template contains one placeholder row (``example``) and one
+        real example row (ABE8e) so users can see the expected schema.
+        Columns: name, editing, general_edit_start, general_edit_end,
+        high_edit_start, high_edit_end, pam, cas. The ``cas`` column is
+        optional on upload; everything else is required.
+        """
+        template = (
+            "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
+            "high_edit_start\thigh_edit_end\tpam\tcas\n"
+            "example\tABE\t2\t13\t3\t8\tNGG\tSpCas9\n"
+            "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\n"
+        )
         return Response(
-            data,
+            template,
             media_type="text/tab-separated-values",
             headers={
-                "Content-Disposition": "attachment; filename=base_editor_profiles.tsv"
+                "Content-Disposition":
+                    "attachment; filename=base_editor_profiles_template.tsv"
             },
         )
 
@@ -538,6 +687,7 @@ def create_app() -> FastAPI:
         base_editor_names = resolved["base_editor_names"]
         use_custom_profiles = resolved["use_custom_profiles"]
         custom_profiles_b64 = resolved["custom_profiles_b64"]
+        merged_profiles_b64 = resolved.get("merged_profiles_b64")
 
         custom_genome_b64 = custom_genome_b64.strip()
         if mode == "sequence":
@@ -569,6 +719,7 @@ def create_app() -> FastAPI:
                     "custom_genome_b64": custom_genome_b64 or None,
                     "use_custom_profiles": use_custom_profiles,
                     "custom_profiles_b64": custom_profiles_b64,
+                    "merged_profiles_b64": merged_profiles_b64,
                 },
             )
         except Cooldown as exc:

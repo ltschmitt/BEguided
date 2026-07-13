@@ -13,12 +13,24 @@
         </div>
     </div>
     <div class="group">
-        <label for="baseEditorSelect">Base Editors</label>
-        <select id="baseEditorSelect">
-            {% for name in base_editor_names %}
-            <option value="{{ name }}">{{ name }}</option>
-            {% endfor %}
-        </select>
+        <label>Base Editors</label>
+        <div class="be-multiselect" id="beMultiselect">
+            <button id="beMultiselectBtn" class="be-multiselect-btn" type="button"
+                aria-haspopup="listbox" aria-expanded="false">
+                <span id="beMultiselectLabel">All</span>
+                <span class="be-caret" aria-hidden="true">&#9662;</span>
+            </button>
+            <div id="beMultiselectPanel" class="be-multiselect-panel" hidden role="listbox">
+                <div class="be-quick-toggles">
+                    <button type="button" data-toggle="all">All</button>
+                    <button type="button" data-toggle="abe">All ABEs</button>
+                    <button type="button" data-toggle="cbe">All CBEs</button>
+                    <button type="button" data-toggle="custom">All Custom</button>
+                    <button type="button" data-toggle="none">Clear</button>
+                </div>
+                <div id="beCheckboxGroups" class="be-checkbox-groups"></div>
+            </div>
+        </div>
     </div>
     <span id="statusBadge" class="badge right">idle</span>
     <button id="cancelBtn" class="btn btn-danger" style="display:none;">Cancel</button>
@@ -154,14 +166,17 @@
     <div class="panel">
         <h2 style="margin-top:0;">Base editor profiles</h2>
         <p style="color:var(--muted);">
-            The profiles currently in use are shown below. Uploading a custom
-            TSV replaces the active profiles for the lifetime of this server.
+            The default and custom profiles currently available are shown below.
+            Uploading a custom TSV adds its profiles to the multi-select in the
+            top bar (under a dedicated <em>Custom</em> group). Custom profile
+            names must not collide with default ones. The custom base editor
+            upload is limited to 10 profiles.
         </p>
 
-        <div class="group">
+        <div class="be-upload-row">
             <label for="profilesUpload">Upload custom profiles (TSV)</label>
             <input type="file" id="profilesUpload" accept=".tsv" />
-            <a id="downloadProfiles" class="btn btn-secondary" href="/base-editor-profiles/download" download>Download default profiles</a>
+            <a id="downloadProfiles" class="btn btn-secondary" href="/base-editor-profiles/download" download>Download profiles template</a>
         </div>
 
         <div id="profilesAlert" class="alert info" style="display:none;"></div>

@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import io
 import threading
+from pathlib import Path
 from typing import List, Optional
 
 import pandas as pd
@@ -38,12 +39,23 @@ class ProfilesUploadError(ValueError):
         self.status_code = status_code
 
 
-def validate_uploaded_profiles(content: bytes, max_bytes: int) -> pd.DataFrame:
+def validate_uploaded_profiles(
+    content: bytes,
+    max_bytes: int,
+    default_profiles_file: Optional[str] = None,
+) -> pd.DataFrame:
     """Validate an uploaded profiles TSV and return the parsed DataFrame.
 
     Checks (in order): file size, parse-ability, required columns, row
-    count, PAM length. Extras columns are dropped; only the required
-    columns are returned.
+    count, PAM length, name collisions with the default profiles file.
+    Extra columns are dropped; only the required columns are returned.
+
+    Args:
+        content: Raw TSV bytes from the upload.
+        max_bytes: Maximum file size in bytes.
+        default_profiles_file: Optional path to the operator-configured
+            default profiles TSV. When provided, any uploaded name that
+            already exists in this file triggers a collision error.
 
     Raises:
         ProfilesUploadError: with a user-facing message and HTTP status.
@@ -85,6 +97,25 @@ def validate_uploaded_profiles(content: bytes, max_bytes: int) -> pd.DataFrame:
             f"PAM too long (max {MAX_PROFILE_PAM_LEN} bases): "
             f"{', '.join(offenders)}"
         )
+
+    if default_profiles_file and Path(default_profiles_file).exists():
+        try:
+            default_df = pd.read_csv(default_profiles_file, sep="\t")
+            default_names = set(default_df["name"].astype(str).tolist())
+            uploaded_names = df["name"].astype(str).tolist()
+            collisions = sorted(n for n in uploaded_names if n in default_names)
+            if collisions:
+                raise ProfilesUploadError(
+                    f"Name collision with default profile(s): "
+                    f"{', '.join(collisions)}. Custom profiles must use unique "
+                    f"names not present in the default profiles file."
+                )
+        except ProfilesUploadError:
+            raise
+        except Exception:
+            # If we can't read the default file for collision check, skip it
+            # rather than failing the upload.
+            pass
 
     return df[list(REQUIRED_PROFILE_COLUMNS)].copy()
 
