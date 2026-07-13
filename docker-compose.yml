@@ -40,13 +40,13 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       BEGUIDED_BASE_EDITOR_PROFILES_FILE: /app/base_editor_profiles.tsv
-      BEGUIDED_GENOME_FASTA: /app/genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa
-      BEGUIDED_GTF_PATH: /app/genome/Homo_sapiens.GRCh38.112.gtf
+      BEGUIDED_GENOME_FASTA: /app/genome/Homo_sapiens.GRCh38.116.fa
+      BEGUIDED_GTF_PATH: /app/genome/Homo_sapiens.GRCh38.116.gtf
       BEGUIDED_BEGUIDEDOFF_GENOME: ""
       BEGUIDED_DB_PATH: /var/lib/beguided/jobs.db
       BEGUIDED_PRELOAD_GENOME: "true"
       BEGUIDED_PRELOAD_GTF: "true"
-      BEGUIDED_GENOME_LABEL: "${BEGUIDED_GENOME_LABEL:-GRCh38.112}"
+      BEGUIDED_GENOME_LABEL: "${BEGUIDED_GENOME_LABEL:-GRCh38.116}"
     command:
       - beguided-web
       - --host
