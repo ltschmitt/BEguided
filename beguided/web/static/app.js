@@ -939,7 +939,10 @@ function renderTable(rows, columns, displayColumns = null, groupKeyFn = null, ce
     }
     const headers = displayColumns || columns;
     let html = `<table class="data-table"><thead><tr>`;
-    headers.forEach(c => { html += `<th>${escapeHtml(c)}</th>`; });
+    headers.forEach((c, i) => {
+        const dataCol = escapeHtml(columns[i] ?? c);
+        html += `<th data-col="${dataCol}">${escapeHtml(c)}</th>`;
+    });
     html += `</tr></thead><tbody>`;
     let prevKey = null;
     let stripeToggle = false;
@@ -957,7 +960,12 @@ function renderTable(rows, columns, displayColumns = null, groupKeyFn = null, ce
         columns.forEach(c => {
             const v = row[c] !== undefined ? String(row[c]) : "";
             const formatted = cellFormatter ? cellFormatter(row, c, v) : null;
-            html += `<td>${formatted !== null ? formatted : escapeHtml(v)}</td>`;
+            const content = formatted !== null ? formatted : escapeHtml(v);
+            if (c === "base_editor") {
+                html += `<td data-col="base_editor"><div class="be-cell">${content}</div></td>`;
+            } else {
+                html += `<td data-col="${escapeHtml(c)}">${content}</td>`;
+            }
         });
         html += `</tr>`;
     });

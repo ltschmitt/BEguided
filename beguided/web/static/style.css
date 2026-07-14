@@ -909,3 +909,17 @@ pre.log {
     color: #78350f;
     border-color: #fcd34d;
 }
+
+/* Keep base editor names on one line in the results table.
+   The wrapper div guarantees the column width because min-width on
+   <td> is unreliable in table-layout:auto. */
+.data-table th[data-col="base_editor"] {
+    min-width: 200px;
+}
+.data-table td[data-col="base_editor"] {
+    white-space: nowrap;
+}
+.data-table td[data-col="base_editor"] > .be-cell {
+    display: inline-block;
+    min-width: 200px;
+}
