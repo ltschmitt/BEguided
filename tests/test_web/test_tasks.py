@@ -23,6 +23,7 @@ import pytest
 from beguided.web.tasks import (  # noqa: E402
     SEQUENCE_MODE_DROP_COLUMNS,
     _df_to_records,
+    _merge_target_desired,
     execute_job as _real_execute_job,
 )
 
@@ -121,6 +122,52 @@ class TestSequenceModeDropColumnsConstant:
 
     def test_constant_is_tuple(self):
         assert isinstance(SEQUENCE_MODE_DROP_COLUMNS, tuple)
+
+
+class TestMergeTargetDesired:
+    """Unit tests for the sequence-mode ``target_base``+``desired_base``
+    merge that backs both the on-screen table and the downloaded files."""
+
+    def test_basic_merge(self):
+        records = [
+            {"chromosome": "chr1", "position": 5, "target_base": "A", "desired_base": "G", "base_editor": "ABE8e"},
+            {"chromosome": "chr1", "position": 7, "target_base": "T", "desired_base": "C", "base_editor": "ABE8e"},
+        ]
+        out = _merge_target_desired(records)
+        assert len(out) == 2
+        assert out[0]["desired_edit"] == "A>G"
+        assert out[1]["desired_edit"] == "T>C"
+        assert "target_base" not in out[0]
+        assert "desired_base" not in out[0]
+
+    def test_preserves_column_order(self):
+        records = [{"chromosome": "chr1", "position": 5, "target_base": "A", "desired_base": "G", "base_editor": "ABE8e"}]
+        out = _merge_target_desired(records)
+        keys = list(out[0].keys())
+        assert keys.index("desired_edit") == keys.index("position") + 1
+
+    def test_missing_target_base_passes_through(self):
+        records = [{"chromosome": "chr1", "desired_base": "G", "base_editor": "ABE8e"}]
+        out = _merge_target_desired(records)
+        assert "desired_edit" not in out[0]
+        assert "desired_base" not in out[0]
+
+    def test_missing_desired_base_passes_through(self):
+        records = [{"chromosome": "chr1", "target_base": "A", "base_editor": "ABE8e"}]
+        out = _merge_target_desired(records)
+        assert "desired_edit" not in out[0]
+        assert "target_base" not in out[0]
+
+    def test_empty_string_treated_as_missing(self):
+        records = [{"chromosome": "chr1", "target_base": "", "desired_base": "G", "base_editor": "ABE8e"}]
+        out = _merge_target_desired(records)
+        assert "desired_edit" not in out[0]
+
+    def test_empty_list(self):
+        assert _merge_target_desired([]) == []
+
+    def test_none_row_preserved(self):
+        assert _merge_target_desired([None]) == [None]
 
 
 # ---------------------------------------------------------------------------
@@ -276,10 +323,12 @@ class TestExecuteJobColumnDrops:
         rec = records[0]
         for col in SEQUENCE_MODE_DROP_COLUMNS:
             assert col not in rec, f"{col} should be dropped in sequence mode"
+        # target_base and desired_base are merged into desired_edit.
+        assert "target_base" not in rec
+        assert "desired_base" not in rec
+        assert rec["desired_edit"] == "A>G"
         # Untouched columns are still present.
         assert rec["chromosome"] == "custom"
-        assert rec["target_base"] == "A"
-        assert rec["desired_base"] == "G"
         assert rec["base_editor"] == "ABE8e"
 
     def test_spreadsheet_mode_keeps_all_columns(self, monkeypatch, tmp_path):

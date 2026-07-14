@@ -180,6 +180,45 @@ def _df_to_records(path: Path, drop_columns: tuple[str, ...] = ()) -> list[dict]
     return out
 
 
+def _merge_target_desired(records: list[dict]) -> list[dict]:
+    """Merge ``target_base`` and ``desired_base`` into a single
+    ``desired_edit`` column formatted as ``"target>desired"`` (e.g.
+    ``"A>G"``, ``"T>C"``).
+
+    Used by sequence-mode jobs where the two columns always co-vary and the
+    merged column is easier to read both on screen and in downloaded files.
+    ``desired_edit`` is inserted at the slot where ``target_base`` used to
+    sit (preserving column order); rows missing either input are passed
+    through unchanged.
+    """
+    out = []
+    for row in records:
+        if row is None:
+            out.append(row)
+            continue
+        tb = row.get("target_base")
+        db = row.get("desired_base")
+        has_both = (
+            tb is not None and tb != ""
+            and db is not None and db != ""
+        )
+        next_row: dict = {}
+        inserted = False
+        for k, v in row.items():
+            if k == "target_base":
+                if has_both:
+                    next_row["desired_edit"] = f"{tb}>{db}"
+                    inserted = True
+                continue
+            if k == "desired_base":
+                continue
+            next_row[k] = v
+        if has_both and not inserted:
+            next_row["desired_edit"] = f"{tb}>{db}"
+        out.append(next_row)
+    return out
+
+
 def execute_job(
     job_id: str,
     targets_df: pd.DataFrame,
@@ -397,6 +436,8 @@ def execute_job(
                 final_output,
                 drop_columns=SEQUENCE_MODE_DROP_COLUMNS if sequence_mode else (),
             )
+            if sequence_mode:
+                records = _merge_target_desired(records)
             if not records:
                 return {
                     "job_id": job_id,

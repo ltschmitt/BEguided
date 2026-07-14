@@ -412,6 +412,25 @@ body {
     font-weight: 700;
 }
 
+/* Highlight the edited base inside a guide RNA sequence in the results table.
+   Soft blue background + darker blue text; matches the visual weight of the
+   yellow .sequence-edit-mark used in the preview. The <code> wrapper is on
+   the parent cell, so this background sits inside the monospace sequence. */
+.guide-edit-base {
+    background: #dbeafe;
+    color: #1d4ed8;
+    border-radius: 3px;
+    padding: 0 3px;
+    font-weight: 700;
+}
+
+/* Highlight bystander edits inside a guide RNA sequence in the results table.
+   Text color only (no background) so bystanders stay legible while the blue
+   edited base remains the primary visual anchor. */
+.guide-bystander-base {
+    color: #b91c1c;
+}
+
 /* Results-tab filter toolbar */
 .results-guide-status {
     margin-bottom: 16px;

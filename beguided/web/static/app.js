@@ -114,6 +114,7 @@ let customProfilesCount = 0;
     }
 
     wireMultiselectEvents();
+    setMode(currentMode);
 })();
 
 // ---------------------------------------------------------------------------
@@ -932,7 +933,7 @@ function showAlert(el, kind, msg) {
     el.style.display = "block";
 }
 
-function renderTable(rows, columns, displayColumns = null, groupKeyFn = null) {
+function renderTable(rows, columns, displayColumns = null, groupKeyFn = null, cellFormatter = null) {
     if (!rows || rows.length === 0) {
         return `<p style="color:var(--muted);padding:16px;">No data to display.</p>`;
     }
@@ -955,12 +956,63 @@ function renderTable(rows, columns, displayColumns = null, groupKeyFn = null) {
         html += cls ? `<tr class="${cls}">` : `<tr>`;
         columns.forEach(c => {
             const v = row[c] !== undefined ? String(row[c]) : "";
-            html += `<td>${escapeHtml(v)}</td>`;
+            const formatted = cellFormatter ? cellFormatter(row, c, v) : null;
+            html += `<td>${formatted !== null ? formatted : escapeHtml(v)}</td>`;
         });
         html += `</tr>`;
     });
     html += `</tbody></table>`;
     return html;
+}
+
+// Parse the comma-separated ``bystander_positions`` string into a Set of
+// 0-based sequence indices. Bystander positions are 1-based from the 5'
+// end of the guide (same convention as ``editing_position``). Tokens that
+// are non-numeric, out of range, or duplicates are silently dropped.
+function parseBystanderIndices(raw, seqLen) {
+    const idxs = new Set();
+    if (!raw) return idxs;
+    for (const tok of String(raw).split(",")) {
+        const n = Number(tok.trim());
+        if (Number.isInteger(n) && n >= 1 && n <= seqLen) {
+            idxs.add(n - 1);
+        }
+    }
+    return idxs;
+}
+
+// Format DNA-sequence cells in the results table so they share a uniform
+// monospace look. The guide RNA sequence gets the base at the 1-based
+// ``editing_position`` (from the 5' end of the guide) highlighted in blue
+// and any bases listed in ``bystander_positions`` highlighted in dark red;
+// the PAM sequence gets the same monospace treatment but no highlight
+// since it has no positional metadata.
+function formatDnaSequenceCell(row, column, value) {
+    if (column !== "guide_rna_sequence" && column !== "pam_sequence") {
+        return null;
+    }
+    const seq = String(value ?? "");
+    const safeSeq = escapeHtml(seq);
+    if (column === "pam_sequence") {
+        return `<code>${safeSeq}</code>`;
+    }
+    const editPos = Number(row.editing_position);
+    const editIdx = Number.isInteger(editPos) ? editPos - 1 : -1;
+    const bystanderIdxs = parseBystanderIndices(row.bystander_positions, seq.length);
+    if (editIdx < 0 && bystanderIdxs.size === 0) {
+        return `<code>${safeSeq}</code>`;
+    }
+    const parts = [];
+    for (let i = 0; i < seq.length; i++) {
+        if (i === editIdx) {
+            parts.push(`<span class="guide-edit-base">${safeSeq[i]}</span>`);
+        } else if (bystanderIdxs.has(i)) {
+            parts.push(`<span class="guide-bystander-base">${safeSeq[i]}</span>`);
+        } else {
+            parts.push(safeSeq[i]);
+        }
+    }
+    return `<code>${parts.join("")}</code>`;
 }
 
 function escapeHtml(str) {
@@ -1331,7 +1383,8 @@ function renderResultsTable() {
             filtered,
             columns,
             displayColumns,
-            r => `${r.chromosome ?? ""}__${r.position ?? ""}`
+            r => `${r.chromosome ?? ""}__${r.position ?? ""}`,
+            formatDnaSequenceCell
         );
     }
 
