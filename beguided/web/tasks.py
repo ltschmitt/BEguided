@@ -438,6 +438,10 @@ def execute_job(
             )
             if sequence_mode:
                 records = _merge_target_desired(records)
+                # Rename 'chromosome' to 'sequence' for display consistency in sequence mode
+                for record in records:
+                    if 'chromosome' in record:
+                        record['sequence'] = record.pop('chromosome')
             if not records:
                 return {
                     "job_id": job_id,

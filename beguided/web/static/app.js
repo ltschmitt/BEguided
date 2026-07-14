@@ -1060,6 +1060,28 @@ function renderSequencePreview(rows) {
     return html;
 }
 
+const SEQUENCE_MODE_COLUMN_LABELS = {
+    chromosome: "sequence",
+};
+
+function columnLabel(name) {
+    if (currentMode === "sequence"
+        && Object.prototype.hasOwnProperty.call(SEQUENCE_MODE_COLUMN_LABELS, name)) {
+        return SEQUENCE_MODE_COLUMN_LABELS[name];
+    }
+    return displayColumnName(name);
+}
+
+// Reorder columns to put the specified column first, preserving order of others
+function reorderColumns(columns, firstColumn) {
+    const index = columns.indexOf(firstColumn);
+    if (index === -1) return columns;
+    const reordered = [...columns];
+    reordered.splice(index, 1);  // Remove from current position
+    reordered.unshift(firstColumn);  // Add to front
+    return reordered;
+}
+
 function displayColumnName(name) {
     return name.replace(/_/g, " ");
 }
@@ -1378,10 +1400,14 @@ function renderResultsTable() {
         target.innerHTML = `<p style="color:var(--muted);padding:16px;">No guides match the current filters.</p>`;
     } else {
         const columns = Object.keys(filtered[0]);
-        const displayColumns = columns.map(displayColumnName);
+        // Move 'sequence' column to the front in sequence mode
+        const finalColumns = currentMode === "sequence" 
+            ? reorderColumns(columns, "sequence")
+            : columns;
+        const displayColumns = finalColumns.map(columnLabel);
         target.innerHTML = renderTable(
             filtered,
-            columns,
+            finalColumns,
             displayColumns,
             r => `${r.chromosome ?? ""}__${r.position ?? ""}`,
             formatDnaSequenceCell
