@@ -224,6 +224,7 @@ def parse_sequence_text(
     """
     raw_records = _parse_records(text)
     out: list[SequenceRecord] = []
+    seen_chromosomes: set[str] = set()
 
     for idx, (header, sequence) in enumerate(raw_records):
         # Header validation first — failing here is a structural problem
@@ -239,6 +240,15 @@ def parse_sequence_text(
             chromosome = _sanitize_chromosome_name(header, idx)
         else:
             chromosome = default_chromosome
+
+        if chromosome in seen_chromosomes:
+            raise SequenceParseError(
+                f"Duplicate sequence identifier {chromosome!r}: each input "
+                "sequence must have a unique header (FASTA '>name') so it "
+                "can be tracked individually through the pipeline.",
+                record_index=idx,
+            )
+        seen_chromosomes.add(chromosome)
 
         # Reject any extra brackets: each sequence must contain exactly one.
         bracket_matches = list(_BRACKET_RE.finditer(sequence))

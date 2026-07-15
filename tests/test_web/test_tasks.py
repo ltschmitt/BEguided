@@ -124,6 +124,78 @@ class TestSequenceModeDropColumnsConstant:
         assert isinstance(SEQUENCE_MODE_DROP_COLUMNS, tuple)
 
 
+def _python_target_key(record: dict) -> str:
+    """Mirror of the JS ``targetKey`` helper in ``app.js``.
+
+    Used by the regression tests below to assert the frontend's count math
+    stays in sync with the record shape that ``_df_to_records`` produces in
+    each input mode.
+    """
+    chrom = record.get("chromosome") or record.get("sequence") or ""
+    pos = record.get("position") or ""
+    return f"{chrom}__{pos}"
+
+
+class TestDistinctTargetsMath:
+    """Regression coverage for the "Found guides for X/N targets" count.
+
+    The frontend counts distinct (chromosome, position) pairs across the
+    returned records. In spreadsheet mode that key uses ``chromosome`` +
+    ``position`` directly. In sequence mode the backend renames
+    ``chromosome`` -> ``sequence`` and drops ``position``, leaving only the
+    ``sequence`` value to discriminate targets. Because the parser enforces
+    unique sequence headers, each input target has a unique ``sequence``
+    value and the count math must still return the correct total.
+
+    Without the ``targetKey`` fallback in JS, every sequence-mode record
+    collapses to the same key and the count is always 1.
+    """
+
+    def _write_two_distinct_targets(self, path: Path) -> Path:
+        pd.DataFrame(
+            {
+                "chromosome": ["chrA", "chrB"],
+                "position": [50, 50],
+                "target_base": ["A", "A"],
+                "desired_base": ["G", "G"],
+                "genome_base": ["A", "A"],
+                "guide_rna_sequence": ["AAAAAAAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAAAAAAA"],
+                "pam_sequence": ["AGG", "AGG"],
+                "editing_position": [4, 4],
+                "strand_used": ["+", "+"],
+                "bystander_positions": ["", ""],
+                "bystander_effect": ["no_bystanders", "no_bystanders"],
+                "base_editor": ["ABE8e", "ABE8e"],
+                "guide_score": [0.5, 0.5],
+            }
+        ).to_csv(path, sep="\t", index=False)
+        return path
+
+    def test_spreadsheet_mode_distinct_targets_count_is_two(self, tmp_path):
+        path = self._write_two_distinct_targets(tmp_path / "results.tsv")
+        records = _df_to_records(path)
+        assert len({_python_target_key(r) for r in records}) == 2
+
+    def test_sequence_mode_distinct_targets_count_is_two(self, tmp_path):
+        path = self._write_two_distinct_targets(tmp_path / "results.tsv")
+        records = _df_to_records(path, drop_columns=SEQUENCE_MODE_DROP_COLUMNS)
+        for record in records:
+            record["sequence"] = record.pop("chromosome")
+        records = _merge_target_desired(records)
+        assert len({_python_target_key(r) for r in records}) == 2
+
+    def test_sequence_mode_records_lack_position_and_chromosome(self, tmp_path):
+        path = self._write_two_distinct_targets(tmp_path / "results.tsv")
+        records = _df_to_records(path, drop_columns=SEQUENCE_MODE_DROP_COLUMNS)
+        for record in records:
+            record["sequence"] = record.pop("chromosome")
+        records = _merge_target_desired(records)
+        for record in records:
+            assert "position" not in record
+            assert "chromosome" not in record
+            assert "sequence" in record
+
+
 class TestMergeTargetDesired:
     """Unit tests for the sequence-mode ``target_base``+``desired_base``
     merge that backs both the on-screen table and the downloaded files."""
@@ -327,9 +399,84 @@ class TestExecuteJobColumnDrops:
         assert "target_base" not in rec
         assert "desired_base" not in rec
         assert rec["desired_edit"] == "A>G"
-        # Untouched columns are still present.
-        assert rec["chromosome"] == "custom"
+        # chromosome is renamed to sequence; it must not be present under
+        # its old key in sequence mode.
+        assert "chromosome" not in rec
+        assert rec["sequence"] == "custom"
         assert rec["base_editor"] == "ABE8e"
+
+    def test_sequence_mode_target_count_survives_column_rename(
+        self, monkeypatch, tmp_path
+    ):
+        """Regression: with N input targets the "Found guides for X/N"
+        count must reach X=N when every target produces a guide. The
+        frontend counts distinct ``(chromosome, position)`` keys; in
+        sequence mode ``position`` is dropped and ``chromosome`` is
+        renamed to ``sequence``, so the JS code falls back to
+        ``sequence`` only. This test confirms the record shape supports
+        that fallback."""
+        from beguided.web import tasks as tasks_mod
+
+        def _fake_pipeline_two_targets(config, **_kwargs):
+            work_dir = config["output_prefix"] if isinstance(config, dict) else None
+            if not work_dir:
+                return
+            out = Path(work_dir) / "beguided_results.tsv"
+            pd.DataFrame(
+                {
+                    "chromosome": ["t1", "t2"],
+                    "position": [17, 17],
+                    "target_base": ["A", "A"],
+                    "desired_base": ["G", "G"],
+                    "genome_base": ["A", "A"],
+                    "guide_rna_sequence": [
+                        "AAAAAAAAAAAAAAAAAAAA",
+                        "AAAAAAAAAAAAAAAAAAAA",
+                    ],
+                    "pam_sequence": ["AGG", "AGG"],
+                    "editing_position": [4, 4],
+                    "strand_used": ["+", "+"],
+                    "bystander_positions": ["", ""],
+                    "bystander_effect": ["no_bystanders", "no_bystanders"],
+                    "base_editor": ["ABE8e", "ABE8e"],
+                    "guide_score": [0.5, 0.5],
+                }
+            ).to_csv(out, sep="\t", index=False)
+
+        monkeypatch.setattr(tasks_mod, "run_pipeline", _fake_pipeline_two_targets)
+        _minimal_web_config(tmp_path)
+
+        fasta = (
+            f">t1\n{_SEQUENCE}\n"
+            f">t2\n{_SEQUENCE}\n"
+        )
+        custom_genome_b64 = base64.b64encode(fasta.encode()).decode("ascii")
+        targets_df = pd.DataFrame(
+            {
+                "chromosome": ["t1", "t2"],
+                "position": [17, 17],
+                "target_base": ["A", "A"],
+                "desired_base": ["G", "G"],
+            }
+        )
+
+        result = tasks_mod.execute_job(
+            job_id="job-test",
+            targets_df=targets_df,
+            base_editor_names=["ABE8e"],
+            filter_mode="all",
+            search_offtargets=False,
+            guide_score_threshold=0.0,
+            mode="sequence",
+            custom_genome_b64=custom_genome_b64,
+        )
+        assert result["status"] == "complete", result
+        records = result["records"]
+        assert len(records) == 2
+        # The frontend's targetKey falls back to r.sequence when r.position
+        # is missing — each record's sequence value must therefore differ.
+        sequences = {r.get("sequence") for r in records}
+        assert sequences == {"t1", "t2"}
 
     def test_spreadsheet_mode_keeps_all_columns(self, monkeypatch, tmp_path):
         result = self._run_execute_job("spreadsheet", monkeypatch, tmp_path)

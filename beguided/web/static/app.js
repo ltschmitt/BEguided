@@ -1342,6 +1342,12 @@ async function pollStatus(jobId) {
     pollHandle = setTimeout(check, 1500);
 }
 
+function targetKey(r) {
+    const chrom = r.chromosome ?? r.sequence ?? "";
+    const pos = r.position ?? "";
+    return `${chrom}__${pos}`;
+}
+
 // Fetch results
 async function fetchResults(jobId) {
     const res = await fetch("/results?job_id=" + encodeURIComponent(jobId));
@@ -1372,7 +1378,7 @@ async function fetchResults(jobId) {
     resultsToolbar.style.display = "flex";
     if (resultsGuideStatus) {
         const foundTargets = new Set(
-            currentRecords.map(r => `${r.chromosome ?? ""}__${r.position ?? ""}`)
+            currentRecords.map(targetKey)
         ).size;
         resultsGuideStatus.innerHTML =
             `Found guides for ` +
@@ -1505,7 +1511,7 @@ function renderResultsTable() {
             filtered,
             finalColumns,
             displayColumns,
-            r => `${r.chromosome ?? ""}__${r.position ?? ""}`,
+            targetKey,
             formatDnaSequenceCell
         );
     }
@@ -1567,7 +1573,7 @@ function renderResultsSummary(filtered) {
     const allTargets = new Set();
     for (const row of filtered) {
         const baseEditor = (row.base_editor ?? "").toString() || "(unknown)";
-        const key = `${row.chromosome ?? ""}__${row.position ?? ""}`;
+        const key = targetKey(row);
         if (!perBaseEditor.has(baseEditor)) perBaseEditor.set(baseEditor, new Set());
         perBaseEditor.get(baseEditor).add(key);
         allTargets.add(key);

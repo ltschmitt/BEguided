@@ -240,6 +240,27 @@ class TestParseSequenceText:
             parse_sequence_text(text)
         assert exc.value.record_index == 1
 
+    def test_duplicate_header_rejected(self):
+        text = (
+            _wrap(CANONICAL_STRIPPED, header="t1")
+            + _wrap(CANONICAL_STRIPPED, header="t1")
+        )
+        with pytest.raises(SequenceParseError) as exc:
+            parse_sequence_text(text)
+        assert exc.value.record_index == 1
+        assert "duplicate" in str(exc.value).lower()
+        assert "'t1'" in str(exc.value)
+
+    def test_header_collapsing_to_same_name_rejected(self):
+        text = (
+            _wrap(CANONICAL_STRIPPED, header="custom")
+            + _wrap(CANONICAL_STRIPPED, header="custom extra")
+        )
+        with pytest.raises(SequenceParseError) as exc:
+            parse_sequence_text(text)
+        assert exc.value.record_index == 1
+        assert "duplicate" in str(exc.value).lower()
+
     def test_edit_position_one_based(self):
         # Position 1 means the bracket is at the start.
         seq = "A" + "G" * 30
