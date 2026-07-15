@@ -23,6 +23,7 @@
             <div id="beMultiselectPanel" class="be-multiselect-panel" hidden role="listbox">
                 <div class="be-quick-toggles">
                     <button type="button" data-toggle="all">All</button>
+                    <button type="button" data-toggle="no_spry">All without SpRY</button>
                     <button type="button" data-toggle="abe">All ABEs</button>
                     <button type="button" data-toggle="cbe">All CBEs</button>
                     <button type="button" data-toggle="custom">All Custom</button>
@@ -234,6 +235,10 @@
                 <option value="okay" selected>okay (score &gt; 0.5)</option>
                 <option value="good">good (score &gt; 0.75)</option>
             </select>
+        </div>
+        <div class="group">
+            <label for="condenseToggle">Condense results</label>
+            <input type="checkbox" id="condenseToggle" checked />
         </div>
         <span id="filterSummary" class="muted">Showing 0 of 0</span>
     </div>

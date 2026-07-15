@@ -664,3 +664,187 @@ def test_download_results_xlsx(cfg_and_db):
         params={"job_id": submit["job_id"], "format": "csv"},
     )
     assert bad.status_code == 400
+
+
+def _submit_with_records(cfg_and_db, records):
+    """Submit a /run job whose fake executor returns ``records`` and wait
+    until the scheduler reports it complete. Returns the job_id."""
+    import beguided.web.scheduler as sched_mod
+
+    def fake_execute_job(**kwargs):
+        return {
+            "job_id": kwargs["job_id"],
+            "status": "complete",
+            "message": "ok",
+            "records": records,
+        }
+
+    sched_mod.execute_job = fake_execute_job
+    client = _client(cfg_and_db)
+    submit = client.post(
+        "/run",
+        data={"raw_b64": _targets_tsv_b64(), "base_editor": "ABE8e"},
+    ).json()
+    for _ in range(40):
+        s = client.get("/status", params={"job_id": submit["job_id"]}).json()
+        if s["status"] in ("complete", "error", "cancelled"):
+            break
+        time.sleep(0.1)
+    assert s["status"] == "complete"
+    return submit["job_id"], client
+
+
+def test_download_results_condense_merges_identical_rows(cfg_and_db):
+    """condense=1 should collapse rows that differ only in base_editor
+    into a single row whose base_editor cell is newline-separated, and
+    the download filename should reflect the condense flag."""
+    records = [
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+         "bystander_positions": "", "guide_score": 0.9,
+         "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
+         "pam_sequence": "NGG", "base_editor": "ABE8e"},
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+         "bystander_positions": "", "guide_score": 0.9,
+         "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
+         "pam_sequence": "NGG", "base_editor": "ABE9e"},
+        {"chromosome": "chr2", "position": 200, "bystander_effect": "no_bystanders",
+         "bystander_positions": "", "guide_score": 0.6,
+         "guide_rna_sequence": "CCCCCCCCCCCCCCCCCCCC",
+         "pam_sequence": "NGG", "base_editor": "ABE8e"},
+    ]
+    job_id, client = _submit_with_records(cfg_and_db, records)
+
+    res = client.get(
+        "/download/results",
+        params={"job_id": job_id, "condense": "1"},
+    )
+    assert res.status_code == 200
+    assert "beguided_results_condensed.tsv" in res.headers["content-disposition"]
+
+    # Read with pandas so the embedded newline inside the quoted
+    # base_editor cell is reconstructed cleanly.
+    df = pd.read_csv(io.StringIO(res.text), sep="\t")
+    assert len(df) == 2
+    chr1 = df[df["chromosome"] == "chr1"].iloc[0]
+    assert chr1["base_editor"].split("\n") == ["ABE8e", "ABE9e"]
+    chr2 = df[df["chromosome"] == "chr2"].iloc[0]
+    assert chr2["base_editor"] == "ABE8e"
+
+
+def test_download_results_condense_keeps_different_guides_separate(cfg_and_db):
+    """Rows whose guide_rna_sequence differs must NOT be merged, even
+    when every other column matches."""
+    records = [
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+         "bystander_positions": "", "guide_score": 0.9,
+         "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
+         "pam_sequence": "NGG", "base_editor": "ABE8e"},
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+         "bystander_positions": "", "guide_score": 0.9,
+         "guide_rna_sequence": "TTTTTTTTTTTTTTTTTTTT",
+         "pam_sequence": "NGG", "base_editor": "ABE8e"},
+    ]
+    job_id, client = _submit_with_records(cfg_and_db, records)
+
+    res = client.get(
+        "/download/results",
+        params={"job_id": job_id, "condense": "1"},
+    )
+    assert res.status_code == 200
+    rows = [l.split("\t") for l in res.text.strip().split("\n")[1:]]
+    assert len(rows) == 2  # not merged
+    for r in rows:
+        assert r[0] == "chr1"
+
+
+def test_download_results_condense_off_keeps_every_row(cfg_and_db):
+    """Without condense=1 the download must still return every row, even
+    when several are identical except for base_editor."""
+    records = [
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+         "bystander_positions": "", "guide_score": 0.9,
+         "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
+         "pam_sequence": "NGG", "base_editor": "ABE8e"},
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+         "bystander_positions": "", "guide_score": 0.9,
+         "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
+         "pam_sequence": "NGG", "base_editor": "ABE9e"},
+    ]
+    job_id, client = _submit_with_records(cfg_and_db, records)
+
+    res = client.get(
+        "/download/results",
+        params={"job_id": job_id},
+    )
+    assert res.status_code == 200
+    assert "beguided_results.tsv" in res.headers["content-disposition"]
+    rows = [l.split("\t") for l in res.text.strip().split("\n")[1:]]
+    assert len(rows) == 2  # no merging without condense
+
+
+def test_download_results_condense_combines_with_filter_and_score(cfg_and_db):
+    """condense should compose with filter_mode and guide_score_threshold;
+    the resulting filename should encode every active flag."""
+    records = [
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+         "bystander_positions": "", "guide_score": 0.9,
+         "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
+         "pam_sequence": "NGG", "base_editor": "ABE8e"},
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+         "bystander_positions": "", "guide_score": 0.9,
+         "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
+         "pam_sequence": "NGG", "base_editor": "ABE9e"},
+        {"chromosome": "chr1", "position": 80, "bystander_effect": "coding",
+         "bystander_positions": "5", "guide_score": 0.2,
+         "guide_rna_sequence": "CCCCCCCCCCCCCCCCCCCC",
+         "pam_sequence": "NGG", "base_editor": "ABE8e"},
+    ]
+    job_id, client = _submit_with_records(cfg_and_db, records)
+
+    res = client.get(
+        "/download/results",
+        params={
+            "job_id": job_id,
+            "filter_mode": "silent",
+            "guide_score_threshold": 0.5,
+            "condense": "1",
+        },
+    )
+    assert res.status_code == 200
+    cd = res.headers["content-disposition"]
+    # Filename should mention both filters and condense (order is implementation
+    # detail — check both tokens are present).
+    assert "condensed" in cd
+    assert "silent_s0.5" in cd
+
+    df = pd.read_csv(io.StringIO(res.text), sep="\t")
+    # After filter_mode=silent + score>=0.5 only the chr1:100 group remains,
+    # then condense merges ABE8e + ABE9e into a single row.
+    assert len(df) == 1
+    assert df.iloc[0]["base_editor"].split("\n") == ["ABE8e", "ABE9e"]
+
+
+def test_download_results_condense_xlsx(cfg_and_db):
+    """condense=1 should also work for XLSX downloads."""
+    records = [
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+         "bystander_positions": "", "guide_score": 0.9,
+         "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
+         "pam_sequence": "NGG", "base_editor": "ABE8e"},
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+         "bystander_positions": "", "guide_score": 0.9,
+         "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
+         "pam_sequence": "NGG", "base_editor": "ABE9e"},
+    ]
+    job_id, client = _submit_with_records(cfg_and_db, records)
+
+    res = client.get(
+        "/download/results",
+        params={"job_id": job_id, "condense": "1", "format": "xlsx"},
+    )
+    assert res.status_code == 200
+    assert "beguided_results_condensed.xlsx" in res.headers["content-disposition"]
+    df = pd.read_excel(io.BytesIO(res.content), engine="openpyxl")
+    assert len(df) == 1
+    assert df.iloc[0]["base_editor"].split("\n") == ["ABE8e", "ABE9e"]
+

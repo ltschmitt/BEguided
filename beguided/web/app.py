@@ -17,6 +17,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from beguided.filtering.filters import filter_guides
 from beguided.logging_config import setup_logging
+from beguided.web.condense import condense_df
 from beguided.web.config import (
     get_config,
     get_base_editor_display_names,
@@ -841,6 +842,10 @@ def create_app() -> FastAPI:
             float,
             Query(ge=0.0, le=1.0, description="Minimum on-target guide score"),
         ] = 0.0,
+        condense: Annotated[
+            bool,
+            Query(description="Collapse rows that differ only in base_editor"),
+        ] = False,
         format: Annotated[
             str,
             Query(description="Output format: tsv | xlsx"),
@@ -866,9 +871,14 @@ def create_app() -> FastAPI:
             "mode": filter_mode,
             "guide_score_threshold": guide_score_threshold,
         })
-        suffix = "" if filter_mode == "all" and guide_score_threshold == 0.0 else (
-            f"_{filter_mode}_s{guide_score_threshold:g}"
-        )
+        if condense:
+            df = condense_df(df)
+        suffix_parts = []
+        if filter_mode != "all" or guide_score_threshold != 0.0:
+            suffix_parts.append(f"{filter_mode}_s{guide_score_threshold:g}")
+        if condense:
+            suffix_parts.append("condensed")
+        suffix = "" if not suffix_parts else "_" + "_".join(suffix_parts)
         filename = f"beguided_results{suffix}.{format}"
         if format == "xlsx":
             buf = io.BytesIO()

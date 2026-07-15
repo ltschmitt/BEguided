@@ -923,3 +923,26 @@ pre.log {
     display: inline-block;
     min-width: 200px;
 }
+
+/* When the condense-results toggle is on, the base_editor cell may hold
+   newline-separated editor names. Switch the cell to pre-line so "\n"
+   becomes a real line break, drop the min-width (otherwise the column
+   would balloon to the length of the longest stacked name), and let the
+   cell wrap nicely on long stacks. */
+.results-table-wrap.condensed .data-table td[data-col="base_editor"] {
+    white-space: pre-line;
+}
+.results-table-wrap.condensed .data-table td[data-col="base_editor"] > .be-cell {
+    display: inline-block;
+    min-width: 0;
+}
+
+/* Toolbar checkbox: match the visual weight of the adjacent dropdowns
+   without crowding the label. */
+.results-toolbar input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--primary);
+}

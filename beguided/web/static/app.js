@@ -19,6 +19,7 @@ const resultsSummary = document.getElementById("resultsSummary");
 const resultsGuideStatus = document.getElementById("resultsGuideStatus");
 const bystanderFilter = document.getElementById("bystanderFilter");
 const scoreFilter = document.getElementById("scoreFilter");
+const condenseToggle = document.getElementById("condenseToggle");
 const filterSummary = document.getElementById("filterSummary");
 const downloadResults = document.getElementById("downloadResults");
 const downloadResultsXlsx = document.getElementById("downloadResultsXlsx");
@@ -50,6 +51,12 @@ let pollHandle = null;
 let genomePollHandle = null;
 let gtfPollHandle = null;
 let currentRecords = [];
+// When true, rows that differ only in `base_editor` are collapsed into a
+// single row whose `base_editor` cell lists every editor newline-separated.
+// Mirrors the `condense` query param on /download/results so the downloaded
+// file matches what the user sees on screen. Initialized from the checkbox
+// in the results toolbar (default: checked).
+let condenseEnabled = !!(condenseToggle && condenseToggle.checked);
 let matchedBaseEditorCount = 0;
 let customEditorKey = "custom";
 let customEditorLabel = "Custom (uploaded)";
@@ -70,6 +77,10 @@ const beCheckboxGroups = document.getElementById("beCheckboxGroups");
 let availableEditors = [];
 let selectedEditors = new Set();
 let customProfilesCount = 0;
+
+// True when the editor's Cas variant is SpRY (case-insensitive). Used by the
+// "All without SpRY" quick toggle and the default selection.
+const isSpryCas = (cas) => /spry/i.test(cas || "");
 
 // Fetch server config + base editor table on load (BEguidedOFF availability, scheduler limits)
 (async function init() {
@@ -141,22 +152,32 @@ async function loadAvailableEditors() {
         pam: r.pam,
         source: r.source,
     }));
-    // Default: all editors selected.
-    selectedEditors = new Set(availableEditors.map(r => r.name));
+    // Default: every editor except SpRY-based ones selected.
+    selectedEditors = new Set(
+        availableEditors.filter(ed => !isSpryCas(ed.cas)).map(ed => ed.name)
+    );
     renderCheckboxGroups();
     updateMultiselectLabel();
-    updateCustomToggleVisibility();
+    updateQuickToggleVisibility();
 }
 
-// Show or hide the "All Custom" quick-toggle based on whether any custom
-// editors are present.
-function updateCustomToggleVisibility() {
-    const btn = beMultiselectPanel.querySelector(
+// Show or hide quick-toggle buttons whose relevance depends on which
+// editors are actually present: "All Custom" hides when no custom profiles
+// are loaded, "All without SpRY" hides when no SpRY editors are available
+// (otherwise it would be a no-op identical to "All").
+function updateQuickToggleVisibility() {
+    const panel = beMultiselectPanel;
+    const hasCustom = availableEditors.some(ed => ed.source === "custom");
+    const customBtn = panel.querySelector(
         '.be-quick-toggles button[data-toggle="custom"]'
     );
-    if (!btn) return;
-    const hasCustom = availableEditors.some(ed => ed.source === "custom");
-    btn.style.display = hasCustom ? "" : "none";
+    if (customBtn) customBtn.style.display = hasCustom ? "" : "none";
+
+    const hasSpry = availableEditors.some(ed => isSpryCas(ed.cas));
+    const spryBtn = panel.querySelector(
+        '.be-quick-toggles button[data-toggle="no_spry"]'
+    );
+    if (spryBtn) spryBtn.style.display = hasSpry ? "" : "none";
 }
 
 // Render the checkbox groups. Order:
@@ -298,14 +319,32 @@ function updateMultiselectLabel() {
     } else if (n === total) {
         beMultiselectLabel.textContent = `All (${total})`;
     } else {
+        // Detect whether the current selection exactly matches the
+        // "All without SpRY" preset (every non-SpRY editor selected, no
+        // SpRY editor selected) and label accordingly. Other partial
+        // selections fall through to the generic "N selected" label.
+        const nonSpryEditors = availableEditors.filter(ed => !isSpryCas(ed.cas));
+        const nonSpryTotal = nonSpryEditors.length;
+        const nonSpryNames = new Set(nonSpryEditors.map(ed => ed.name));
+        const selectedIsNonSpry = nonSpryTotal > 0
+            && [...selectedEditors].every(name => nonSpryNames.has(name))
+            && n === nonSpryTotal;
+        if (selectedIsNonSpry) {
+            beMultiselectLabel.textContent = `All without SpRY (${nonSpryTotal})`;
+            return;
+        }
         beMultiselectLabel.textContent = `${n} selected`;
     }
 }
 
-// Quick toggle: all / abe / cbe / custom / none.
+// Quick toggle: all / no_spry / abe / cbe / custom / none.
 function applyQuickToggle(toggle) {
     if (toggle === "all") {
         selectedEditors = new Set(availableEditors.map(r => r.name));
+    } else if (toggle === "no_spry") {
+        selectedEditors = new Set(
+            availableEditors.filter(r => !isSpryCas(r.cas)).map(r => r.name)
+        );
     } else if (toggle === "abe") {
         selectedEditors = new Set(
             availableEditors
@@ -1366,6 +1405,49 @@ function getActiveFilters() {
     };
 }
 
+// Collapse records that differ only in `base_editor` into one row whose
+// `base_editor` cell lists every editor newline-separated (alphabetical).
+// The grouping key is every column except `base_editor`, matching the
+// server-side `condense_df` helper in beguided/web/condense.py so the
+// downloaded file matches what the user sees on screen.
+function condenseRecords(records) {
+    if (!records || records.length === 0) return records || [];
+    if (!records.every(r => r && Object.prototype.hasOwnProperty.call(r, "base_editor"))) {
+        return records;
+    }
+    const buckets = new Map();
+    const order = [];
+    for (const r of records) {
+        const keyParts = [];
+        for (const k of Object.keys(r)) {
+            if (k === "base_editor") continue;
+            keyParts.push(_condenseKeyValue(k, r[k]));
+        }
+        const key = keyParts.join("\u0001");
+        if (!buckets.has(key)) {
+            buckets.set(key, []);
+            order.push(key);
+        }
+        buckets.get(key).push(r);
+    }
+    const out = [];
+    for (const key of order) {
+        const members = buckets.get(key);
+        const merged = { ...members[0] };
+        const editors = [...new Set(members.map(m => String(m.base_editor)))].sort();
+        merged.base_editor = editors.join("\n");
+        out.push(merged);
+    }
+    return out;
+}
+
+function _condenseKeyValue(_key, value) {
+    if (value === undefined) return "__u__";
+    if (value === null) return "__n__";
+    if (typeof value === "object") return JSON.stringify(value);
+    return String(value);
+}
+
 function filterRecords(records, mode, minScore) {
     return records.filter(row => {
         // On-target score filter. Missing scores are kept.
@@ -1402,14 +1484,20 @@ function renderResultsTable() {
     const target = resultsPanel.querySelector(".results-table-wrap");
 
     const { mode, score } = getActiveFilters();
-    const filtered = filterRecords(currentRecords, mode, score);
+    // Condense BEFORE filtering so the filter sees the same row shape the
+    // download endpoint will return. When the toggle is off this is a no-op
+    // (condenseRecords passes records through unchanged).
+    const condensed = condenseEnabled ? condenseRecords(currentRecords) : currentRecords;
+    const filtered = filterRecords(condensed, mode, score);
+
+    target.classList.toggle("condensed", condenseEnabled && condensed.length < currentRecords.length);
 
     if (filtered.length === 0) {
         target.innerHTML = `<p style="color:var(--muted);padding:16px;">No guides match the current filters.</p>`;
     } else {
         const columns = Object.keys(filtered[0]);
         // Move 'sequence' column to the front in sequence mode
-        const finalColumns = currentMode === "sequence" 
+        const finalColumns = currentMode === "sequence"
             ? reorderColumns(columns, "sequence")
             : columns;
         const displayColumns = finalColumns.map(columnLabel);
@@ -1424,7 +1512,9 @@ function renderResultsTable() {
 
     renderResultsSummary(filtered);
 
-    filterSummary.textContent = `Showing ${filtered.length} of ${currentRecords.length}`;
+    filterSummary.textContent = formatFilterSummary(
+        filtered.length, condensed.length, currentRecords.length
+    );
 
     if (currentJobId && currentRecords.length > 0) {
         const params = new URLSearchParams({
@@ -1432,12 +1522,20 @@ function renderResultsTable() {
             filter_mode: mode,
             guide_score_threshold: score.toString(),
         });
+        if (condenseEnabled) params.append("condense", "1");
         const baseHref = "/download/results?" + params.toString();
         downloadResults.href = baseHref;
         downloadResults.style.display = "inline-flex";
         downloadResultsXlsx.href = baseHref + "&format=xlsx";
         downloadResultsXlsx.style.display = "inline-flex";
     }
+}
+
+function formatFilterSummary(shown, afterCondense, total) {
+    if (condenseEnabled && afterCondense < total) {
+        return `Showing ${shown} of ${total} (condensed: ${total} \u2192 ${afterCondense} guides)`;
+    }
+    return `Showing ${shown} of ${total}`;
 }
 
 // Toggle the Summary sub-tab placeholder text.
@@ -1506,3 +1604,9 @@ bystanderFilter.addEventListener("change", () => {
 scoreFilter.addEventListener("change", () => {
     if (currentRecords.length > 0) renderResultsTable();
 });
+if (condenseToggle) {
+    condenseToggle.addEventListener("change", () => {
+        condenseEnabled = condenseToggle.checked;
+        if (currentRecords.length > 0) renderResultsTable();
+    });
+}
