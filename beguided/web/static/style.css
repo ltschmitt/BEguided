@@ -11,6 +11,10 @@
     --danger: #dc2626;
     --success: #16a34a;
     --warning: #d97706;
+    --chart-abe: #2563eb;
+    --chart-cbe: #f59e0b;
+    --chart-all: #475569;
+    --chart-unknown: #94a3b8;
 }
 
 * {
@@ -517,40 +521,26 @@ body {
     margin-top: 16px;
 }
 
-/* Compact base editor / target summary card between toolbar and results table */
+/* Per-base-editor target count summary shown above the results table.
+   Renders a horizontal bar chart; sized to accommodate ~10 bars with labels. */
 .results-summary {
-    max-height: 180px;
-    overflow: auto;
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 12px;
     margin-bottom: 16px;
+    padding: 12px 16px;
 }
 
-.results-summary .summary-table {
-    width: auto;
-    min-width: 320px;
+.summary-chart-wrap {
+    position: relative;
+    width: 100%;
+    height: clamp(280px, 40vh, 520px);
 }
 
-.results-summary .summary-table thead th {
-    position: static;
-}
-
-.results-summary .summary-table thead th:nth-child(2) {
-    background: #f1f5f9;
-    font-weight: 700;
-}
-
-.results-summary .summary-table tbody th[scope="row"] {
-    text-align: left;
-    font-weight: 700;
-    color: var(--muted);
-    padding: 10px 12px;
-}
-
-.results-summary .summary-table tbody td:nth-child(2) {
-    background: #f1f5f9;
-    font-weight: 700;
+.summary-chart-wrap canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
 }
 
 .btn {

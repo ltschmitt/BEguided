@@ -65,6 +65,13 @@ let customEditorKey = "custom";
 let customEditorLabel = "Custom (uploaded)";
 let customProfilesLoaded = false;
 let lastProfilesTableSource = null;
+// Editor name -> editing type ("ABE" / "CBE" / ...) lookup, populated from
+// /base-editor-table?source=combined. Used by the Summary bar chart to color
+// per-editor bars by editing type.
+const baseEditorEditingTypes = new Map();
+// Live Chart.js instance for the Summary tab. Tracked so we can destroy the
+// previous chart before re-rendering to avoid leaks and stacked canvases.
+let summaryChartInstance = null;
 
 // Base editor multi-select state. `availableEditors` is the list of editors
 // rendered as checkboxes (fetched from /base-editor-table?source=default).
@@ -155,6 +162,10 @@ async function loadAvailableEditors() {
         pam: r.pam,
         source: r.source,
     }));
+    baseEditorEditingTypes.clear();
+    for (const r of data.rows) {
+        if (r && r.name) baseEditorEditingTypes.set(r.name, r.editing || "");
+    }
     // Default: every editor except SpRY-based ones selected.
     selectedEditors = new Set(
         availableEditors.filter(ed => !isSpryCas(ed.cas)).map(ed => ed.name)
@@ -1632,6 +1643,10 @@ function renderResultsTable() {
     // (condenseRecords passes records through unchanged).
     const condensed = condenseEnabled ? condenseRecords(currentRecords) : currentRecords;
     const filtered = filterRecords(condensed, mode, score, gc, homopolymer, trinuc);
+    // Summary is intentionally NOT affected by the condense toggle: compute a
+    // separate filtered view from the uncondensed records so per-editor counts
+    // always reflect one editor per row. Filters still apply.
+    const summaryFiltered = filterRecords(currentRecords, mode, score, gc, homopolymer, trinuc);
 
     target.classList.toggle("condensed", condenseEnabled && condensed.length < currentRecords.length);
 
@@ -1658,7 +1673,7 @@ function renderResultsTable() {
         );
     }
 
-    renderResultsSummary(filtered);
+    renderResultsSummary(summaryFiltered);
 
     filterSummary.textContent = formatFilterSummary(
         filtered.length, condensed.length, currentRecords.length
@@ -1703,13 +1718,59 @@ function setSummaryPlaceholder(visible, text) {
     }
 }
 
+// Read a CSS custom property from :root, with a hard fallback for environments
+// where the variable is missing.
+function cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name);
+    return (v && v.trim()) || fallback;
+}
+
+// Resolve the chart bar color for a given label. "all" gets the accent color,
+// per-editor bars get the color of their editing type (ABE/CBE), and anything
+// unrecognized falls back to the muted color.
+function summaryBarColor(label) {
+    if (label === "all") return cssVar("--chart-all", "#475569");
+    const t = (baseEditorEditingTypes.get(label) || "").toUpperCase();
+    if (t === "ABE") return cssVar("--chart-abe", "#2563eb");
+    if (t === "CBE") return cssVar("--chart-cbe", "#f59e0b");
+    return cssVar("--chart-unknown", "#94a3b8");
+}
+
+// Inline Chart.js plugin: render the numeric value at the right end of every
+// bar so users can read exact counts without hovering. Avoids pulling in the
+// separate chartjs-plugin-datalabels dependency.
+const summaryValueLabelsPlugin = {
+    id: "summaryValueLabels",
+    afterDatasetsDraw(chart) {
+        const { ctx } = chart;
+        const meta = chart.getDatasetMeta(0);
+        if (!meta || !meta.data) return;
+        ctx.save();
+        ctx.font = "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+        ctx.fillStyle = cssVar("--text", "#1e293b");
+        ctx.textBaseline = "middle";
+        ctx.textAlign = "left";
+        const values = chart.data.datasets[0].data || [];
+        meta.data.forEach((bar, i) => {
+            const v = values[i];
+            if (v === undefined || v === null) return;
+            const label = `${v}`;
+            const x = bar.x + 6;
+            const y = bar.y;
+            ctx.fillText(label, x, y);
+        });
+        ctx.restore();
+    },
+};
+
 // Pivoted per-base-editor summary of distinct targets visible under the current
-// filters. Two rows: the top header row holds the base_editor names with
-// "all" first, the second row holds the corresponding count of distinct
-// (chromosome, position) targets.
+// filters. Rendered as a horizontal bar chart: "all" sits on top, per-editor
+// bars follow in alphabetical order, with the editing type driving bar color
+// and the count rendered at the right end of each bar.
 function renderResultsSummary(filtered) {
     if (!resultsSummary) return;
     if (!filtered || filtered.length === 0) {
+        destroySummaryChart();
         resultsSummary.innerHTML = "";
         resultsSummary.style.display = "none";
         setSummaryPlaceholder(true, "No guides match the current filters.");
@@ -1732,22 +1793,73 @@ function renderResultsSummary(filtered) {
         return a.localeCompare(b);
     });
 
-    let html = `<table class="data-table summary-table"><thead><tr>`;
-    html += `<th>${escapeHtml(displayColumnName("base_editor"))}</th><th>all</th>`;
-    for (const be of baseEditors) {
-        html += `<th>${escapeHtml(be)}</th>`;
-    }
-    html += `</tr></thead><tbody>`;
-    html += `<tr><th scope="row">targets</th>`;
-    html += `<td>${allTargets.size}</td>`;
-    for (const be of baseEditors) {
-        html += `<td>${perBaseEditor.get(be).size}</td>`;
-    }
-    html += `</tr></tbody></table>`;
+    const labels = ["all", ...baseEditors];
+    const data = [allTargets.size, ...baseEditors.map(be => perBaseEditor.get(be).size)];
+    const colors = labels.map(summaryBarColor);
 
-    resultsSummary.innerHTML = html;
+    resultsSummary.innerHTML =
+        `<div class="summary-chart-wrap"><canvas id="summaryChart" aria-label="Targets per base editor"></canvas></div>`;
     resultsSummary.style.display = "block";
     setSummaryPlaceholder(false);
+
+    drawSummaryChart(labels, data, colors);
+}
+
+function destroySummaryChart() {
+    if (summaryChartInstance) {
+        try { summaryChartInstance.destroy(); } catch (_) { /* noop */ }
+        summaryChartInstance = null;
+    }
+}
+
+function drawSummaryChart(labels, data, colors) {
+    destroySummaryChart();
+    const canvas = document.getElementById("summaryChart");
+    if (!canvas || typeof Chart === "undefined") return;
+    const textColor = cssVar("--text", "#1e293b");
+    const mutedColor = cssVar("--muted", "#64748b");
+    const gridColor = cssVar("--border", "#e2e8f0");
+    summaryChartInstance = new Chart(canvas, {
+        type: "bar",
+        data: {
+            labels,
+            datasets: [{
+                data,
+                backgroundColor: colors,
+                borderColor: colors,
+                borderWidth: 1,
+                barThickness: "flex",
+                maxBarThickness: 36,
+            }],
+        },
+        options: {
+            indexAxis: "y",
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: { right: 32, top: 8, bottom: 4, left: 4 } },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.parsed.x} targets`,
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    title: { display: true, text: "Number of targets", color: textColor },
+                    ticks: { color: mutedColor, precision: 0 },
+                    grid: { color: gridColor },
+                },
+                y: {
+                    ticks: { color: textColor, autoSkip: false },
+                    grid: { display: false },
+                },
+            },
+        },
+        plugins: [summaryValueLabelsPlugin],
+    });
 }
 
 // Filter event wiring.
