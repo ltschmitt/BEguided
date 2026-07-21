@@ -462,7 +462,7 @@ body {
     align-items: center;
     gap: 16px;
     padding: 12px 16px;
-    background: var(--bg);
+    background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 12px;
     margin-bottom: 16px;
@@ -495,6 +495,16 @@ body {
     margin-left: auto;
     font-size: 13px;
     color: var(--muted);
+}
+
+/* Section title for the results-toolbar box. Sits on its own line above
+   the controls (width:100% forces a wrap inside the flex container),
+   in the primary blue and slightly larger than the control labels. */
+.results-toolbar .results-toolbar-title {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--primary);
+    width: 100%;
 }
 
 /* Scroll wrapper for the results table only — toolbar above stays static */

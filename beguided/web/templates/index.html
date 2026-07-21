@@ -220,8 +220,9 @@
 <div id="resultsTab" class="tab-panel">
     <div id="resultsGuideStatus" class="results-guide-status" style="display:none;"></div>
     <div class="results-toolbar" id="resultsToolbar" style="display:none;">
+        <div class="results-toolbar-title">Filters</div>
         <div class="group">
-            <label for="bystanderFilter">Bystander filter</label>
+            <label for="bystanderFilter">Bystander</label>
             <select id="bystanderFilter">
                 <option value="all">all</option>
                 <option value="no_bystanders">no bystanders</option>
@@ -229,17 +230,17 @@
             </select>
         </div>
         <div class="group">
-            <label for="scoreFilter">Guide score filter</label>
+            <label for="scoreFilter">Guide score</label>
             <select id="scoreFilter">
-                <option value="all">all</option>
-                <option value="okay" selected>okay (score &gt; 0.5)</option>
+                <option value="all" selected>all</option>
+                <option value="acceptable">acceptable (score &gt; 0.5)</option>
                 <option value="good">good (score &gt; 0.75)</option>
             </select>
         </div>
         <div class="group">
             <label for="gcFilter">GC content</label>
             <select id="gcFilter">
-                <option value="off" selected>off (all)</option>
+                <option value="all" selected>all</option>
                 <option value="acceptable">acceptable (30-70%)</option>
                 <option value="good">good (40-60%)</option>
             </select>
@@ -249,10 +250,13 @@
             <input type="checkbox" id="homopolymerFilter" />
         </div>
         <div class="group">
-            <label for="trinucFilter">Min trinuc edit score (ABE)</label>
-            <input type="number" id="trinucFilter" min="0" max="1" step="0.05"
-                placeholder="off" inputmode="decimal" style="width:5.5em;"
-                title="Minimum Marquart et al. 2021 (ABE8e) normalised X-A-Y context score. ABE-only; CBE rows are always kept. Leave empty to disable." />
+            <label for="trinucFilter">Context edit score</label>
+            <select id="trinucFilter">
+                <option value="all" selected>all</option>
+                <option value="acceptable">acceptable (&gt;0.25)</option>
+                <option value="good">good (&gt;0.5)</option>
+                <option value="very_good">very good (&gt;0.75)</option>
+            </select>
         </div>
         <div class="group">
             <label for="condenseToggle">Condense results</label>

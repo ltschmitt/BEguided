@@ -1157,6 +1157,13 @@ const SEQUENCE_MODE_COLUMN_LABELS = {
     chromosome: "sequence",
 };
 
+// Display-label overrides for result columns, applied in all modes.
+// The underlying data column name stays unchanged (e.g. ``trinuc_edit_score``);
+// only the header text shown to the user is remapped.
+const COLUMN_LABELS = {
+    trinuc_edit_score: "context edit score",
+};
+
 // Tooltip text shown on hover for results-table headers. Keyed by the
 // snake_case column name (as emitted by the pipeline), so the lookup works
 // regardless of the display label. Only the results-table call site passes
@@ -1184,6 +1191,9 @@ function columnLabel(name) {
     if (currentMode === "sequence"
         && Object.prototype.hasOwnProperty.call(SEQUENCE_MODE_COLUMN_LABELS, name)) {
         return SEQUENCE_MODE_COLUMN_LABELS[name];
+    }
+    if (Object.prototype.hasOwnProperty.call(COLUMN_LABELS, name)) {
+        return COLUMN_LABELS[name];
     }
     return displayColumnName(name);
 }
@@ -1467,12 +1477,26 @@ async function fetchResults(jobId) {
 
 // Map the Guide score filter dropdown value to a numeric on-target score
 // threshold. "all" disables the score filter (0.0 keeps every guide); the
-// "okay" / "good" presets match the legacy slider defaults.
-const SCORE_FILTER_THRESHOLDS = { all: 0.0, okay: 0.5, good: 0.75 };
+// "acceptable" / "good" presets match the legacy slider defaults.
+const SCORE_FILTER_THRESHOLDS = { all: 0.0, acceptable: 0.5, good: 0.75 };
 
-// GC content tier ranges (percent 0-100). Mirrors beguided.filtering.filters.
+// Map the Context edit score filter dropdown value to a numeric threshold.
+// Mirrors the trinucleotide edit-context score (Marquart et al. 2021, ABE8e,
+// 0..1). "all" disables the filter; CBE rows have a null/NaN score and are
+// always kept, mirroring the server's ``df.isna() | (df >= threshold)`` mask.
+const CONTEXT_EDIT_SCORE_THRESHOLDS = {
+    all: 0.0,
+    acceptable: 0.25,
+    good: 0.5,
+    very_good: 0.75,
+};
+
+// GC content tier ranges (percent 0-100). "all" disables the filter;
+// "acceptable" keeps guides with GC in 30-70%, "good" narrows to 40-60%.
+// The frontend uses "all" for consistency with the other dropdown filters;
+// it's translated to "off" before being sent to the server.
 const GC_FILTER_RANGES = {
-    off: null,
+    all: null,
     good: [40, 60],
     acceptable: [30, 70],
 };
@@ -1481,24 +1505,16 @@ const GC_FILTER_RANGES = {
 function getActiveFilters() {
     const key = scoreFilter.value || "all";
     const score = SCORE_FILTER_THRESHOLDS[key] ?? 0.0;
-    // Trinucleotide edit-score filter (Marquart et al. 2021, ABE8e, 0..1).
-    // Empty/non-numeric input => null (filter disabled). CBE rows have a
+    // Context edit-score filter (Marquart et al. 2021, ABE8e, 0..1).
+    // "all" disables the filter (0.0 keeps every guide). CBE rows have a
     // null/NaN ``trinuc_edit_score`` and are always kept, mirroring the
     // server's ``df.isna() | (df >= threshold)`` mask.
-    let trinuc = null;
-    if (trinucFilter) {
-        const raw = (trinucFilter.value || "").trim();
-        if (raw !== "") {
-            const num = Number(raw);
-            if (Number.isFinite(num) && num >= 0 && num <= 1) {
-                trinuc = num;
-            }
-        }
-    }
+    const trinucKey = (trinucFilter && trinucFilter.value) || "all";
+    const trinuc = CONTEXT_EDIT_SCORE_THRESHOLDS[trinucKey] ?? 0.0;
     return {
         mode: bystanderFilter.value,
         score,
-        gc: (gcFilter && gcFilter.value) || "off",
+        gc: (gcFilter && gcFilter.value) || "all",
         homopolymer: !!(homopolymerFilter && homopolymerFilter.checked),
         trinuc,
     };
@@ -1547,7 +1563,7 @@ function _condenseKeyValue(_key, value) {
     return String(value);
 }
 
-function filterRecords(records, mode, minScore, gcMode = "off", dropHomopolymers = false, trinucMin = null) {
+function filterRecords(records, mode, minScore, gcMode = "all", dropHomopolymers = false, trinucMin = null) {
     const gcRange = GC_FILTER_RANGES[gcMode] ?? null;
     return records.filter(row => {
         // On-target score filter. Missing scores are kept.
@@ -1576,7 +1592,7 @@ function filterRecords(records, mode, minScore, gcMode = "off", dropHomopolymers
             if (rawHp === true || rawHp === "true") return false;
         }
 
-        // Trinucleotide edit-score filter (ABE only; CBE rows kept).
+        // Context edit-score filter (ABE only; CBE rows kept).
         // Missing / NaN values are kept, matching the server.
         if (trinucMin !== null && trinucMin > 0) {
             const rawTrinuc = row.trinuc_edit_score;
@@ -1653,10 +1669,12 @@ function renderResultsTable() {
             job_id: currentJobId,
             filter_mode: mode,
             guide_score_threshold: score.toString(),
-            gc_content_filter: gc,
+            // Translate the frontend's "all" to the server's "off" so the
+            // download endpoint's VALID_GC_FILTERS check accepts the value.
+            gc_content_filter: gc === "all" ? "off" : gc,
         });
         if (homopolymer) params.append("filter_homopolymers", "1");
-        if (trinuc !== null) params.append("trinuc_edit_score_min", trinuc.toString());
+        if (trinuc > 0) params.append("trinuc_edit_score_min", trinuc.toString());
         if (condenseEnabled) params.append("condense", "1");
         const baseHref = "/download/results?" + params.toString();
         downloadResults.href = baseHref;
@@ -1750,10 +1768,6 @@ if (homopolymerFilter) {
     });
 }
 if (trinucFilter) {
-    // `input` fires on every keystroke; `change` fires on blur / Enter.
-    trinucFilter.addEventListener("input", () => {
-        if (currentRecords.length > 0) renderResultsTable();
-    });
     trinucFilter.addEventListener("change", () => {
         if (currentRecords.length > 0) renderResultsTable();
     });
