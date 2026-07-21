@@ -656,6 +656,12 @@ body {
     border-color: var(--border);
 }
 
+.badge.badge-warn {
+    background: #fef3c7;
+    color: #92400e;
+    border-color: #fcd34d;
+}
+
 @keyframes badge-pulse {
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.55; }
@@ -789,6 +795,19 @@ body {
     font-weight: 700;
     color: var(--muted);
     white-space: nowrap;
+}
+
+/* Headers that carry a tooltip (via the native title attribute) get a
+   help cursor and a small muted info glyph as a visual affordance. */
+.data-table thead th[title] {
+    cursor: help;
+}
+
+.data-table thead th .th-info {
+    color: var(--muted);
+    opacity: 0.6;
+    font-size: 11px;
+    margin-left: 4px;
 }
 
 .data-table tbody td {

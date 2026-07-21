@@ -190,3 +190,247 @@ class TestFilterGuides:
         result = filter_guides(df, criteria)
         assert len(result) == 2
         assert set(result["base_editor"].values) == {"ABE-NW1", "ABE-Umax"}
+
+
+class TestGCFilter:
+    """Tests for the gc_content_filter behaviour in filter_guides."""
+
+    def _make_df(self, gc_values):
+        return pd.DataFrame({
+            "chromosome": [f"chr1"] * len(gc_values),
+            "guide_rna_sequence": [f"g{i}" for i in range(len(gc_values))],
+            "gc_content": gc_values,
+        })
+
+    def test_off_keeps_everything(self):
+        df = self._make_df([0.0, 25.0, 55.0, 75.0, 100.0])
+        result = filter_guides(df, {"mode": "all", "gc_content_filter": "off"})
+        assert len(result) == 5
+
+    def test_good_keeps_only_40_to_60(self):
+        df = self._make_df([20.0, 39.9, 40.0, 50.0, 60.0, 60.1, 90.0])
+        result = filter_guides(df, {"mode": "all", "gc_content_filter": "good"})
+        assert sorted(result["gc_content"].tolist()) == [40.0, 50.0, 60.0]
+
+    def test_acceptable_keeps_30_to_70(self):
+        df = self._make_df([20.0, 29.9, 30.0, 55.0, 70.0, 70.1, 90.0])
+        result = filter_guides(df, {"mode": "all", "gc_content_filter": "acceptable"})
+        assert sorted(result["gc_content"].tolist()) == [30.0, 55.0, 70.0]
+
+    def test_nan_is_kept(self):
+        df = self._make_df([float("nan"), 50.0, 25.0])
+        result = filter_guides(df, {"mode": "all", "gc_content_filter": "good"})
+        assert len(result) == 2  # NaN + 50.0
+        assert set(result["gc_content"].dropna().tolist()) == {50.0}
+
+    def test_missing_column_is_skipped(self):
+        df = pd.DataFrame({
+            "chromosome": ["chr1"],
+            "guide_rna_sequence": ["g1"],
+        })
+        result = filter_guides(df, {"mode": "all", "gc_content_filter": "good"})
+        assert len(result) == 1
+
+    def test_invalid_mode_raises(self):
+        df = self._make_df([50.0])
+        with pytest.raises(ValueError):
+            filter_guides(df, {"mode": "all", "gc_content_filter": "bogus"})
+
+
+class TestHomopolymerFilter:
+    """Tests for the filter_homopolymers behaviour in filter_guides."""
+
+    def _make_df(self, hp_values):
+        return pd.DataFrame({
+            "chromosome": [f"chr1"] * len(hp_values),
+            "guide_rna_sequence": [f"g{i}" for i in range(len(hp_values))],
+            "homopolymer": hp_values,
+        })
+
+    def test_disabled_keeps_all(self):
+        df = self._make_df([True, False, True])
+        result = filter_guides(df, {"mode": "all", "filter_homopolymers": False})
+        assert len(result) == 3
+
+    def test_enabled_drops_true_rows(self):
+        df = self._make_df([True, False, True])
+        result = filter_guides(df, {"mode": "all", "filter_homopolymers": True})
+        assert len(result) == 1
+        assert result.iloc[0]["homopolymer"] == False  # noqa: E712
+
+    def test_nan_is_kept(self):
+        df = self._make_df([True, float("nan"), False])
+        result = filter_guides(df, {"mode": "all", "filter_homopolymers": True})
+        assert len(result) == 2
+
+    def test_missing_column_is_skipped(self):
+        df = pd.DataFrame({
+            "chromosome": ["chr1"],
+            "guide_rna_sequence": ["g1"],
+        })
+        result = filter_guides(df, {"mode": "all", "filter_homopolymers": True})
+        assert len(result) == 1
+
+
+class TestLoadFilterCriteriaNewKeys:
+    """Tests for the new keys in load_filter_criteria."""
+
+    def test_defaults_are_off_and_false(self):
+        criteria = load_filter_criteria()
+        assert criteria["gc_content_filter"] == "off"
+        assert criteria["filter_homopolymers"] is False
+
+    def test_yaml_root_keys(self, tmp_path):
+        import yaml
+        cfg = {"gc_content_filter": "good", "filter_homopolymers": True}
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml.dump(cfg))
+        criteria = load_filter_criteria(config_file=str(p))
+        assert criteria["gc_content_filter"] == "good"
+        assert criteria["filter_homopolymers"] is True
+
+    def test_yaml_filtering_block(self, tmp_path):
+        import yaml
+        cfg = {"filtering": {"gc_content_filter": "acceptable"}}
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml.dump(cfg))
+        criteria = load_filter_criteria(config_file=str(p))
+        assert criteria["gc_content_filter"] == "acceptable"
+
+    def test_invalid_gc_value_raises(self):
+        with pytest.raises(ValueError):
+            load_filter_criteria(gc_content_filter="bogus")
+
+    def test_kwargs_override_defaults(self):
+        criteria = load_filter_criteria(
+            gc_content_filter="good", filter_homopolymers=True
+        )
+        assert criteria["gc_content_filter"] == "good"
+        assert criteria["filter_homopolymers"] is True
+
+
+class TestFilterCombination:
+    """Combinations of GC / homopolymer / score / mode filters."""
+
+    def test_all_filters_compose(self):
+        df = pd.DataFrame({
+            "chromosome": ["chr1"] * 5,
+            "guide_rna_sequence": ["g0", "g1", "g2", "g3", "g4"],
+            "guide_score": [0.8, 0.4, 0.6, 0.9, 0.7],
+            "gc_content": [50.0, 50.0, 75.0, 55.0, 50.0],
+            "homopolymer": [False, False, False, True, False],
+        })
+        criteria = {
+            "mode": "all",
+            "guide_score_threshold": 0.5,
+            "gc_content_filter": "good",
+            "filter_homopolymers": True,
+        }
+        result = filter_guides(df, criteria)
+        # Only g0 and g4 survive: score>=0.5, gc in [40,60], not homopolymer.
+        assert set(result["guide_rna_sequence"]) == {"g0", "g4"}
+
+
+class TestTrinucEditScoreFilter:
+    """Tests for the trinuc_edit_score_min filter (ABE only; CBE = NaN kept)."""
+
+    def _make_df(self, scores):
+        return pd.DataFrame({
+            "chromosome": ["chr1"] * len(scores),
+            "guide_rna_sequence": [f"g{i}" for i in range(len(scores))],
+            "trinuc_edit_score": scores,
+        })
+
+    def test_none_threshold_keeps_all(self):
+        df = self._make_df([0.01, 0.5, 1.0, float("nan")])
+        result = filter_guides(df, {"mode": "all", "trinuc_edit_score_min": None})
+        assert len(result) == 4
+
+    def test_threshold_drops_low_scores(self):
+        df = self._make_df([0.01, 0.5, 0.99, 1.0])
+        result = filter_guides(df, {"mode": "all", "trinuc_edit_score_min": 0.5})
+        assert sorted(result["trinuc_edit_score"].tolist()) == [0.5, 0.99, 1.0]
+
+    def test_nan_is_kept(self):
+        """CBE rows (NaN) are never dropped by the trinuc filter."""
+        df = self._make_df([0.01, float("nan"), 0.8])
+        result = filter_guides(df, {"mode": "all", "trinuc_edit_score_min": 0.5})
+        assert len(result) == 2  # NaN + 0.8
+        assert set(result["guide_rna_sequence"]) == {"g1", "g2"}
+
+    def test_missing_column_is_skipped(self):
+        df = pd.DataFrame({
+            "chromosome": ["chr1"],
+            "guide_rna_sequence": ["g1"],
+        })
+        result = filter_guides(df, {"mode": "all", "trinuc_edit_score_min": 0.5})
+        assert len(result) == 1
+
+    def test_boundary_value_kept(self):
+        """A score exactly equal to the threshold is kept (>=)."""
+        df = self._make_df([0.5, 0.49])
+        result = filter_guides(df, {"mode": "all", "trinuc_edit_score_min": 0.5})
+        assert len(result) == 1
+        assert result.iloc[0]["guide_rna_sequence"] == "g0"
+
+    def test_combines_with_other_filters(self):
+        df = pd.DataFrame({
+            "chromosome": ["chr1"] * 4,
+            "guide_rna_sequence": ["g0", "g1", "g2", "g3"],
+            "guide_score": [0.8, 0.3, 0.8, 0.3],
+            "trinuc_edit_score": [0.9, 0.9, 0.1, 0.1],
+        })
+        result = filter_guides(df, {
+            "mode": "all",
+            "guide_score_threshold": 0.5,
+            "trinuc_edit_score_min": 0.5,
+        })
+        # Only g0 survives: score>=0.5 AND trinuc>=0.5.
+        assert set(result["guide_rna_sequence"]) == {"g0"}
+
+
+class TestLoadFilterCriteriaTrinucKey:
+    """Tests for trinuc_edit_score_min in load_filter_criteria."""
+
+    def test_default_is_none(self):
+        criteria = load_filter_criteria()
+        assert criteria["trinuc_edit_score_min"] is None
+
+    def test_yaml_root_key(self, tmp_path):
+        import yaml
+        cfg = {"trinuc_edit_score_min": 0.5}
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml.dump(cfg))
+        criteria = load_filter_criteria(config_file=str(p))
+        assert criteria["trinuc_edit_score_min"] == 0.5
+
+    def test_yaml_filtering_block(self, tmp_path):
+        import yaml
+        cfg = {"filtering": {"trinuc_edit_score_min": 0.7}}
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml.dump(cfg))
+        criteria = load_filter_criteria(config_file=str(p))
+        assert criteria["trinuc_edit_score_min"] == 0.7
+
+    def test_yaml_null_disables(self, tmp_path):
+        import yaml
+        cfg = {"trinuc_edit_score_min": None}
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml.dump(cfg))
+        criteria = load_filter_criteria(config_file=str(p))
+        assert criteria["trinuc_edit_score_min"] is None
+
+    def test_kwarg_overrides_default(self):
+        criteria = load_filter_criteria(trinuc_edit_score_min=0.8)
+        assert criteria["trinuc_edit_score_min"] == 0.8
+
+    def test_invalid_value_raises(self):
+        with pytest.raises(ValueError):
+            load_filter_criteria(trinuc_edit_score_min="not_a_number")
+
+    def test_out_of_range_raises(self):
+        with pytest.raises(ValueError):
+            load_filter_criteria(trinuc_edit_score_min=1.5)
+        with pytest.raises(ValueError):
+            load_filter_criteria(trinuc_edit_score_min=-0.1)
+

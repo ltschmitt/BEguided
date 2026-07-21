@@ -48,6 +48,9 @@ def _build_config(
     use_custom_profiles: bool = False,
     custom_profiles_b64: Optional[str] = None,
     merged_profiles_b64: Optional[str] = None,
+    gc_content_filter: Optional[str] = None,
+    filter_homopolymers: Optional[bool] = None,
+    trinuc_edit_score_min: Optional[float] = None,
 ) -> dict:
     """Build a pipeline config dict from web UI parameters.
 
@@ -78,6 +81,16 @@ def _build_config(
             to ``work_dir / merged_profiles.tsv`` and used as the profiles
             file for this job (with ``base_editor_names`` controlling which
             profiles are considered).
+        gc_content_filter: One of ``"off"``, ``"good"`` (40-60%) or
+            ``"acceptable"`` (30-70%). When ``None`` the operator-configured
+            default (``cfg.gc_content_filter``) is used.
+        filter_homopolymers: When True, drop guides with a >=4-mer
+            homopolymer run. When ``None`` the operator-configured default
+            (``cfg.filter_homopolymers``) is used.
+        trinuc_edit_score_min: Minimum Marquart et al. 2021 normalised ABE8e
+            trinucleotide context score (0..1) to keep an ABE guide. CBE
+            rows are always kept (NaN). When ``None`` the operator-configured
+            default (``cfg.trinuc_edit_score_min``) is used.
 
     Returns:
         dict: Compatible with run_pipeline().
@@ -104,6 +117,13 @@ def _build_config(
         profiles_file = cfg.base_editor_profiles_file
         use_base_editors = ",".join(base_editor_names)
 
+    if gc_content_filter is None:
+        gc_content_filter = cfg.gc_content_filter
+    if filter_homopolymers is None:
+        filter_homopolymers = cfg.filter_homopolymers
+    if trinuc_edit_score_min is None:
+        trinuc_edit_score_min = cfg.trinuc_edit_score_min
+
     return {
         "input": {
             "targets": str(targets_path),
@@ -115,6 +135,9 @@ def _build_config(
         "use_base_editors": use_base_editors,
         "keep_bystanders": filter_mode,
         "guide_score_threshold": guide_score_threshold,
+        "gc_content_filter": gc_content_filter,
+        "filter_homopolymers": bool(filter_homopolymers),
+        "trinuc_edit_score_min": trinuc_edit_score_min,
         "search_offtargets": search_offtargets,
         "passthrough_extras": passthrough_extras,
         "skip_bystander": skip_bystander,

@@ -10,15 +10,35 @@ from pathlib import Path
 logger = logging.getLogger("beguided.filtering")
 
 
-def load_filter_criteria(config_file=None, mode=None, guide_score_threshold=None):
+VALID_GC_FILTERS = ("off", "good", "acceptable")
+_GC_RANGES = {
+    "good": (40.0, 60.0),
+    "acceptable": (30.0, 70.0),
+}
+
+
+def load_filter_criteria(
+    config_file=None,
+    mode=None,
+    guide_score_threshold=None,
+    gc_content_filter=None,
+    filter_homopolymers=None,
+    trinuc_edit_score_min=None,
+):
     """Load filter criteria from config file or command line.
 
     Returns:
-        dict with 'mode' and 'guide_score_threshold' keys.
+        dict with 'mode', 'guide_score_threshold', 'gc_content_filter',
+        'filter_homopolymers' and 'trinuc_edit_score_min' keys. The new keys
+        default to "off", False and None respectively so legacy callers see
+        no behaviour change.
     """
     criteria = {
         "mode": "all",
         "guide_score_threshold": guide_score_threshold,
+        "gc_content_filter": "off",
+        "filter_homopolymers": False,
+        "trinuc_edit_score_min": None,
     }
 
     if config_file:
@@ -37,6 +57,27 @@ def load_filter_criteria(config_file=None, mode=None, guide_score_threshold=None
                     criteria["guide_score_threshold"] = config["guide_score_threshold"]
                 elif "filtering" in config and "guide_score_threshold" in config["filtering"]:
                     criteria["guide_score_threshold"] = config["filtering"]["guide_score_threshold"]
+
+                if "gc_content_filter" in config:
+                    criteria["gc_content_filter"] = config["gc_content_filter"]
+                elif "filtering" in config and "gc_content_filter" in config["filtering"]:
+                    criteria["gc_content_filter"] = config["filtering"]["gc_content_filter"]
+
+                if "filter_homopolymers" in config:
+                    criteria["filter_homopolymers"] = bool(config["filter_homopolymers"])
+                elif "filtering" in config and "filter_homopolymers" in config["filtering"]:
+                    criteria["filter_homopolymers"] = bool(config["filtering"]["filter_homopolymers"])
+
+                if "trinuc_edit_score_min" in config:
+                    raw = config["trinuc_edit_score_min"]
+                    criteria["trinuc_edit_score_min"] = (
+                        None if raw in (None, "", "null", "None") else float(raw)
+                    )
+                elif "filtering" in config and "trinuc_edit_score_min" in config["filtering"]:
+                    raw = config["filtering"]["trinuc_edit_score_min"]
+                    criteria["trinuc_edit_score_min"] = (
+                        None if raw in (None, "", "null", "None") else float(raw)
+                    )
         except FileNotFoundError:
             pass
 
@@ -45,6 +86,32 @@ def load_filter_criteria(config_file=None, mode=None, guide_score_threshold=None
 
     if guide_score_threshold is not None:
         criteria["guide_score_threshold"] = guide_score_threshold
+
+    if gc_content_filter is not None:
+        if gc_content_filter not in VALID_GC_FILTERS:
+            raise ValueError(
+                f"Invalid gc_content_filter: {gc_content_filter!r}. "
+                f"Expected one of: {', '.join(VALID_GC_FILTERS)}."
+            )
+        criteria["gc_content_filter"] = gc_content_filter
+
+    if filter_homopolymers is not None:
+        criteria["filter_homopolymers"] = bool(filter_homopolymers)
+
+    if trinuc_edit_score_min is not None:
+        try:
+            trinuc_min = float(trinuc_edit_score_min)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"trinuc_edit_score_min must be a number, "
+                f"got {trinuc_edit_score_min!r}"
+            ) from exc
+        if not (0.0 <= trinuc_min <= 1.0):
+            raise ValueError(
+                f"trinuc_edit_score_min must be between 0.0 and 1.0, "
+                f"got {trinuc_min}"
+            )
+        criteria["trinuc_edit_score_min"] = trinuc_min
 
     return criteria
 
@@ -70,6 +137,89 @@ def _apply_threshold(df, threshold):
         logger.info(
             "On-target score filter (score >= %.2f) removed %d guide(s)",
             threshold, int(removed)
+        )
+    return df[mask]
+
+
+def _apply_gc_filter(df, mode):
+    """Restrict guides by GC content (percent 0-100).
+
+    ``mode`` is one of ``"off"`` (no filter, the default), ``"good"`` (keep
+    40-60%) or ``"acceptable"`` (keep 30-70%). Rows with a missing
+    ``gc_content`` value are kept, matching the guide-score policy of
+    favouring recall over silent dropouts.
+    """
+    if not mode or mode == "off":
+        return df
+
+    if mode not in VALID_GC_FILTERS:
+        raise ValueError(
+            f"Invalid gc_content_filter: {mode!r}. "
+            f"Expected one of: {', '.join(VALID_GC_FILTERS)}."
+        )
+
+    if "gc_content" not in df.columns:
+        logger.info(
+            "'gc_content' column not found; skipping GC content filter"
+        )
+        return df
+
+    lo, hi = _GC_RANGES[mode]
+    mask = df["gc_content"].isna() | ((df["gc_content"] >= lo) & (df["gc_content"] <= hi))
+    removed = (~mask).sum()
+    if removed > 0:
+        logger.info(
+            "GC content filter (%.0f-%.0f%%, mode=%r) removed %d guide(s)",
+            lo, hi, mode, int(removed)
+        )
+    return df[mask]
+
+
+def _apply_homopolymer_filter(df, enabled):
+    """Drop guides whose ``homopolymer`` flag is True when *enabled*."""
+    if not enabled:
+        return df
+
+    if "homopolymer" not in df.columns:
+        logger.info(
+            "'homopolymer' column not found; skipping homopolymer filter"
+        )
+        return df
+
+    mask = df["homopolymer"].isna() | (df["homopolymer"] == False)  # noqa: E712
+    removed = (~mask).sum()
+    if removed > 0:
+        logger.info(
+            "Homopolymer filter (>=4-mer) removed %d guide(s)",
+            int(removed)
+        )
+    return df[mask]
+
+
+def _apply_trinuc_score_filter(df, threshold):
+    """Drop ABE guides whose ``trinuc_edit_score`` is below *threshold*.
+
+    The trinucleotide context score is the Marquart et al. 2021 normalised
+    ABE8e proportion (0..1). CBE rows have ``NaN`` (the table is ABE-only)
+    and are always kept, matching the policy used for ``gc_content`` and
+    ``homopolymer``: missing values never silently drop a guide. ``None``
+    disables the filter entirely.
+    """
+    if threshold is None:
+        return df
+
+    if "trinuc_edit_score" not in df.columns:
+        logger.info(
+            "'trinuc_edit_score' column not found; skipping trinucleotide score filter"
+        )
+        return df
+
+    mask = df["trinuc_edit_score"].isna() | (df["trinuc_edit_score"] >= threshold)
+    removed = (~mask).sum()
+    if removed > 0:
+        logger.info(
+            "Trinucleotide edit-score filter (>= %.3f, ABE only) removed %d guide(s)",
+            threshold, int(removed),
         )
     return df[mask]
 
@@ -114,6 +264,16 @@ def filter_guides(input_df, criteria):
     # Apply on-target score filter if configured
     threshold = criteria.get("guide_score_threshold")
     df = _apply_threshold(df, threshold)
+
+    # Apply GC content tier filter if configured
+    gc_mode = criteria.get("gc_content_filter", "off")
+    df = _apply_gc_filter(df, gc_mode)
+
+    # Apply homopolymer filter if configured
+    df = _apply_homopolymer_filter(df, criteria.get("filter_homopolymers", False))
+
+    # Apply trinucleotide edit-score filter if configured (ABE only; CBE rows kept)
+    df = _apply_trinuc_score_filter(df, criteria.get("trinuc_edit_score_min"))
 
     df = df[df["guide_rna_sequence"] != "**No guide possible**"]
 

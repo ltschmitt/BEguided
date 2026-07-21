@@ -237,6 +237,24 @@
             </select>
         </div>
         <div class="group">
+            <label for="gcFilter">GC content</label>
+            <select id="gcFilter">
+                <option value="off" selected>off (all)</option>
+                <option value="acceptable">acceptable (30-70%)</option>
+                <option value="good">good (40-60%)</option>
+            </select>
+        </div>
+        <div class="group">
+            <label for="homopolymerFilter">Exclude homopolymers (&ge;4-mer)</label>
+            <input type="checkbox" id="homopolymerFilter" />
+        </div>
+        <div class="group">
+            <label for="trinucFilter">Min trinuc edit score (ABE)</label>
+            <input type="number" id="trinucFilter" min="0" max="1" step="0.05"
+                placeholder="off" inputmode="decimal" style="width:5.5em;"
+                title="Minimum Marquart et al. 2021 (ABE8e) normalised X-A-Y context score. ABE-only; CBE rows are always kept. Leave empty to disable." />
+        </div>
+        <div class="group">
             <label for="condenseToggle">Condense results</label>
             <input type="checkbox" id="condenseToggle" checked />
         </div>

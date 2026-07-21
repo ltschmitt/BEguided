@@ -185,6 +185,60 @@ class TestRunGenomeWidePassthrough:
         assert results[0].guide_rna_sequence == "**No guide possible**"
         assert results[0].guide_score is None
 
+    def test_gc_content_populated_for_valid_guides(
+        self, sample_genome_dict, abe8e_preset_config
+    ):
+        from beguided.guidefinder.sequence_props import gc_content
+        results = process_target(
+            sample_genome_dict["chr1"], "chr1", 75, "A", "G",
+            "G", abe8e_preset_config
+        )
+        valid = [r for r in results if not r.guide_rna_sequence.startswith("**")]
+        assert len(valid) > 0
+        for r in valid:
+            assert isinstance(r.gc_content, float)
+            # Must match the helper output exactly so the column is honest.
+            assert r.gc_content == gc_content(r.guide_rna_sequence)
+
+    def test_homopolymer_flag_populated_for_valid_guides(
+        self, sample_genome_dict, abe8e_preset_config
+    ):
+        from beguided.guidefinder.sequence_props import has_homopolymer
+        results = process_target(
+            sample_genome_dict["chr1"], "chr1", 75, "A", "G",
+            "G", abe8e_preset_config
+        )
+        valid = [r for r in results if not r.guide_rna_sequence.startswith("**")]
+        assert len(valid) > 0
+        for r in valid:
+            assert r.homopolymer == has_homopolymer(r.guide_rna_sequence)
+
+    def test_no_guide_possible_has_no_sequence_props(
+        self, sample_genome_dict, abe8e_preset_config
+    ):
+        results = process_target(
+            sample_genome_dict["chr2"], "chr2", 5, "A", "G",
+            "A", abe8e_preset_config
+        )
+        assert results[0].guide_rna_sequence == "**No guide possible**"
+        assert results[0].gc_content is None
+        assert results[0].homopolymer is None
+
+    def test_new_columns_flow_through_results_to_dataframe(
+        self, sample_genome_dict, abe8e_preset_config
+    ):
+        results = process_target(
+            sample_genome_dict["chr1"], "chr1", 75, "A", "G",
+            "G", abe8e_preset_config
+        )
+        df = results_to_dataframe(results)
+        assert "gc_content" in df.columns
+        assert "homopolymer" in df.columns
+        valid = df[~df["guide_rna_sequence"].str.startswith("**")]
+        assert len(valid) > 0
+        assert valid["gc_content"].notna().all()
+        assert valid["homopolymer"].notna().all()
+
 
 class TestEdgeCases:
     """Edge case tests."""

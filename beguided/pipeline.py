@@ -8,6 +8,7 @@ import pandas as pd
 
 from beguided.genome.coordinates import guide_coordinates
 from beguided.genome.io import load_genome
+from beguided.editing.context import EditContextTable, load_edit_context_table
 from beguided.editing.presets import (
     load_base_editor_profiles,
     get_available_base_editor_names,
@@ -139,6 +140,50 @@ def _read_new_style_config(config):
             f"guide_score_threshold must be between 0 and 1, got {guide_score_threshold}"
         )
     result["guide_score_threshold"] = guide_score_threshold
+
+    # --- gc_content_filter ---
+    gc_content_filter = config.get("gc_content_filter", "off")
+    if gc_content_filter not in ("off", "good", "acceptable"):
+        raise PipelineError(
+            f"gc_content_filter must be one of off|good|acceptable, "
+            f"got {gc_content_filter!r}"
+        )
+    result["gc_content_filter"] = gc_content_filter
+
+    # --- filter_homopolymers ---
+    result["filter_homopolymers"] = bool(config.get("filter_homopolymers", False))
+
+    # --- trinuc_edit_score_min ---
+    # Optional minimum trinucleotide context score (Marquart et al. 2021,
+    # normalised ABE8e) below which ABE guides are dropped in step 3.
+    # ``None`` disables the filter. CBE rows are always kept (their
+    # ``trinuc_edit_score`` is NaN by construction).
+    raw_trinuc_min = config.get("trinuc_edit_score_min", None)
+    if raw_trinuc_min is None or raw_trinuc_min == "":
+        result["trinuc_edit_score_min"] = None
+    else:
+        try:
+            trinuc_min = float(raw_trinuc_min)
+        except (TypeError, ValueError) as exc:
+            raise PipelineError(
+                f"trinuc_edit_score_min must be a number, got {raw_trinuc_min!r}"
+            ) from exc
+        if not (0.0 <= trinuc_min <= 1.0):
+            raise PipelineError(
+                f"trinuc_edit_score_min must be between 0.0 and 1.0, "
+                f"got {trinuc_min}"
+            )
+        result["trinuc_edit_score_min"] = trinuc_min
+
+    # --- edit_context_table ---
+    # Optional path to a custom trinucleotide context TSV overriding the
+    # bundled copy. ``None`` (default) uses the bundled table. An empty
+    # string disables the lookup entirely (every guide's
+    # ``trinuc_edit_score`` will be NaN).
+    raw_table_path = config.get("edit_context_table", None)
+    if raw_table_path == "":
+        raw_table_path = ""  # explicit opt-out
+    result["edit_context_table"] = raw_table_path
 
     # --- search_offtargets ---
     result["search_offtargets"] = config.get("search_offtargets", True)
@@ -335,6 +380,28 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
         base_editor_names = _resolve_base_editor_names(profiles, cfg["base_editor_arg"])
         logger.info(f"Using base editors: {', '.join(base_editor_names)}")
 
+        # Load the trinucleotide edit-context table (Marquart et al. 2021,
+        # ABE8e, normalised). Empty string => explicit opt-out; None =>
+        # bundled default. CBE rows leave ``trinuc_edit_score`` at NaN.
+        edit_context_table: EditContextTable | None
+        table_path = cfg["edit_context_table"]
+        if table_path == "":
+            edit_context_table = None
+            logger.info("Edit-context table disabled (trinuc_edit_score will be NaN)")
+        else:
+            try:
+                edit_context_table = load_edit_context_table(
+                    table_path if table_path is not None else None
+                )
+                logger.info(
+                    "Loaded edit-context table (%s). "
+                    "Note: scores are ABE8e-derived and approximate for other ABE editors; "
+                    "CBE rows will be NaN.",
+                    edit_context_table.source_label,
+                )
+            except FileNotFoundError as exc:
+                raise PipelineError(str(exc)) from exc
+
         genome_file = cfg["genome"]
         if genome is None:
             logger.info(f"Loading genome from: {genome_file}")
@@ -366,6 +433,7 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
             genome, targets_df, profiles, base_editor_names,
             progress_callback=lambda c, p: logger.debug(f"Processing {c}:{p}"),
             passthrough_extras=cfg["passthrough_extras"],
+            edit_context_table=edit_context_table,
         )
         df = results_to_dataframe(
             results, passthrough_extras=cfg["passthrough_extras"],
@@ -492,6 +560,11 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
         logger.info("Step 3/5: Filtering guides")
         logger.info(f"Filter mode: {filter_mode}")
         logger.info(f"On-target score threshold: {cfg['guide_score_threshold']}")
+        if cfg["trinuc_edit_score_min"] is not None:
+            logger.info(
+                f"Trinucleotide edit-context min: {cfg['trinuc_edit_score_min']} "
+                f"(ABE only; CBE rows kept)"
+            )
         logger.info("=" * 60)
 
         df = pd.read_csv(bystander_output, sep="\t")
@@ -501,6 +574,9 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
         criteria = load_filter_criteria(
             mode=filter_mode,
             guide_score_threshold=cfg["guide_score_threshold"],
+            gc_content_filter=cfg["gc_content_filter"],
+            filter_homopolymers=cfg["filter_homopolymers"],
+            trinuc_edit_score_min=cfg["trinuc_edit_score_min"],
         )
         df = filter_guides(df, criteria)
         logger.info(f"After filtering: {len(df)} guides (from {original_count})")

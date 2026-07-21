@@ -54,6 +54,9 @@ class WebConfig:
     mismatch_tolerance: int = 5
     remove_guides_n_offtargets: int = 100
     max_input_targets: int = 1000
+    gc_content_filter: str = "off"
+    filter_homopolymers: bool = False
+    trinuc_edit_score_min: float = None  # None = disabled (default)
     preload_genome: bool = field(
         default_factory=lambda: _env_bool("BEGUIDED_PRELOAD_GENOME", True)
     )

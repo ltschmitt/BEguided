@@ -19,6 +19,9 @@ const resultsSummary = document.getElementById("resultsSummary");
 const resultsGuideStatus = document.getElementById("resultsGuideStatus");
 const bystanderFilter = document.getElementById("bystanderFilter");
 const scoreFilter = document.getElementById("scoreFilter");
+const gcFilter = document.getElementById("gcFilter");
+const homopolymerFilter = document.getElementById("homopolymerFilter");
+const trinucFilter = document.getElementById("trinucFilter");
 const condenseToggle = document.getElementById("condenseToggle");
 const filterSummary = document.getElementById("filterSummary");
 const downloadResults = document.getElementById("downloadResults");
@@ -972,7 +975,7 @@ function showAlert(el, kind, msg) {
     el.style.display = "block";
 }
 
-function renderTable(rows, columns, displayColumns = null, groupKeyFn = null, cellFormatter = null) {
+function renderTable(rows, columns, displayColumns = null, groupKeyFn = null, cellFormatter = null, headerTooltips = null) {
     if (!rows || rows.length === 0) {
         return `<p style="color:var(--muted);padding:16px;">No data to display.</p>`;
     }
@@ -980,7 +983,10 @@ function renderTable(rows, columns, displayColumns = null, groupKeyFn = null, ce
     let html = `<table class="data-table"><thead><tr>`;
     headers.forEach((c, i) => {
         const dataCol = escapeHtml(columns[i] ?? c);
-        html += `<th data-col="${dataCol}">${escapeHtml(c)}</th>`;
+        const tip = headerTooltips ? headerTooltips[columns[i]] : null;
+        const tipAttr = tip ? ` title="${escapeHtml(tip)}"` : "";
+        const tipIcon = tip ? ` <span class="th-info" aria-hidden="true">\u24D8</span>` : "";
+        html += `<th data-col="${dataCol}"${tipAttr}>${escapeHtml(c)}${tipIcon}</th>`;
     });
     html += `</tr></thead><tbody>`;
     let prevKey = null;
@@ -1068,6 +1074,46 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+// Render the guidefinder-derived columns. ``gc_content`` is shown as a
+// percentage with one decimal (the column value is percent 0-100); a missing
+// value renders as an em-dash. ``homopolymer`` is rendered as a small
+// coloured pill ("poly" or "ok") so flagged guides stand out at a glance.
+// ``trinuc_edit_score`` (Marquart et al. 2021, ABE8e, 0..1) is shown as a
+// 2-decimal number; ``NaN``/null (CBE rows) render as an em-dash.
+function formatSequencePropsCell(row, column, value) {
+    if (column === "gc_content") {
+        if (value === undefined || value === null || value === "") {
+            return `<span class="muted">&mdash;</span>`;
+        }
+        const num = Number(value);
+        if (!Number.isFinite(num)) {
+            return escapeHtml(String(value));
+        }
+        return `${num.toFixed(1)}%`;
+    }
+    if (column === "homopolymer") {
+        if (value === true || value === "true") {
+            return `<span class="badge badge-warn">poly</span>`;
+        }
+        if (value === false || value === "false") {
+            return `<span class="muted">ok</span>`;
+        }
+        return `<span class="muted">&mdash;</span>`;
+    }
+    if (column === "trinuc_edit_score") {
+        if (value === undefined || value === null || value === "") {
+            return `<span class="muted">&mdash;</span>`;
+        }
+        const num = Number(value);
+        if (!Number.isFinite(num)) {
+            // CBE rows have NaN; missing values render the same way.
+            return `<span class="muted">&mdash;</span>`;
+        }
+        return num.toFixed(2);
+    }
+    return null;
+}
+
 // Render the sequence-mode preview table. Each row shows the chromosome,
 // 1-based edit position, target/desired bases, and a snippet of the
 // bracketed sequence so the user can spot-check the edit location.
@@ -1109,6 +1155,29 @@ function renderSequencePreview(rows) {
 
 const SEQUENCE_MODE_COLUMN_LABELS = {
     chromosome: "sequence",
+};
+
+// Tooltip text shown on hover for results-table headers. Keyed by the
+// snake_case column name (as emitted by the pipeline), so the lookup works
+// regardless of the display label. Only the results-table call site passes
+// this map to renderTable(); the upload-preview table is left untouched.
+const RESULTS_COLUMN_TOOLTIPS = {
+    gene_edit_desired:
+        "Desired edit at the protein level, formatted as '<gene> <Target_AA><codon_number><Desired_AA>' (e.g. 'TP53 *306R'). Codon numbering follows the MANE Select CDS frame; empty when the target is not in a CDS or no gene name resolves.",
+    editing_position:
+        "1-based position of the edited base, counted from the 5' end of the guide RNA (not the genomic coordinate).",
+    bystander_positions:
+        "Comma-separated 1-based positions from the 5' end of the guide where additional bases may be edited as bystanders.",
+    bystander_effect:
+        "Predicted coding-sequence consequence of the bystander edits (e.g. silent / missense / nonsense), assessed against the MANE Select transcript codon frame. Empty when no GTF was provided.",
+    guide_score:
+        "CRISPRater on-target activity score (0-1). Derived from spCas9 training data and used here as a general guide-quality proxy.",
+    gc_content:
+        "GC fraction of the guide RNA spacer, expressed as a percentage. Guides with very low or very high GC tend to bind less efficiently.",
+    homopolymer:
+        "True when the spacer contains a run of >=4 identical bases (e.g. AAAA). Homopolymer runs can hurt guide specificity and efficiency.",
+    trinuc_edit_score:
+        "Marquart et al. 2021 normalised ABE8e editing proportion for the local X-A-Y trinucleotide context (the bases immediately before and after the target A). 0-1; NaN for CBE guides.",
 };
 
 function columnLabel(name) {
@@ -1401,13 +1470,37 @@ async function fetchResults(jobId) {
 // "okay" / "good" presets match the legacy slider defaults.
 const SCORE_FILTER_THRESHOLDS = { all: 0.0, okay: 0.5, good: 0.75 };
 
+// GC content tier ranges (percent 0-100). Mirrors beguided.filtering.filters.
+const GC_FILTER_RANGES = {
+    off: null,
+    good: [40, 60],
+    acceptable: [30, 70],
+};
+
 // Dynamic filtering for the Results tab. Mirrors beguided.filtering.filters.
 function getActiveFilters() {
     const key = scoreFilter.value || "all";
     const score = SCORE_FILTER_THRESHOLDS[key] ?? 0.0;
+    // Trinucleotide edit-score filter (Marquart et al. 2021, ABE8e, 0..1).
+    // Empty/non-numeric input => null (filter disabled). CBE rows have a
+    // null/NaN ``trinuc_edit_score`` and are always kept, mirroring the
+    // server's ``df.isna() | (df >= threshold)`` mask.
+    let trinuc = null;
+    if (trinucFilter) {
+        const raw = (trinucFilter.value || "").trim();
+        if (raw !== "") {
+            const num = Number(raw);
+            if (Number.isFinite(num) && num >= 0 && num <= 1) {
+                trinuc = num;
+            }
+        }
+    }
     return {
         mode: bystanderFilter.value,
         score,
+        gc: (gcFilter && gcFilter.value) || "off",
+        homopolymer: !!(homopolymerFilter && homopolymerFilter.checked),
+        trinuc,
     };
 }
 
@@ -1454,7 +1547,8 @@ function _condenseKeyValue(_key, value) {
     return String(value);
 }
 
-function filterRecords(records, mode, minScore) {
+function filterRecords(records, mode, minScore, gcMode = "off", dropHomopolymers = false, trinucMin = null) {
+    const gcRange = GC_FILTER_RANGES[gcMode] ?? null;
     return records.filter(row => {
         // On-target score filter. Missing scores are kept.
         if (minScore > 0) {
@@ -1462,6 +1556,33 @@ function filterRecords(records, mode, minScore) {
             if (raw !== undefined && raw !== null && raw !== "") {
                 const num = Number(raw);
                 if (Number.isFinite(num) && num < minScore) return false;
+            }
+        }
+
+        // GC content tier filter. Missing GC is kept, matching the server.
+        if (gcRange) {
+            const rawGc = row.gc_content;
+            if (rawGc !== undefined && rawGc !== null && rawGc !== "") {
+                const num = Number(rawGc);
+                if (Number.isFinite(num) && (num < gcRange[0] || num > gcRange[1])) {
+                    return false;
+                }
+            }
+        }
+
+        // Homopolymer filter. Missing flag is kept.
+        if (dropHomopolymers) {
+            const rawHp = row.homopolymer;
+            if (rawHp === true || rawHp === "true") return false;
+        }
+
+        // Trinucleotide edit-score filter (ABE only; CBE rows kept).
+        // Missing / NaN values are kept, matching the server.
+        if (trinucMin !== null && trinucMin > 0) {
+            const rawTrinuc = row.trinuc_edit_score;
+            if (rawTrinuc !== undefined && rawTrinuc !== null && rawTrinuc !== "") {
+                const num = Number(rawTrinuc);
+                if (Number.isFinite(num) && num < trinucMin) return false;
             }
         }
 
@@ -1489,12 +1610,12 @@ function renderResultsTable() {
     }
     const target = resultsPanel.querySelector(".results-table-wrap");
 
-    const { mode, score } = getActiveFilters();
+    const { mode, score, gc, homopolymer, trinuc } = getActiveFilters();
     // Condense BEFORE filtering so the filter sees the same row shape the
     // download endpoint will return. When the toggle is off this is a no-op
     // (condenseRecords passes records through unchanged).
     const condensed = condenseEnabled ? condenseRecords(currentRecords) : currentRecords;
-    const filtered = filterRecords(condensed, mode, score);
+    const filtered = filterRecords(condensed, mode, score, gc, homopolymer, trinuc);
 
     target.classList.toggle("condensed", condenseEnabled && condensed.length < currentRecords.length);
 
@@ -1512,7 +1633,12 @@ function renderResultsTable() {
             finalColumns,
             displayColumns,
             targetKey,
-            formatDnaSequenceCell
+            (row, column, value) => {
+                const seqProps = formatSequencePropsCell(row, column, value);
+                if (seqProps !== null) return seqProps;
+                return formatDnaSequenceCell(row, column, value);
+            },
+            RESULTS_COLUMN_TOOLTIPS
         );
     }
 
@@ -1527,7 +1653,10 @@ function renderResultsTable() {
             job_id: currentJobId,
             filter_mode: mode,
             guide_score_threshold: score.toString(),
+            gc_content_filter: gc,
         });
+        if (homopolymer) params.append("filter_homopolymers", "1");
+        if (trinuc !== null) params.append("trinuc_edit_score_min", trinuc.toString());
         if (condenseEnabled) params.append("condense", "1");
         const baseHref = "/download/results?" + params.toString();
         downloadResults.href = baseHref;
@@ -1610,6 +1739,25 @@ bystanderFilter.addEventListener("change", () => {
 scoreFilter.addEventListener("change", () => {
     if (currentRecords.length > 0) renderResultsTable();
 });
+if (gcFilter) {
+    gcFilter.addEventListener("change", () => {
+        if (currentRecords.length > 0) renderResultsTable();
+    });
+}
+if (homopolymerFilter) {
+    homopolymerFilter.addEventListener("change", () => {
+        if (currentRecords.length > 0) renderResultsTable();
+    });
+}
+if (trinucFilter) {
+    // `input` fires on every keystroke; `change` fires on blur / Enter.
+    trinucFilter.addEventListener("input", () => {
+        if (currentRecords.length > 0) renderResultsTable();
+    });
+    trinucFilter.addEventListener("change", () => {
+        if (currentRecords.length > 0) renderResultsTable();
+    });
+}
 if (condenseToggle) {
     condenseToggle.addEventListener("change", () => {
         condenseEnabled = condenseToggle.checked;

@@ -38,6 +38,9 @@ test = [
 where = ["."]
 include = ["beguided*"]
 
+[tool.setuptools.package-data]
+"beguided.editing.data" = ["*.tsv"]
+
 # ---------------------------------------------------------------------------
 # Pixi workspace configuration
 # ---------------------------------------------------------------------------

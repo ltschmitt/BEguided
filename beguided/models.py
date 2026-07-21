@@ -41,6 +41,9 @@ class GuideResult:
     genomic_context_upstream: str = ""
     genomic_context_downstream: str = ""
     guide_score: Optional[float] = None
+    gc_content: Optional[float] = None
+    homopolymer: Optional[bool] = None
+    trinuc_edit_score: Optional[float] = None
     extra_columns: Dict = field(default_factory=dict, repr=False)
 
 
@@ -69,4 +72,7 @@ CORE_COLUMN_ORDER = [
     "bystander_positions",
     "bystander_effect",
     "guide_score",
+    "gc_content",
+    "homopolymer",
+    "trinuc_edit_score",
 ]

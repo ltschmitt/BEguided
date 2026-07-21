@@ -856,3 +856,152 @@ class TestPipelineScaffoldFilter:
         df = pd.read_csv(guidefinder_output, sep="\t")
         # No guides should have landed on a scaffold chromosome.
         assert "KI270728.1" not in df["chromosome"].astype(str).unique()
+
+
+class TestPipelineTrinucEditScore:
+    """End-to-end tests for the trinuc_edit_score column and its filter."""
+
+    def _build_config(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv,
+        targets_content, trinuc_edit_score_min=None,
+    ):
+        presets_path = tmp_path / "presets.tsv"
+        presets_path.write_text(valid_preset_tsv)
+        targets_path = tmp_path / "targets.tsv"
+        targets_path.write_text(targets_content)
+        gtf_path = tmp_path / "dummy.gtf"
+        gtf_path.write_text(
+            "##format: gtf\n"
+            "chr1\ttest\tCDS\t1\t200\t.\t+\t0\t"
+            'gene_id "G1"; gene_name "G1"; transcript_id "T1"; tag "MANE_Select";\n'
+        )
+        config = {
+            "input": {
+                "targets": str(targets_path),
+                "genome": sample_fasta_file,
+                "base_editor_profiles": str(presets_path),
+                "gff_file": str(gtf_path),
+            },
+            "output_prefix": str(tmp_path / "out"),
+            "use_base_editors": "all",
+            "keep_bystanders": "all",
+            "search_offtargets": False,
+            "offtargets": {
+                "max_mismatches": 5,
+                "count_threshold_score": 15.0,
+                "remove_guides_score": 5.0,
+                "remove_guides_n_offtargets": 100,
+            },
+        }
+        if trinuc_edit_score_min is not None:
+            config["trinuc_edit_score_min"] = trinuc_edit_score_min
+        return config
+
+    def test_trinuc_edit_score_column_in_all_outputs(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """The trinuc_edit_score column appears in step1, step3, and final."""
+        from beguided.pipeline import run_pipeline
+        import pandas as pd
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\nchr1\t75\tA\tG\n",
+        )
+        run_pipeline(config, start_step=1, end_step=5)
+
+        out = tmp_path / "out"
+        for fname in ("step1_guidefinder.tsv", "step3_filtered.tsv", "beguided_results.tsv"):
+            df = pd.read_csv(out / fname, sep="\t")
+            assert "trinuc_edit_score" in df.columns, (
+                f"{fname} missing trinuc_edit_score column"
+            )
+
+    def test_trinuc_edit_score_populated_for_abe_guides(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """ABE guides (A->G) get a numeric trinuc_edit_score."""
+        from beguided.pipeline import run_pipeline
+        import pandas as pd
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\nchr1\t75\tA\tG\n",
+        )
+        run_pipeline(config, start_step=1, end_step=5)
+
+        final = pd.read_csv(tmp_path / "out" / "beguided_results.tsv", sep="\t")
+        valid = final[~final["guide_rna_sequence"].str.startswith("**", na=False)]
+        if len(valid) > 0:
+            # ABE guides should have a numeric score (not NaN).
+            assert valid["trinuc_edit_score"].notna().any(), (
+                "At least one ABE guide should have a non-NaN trinuc_edit_score"
+            )
+
+    def test_trinuc_edit_score_min_filter_drops_low_guides(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """trinuc_edit_score_min drops ABE guides below the threshold."""
+        from beguided.pipeline import run_pipeline
+        import pandas as pd
+
+        # Run without the filter first to get the baseline.
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\nchr1\t75\tA\tG\n",
+        )
+        run_pipeline(config, start_step=1, end_step=3)
+        baseline = pd.read_csv(tmp_path / "out" / "step3_filtered.tsv", sep="\t")
+
+        # Now run with a very high threshold (1.0 = only CAC context).
+        # Use a separate output dir so we don't clobber the baseline.
+        config_filtered = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\nchr1\t75\tA\tG\n",
+            trinuc_edit_score_min=1.0,
+        )
+        config_filtered["output_prefix"] = str(tmp_path / "out_filtered")
+        run_pipeline(config_filtered, start_step=1, end_step=3)
+        filtered = pd.read_csv(
+            tmp_path / "out_filtered" / "step3_filtered.tsv", sep="\t"
+        )
+
+        # The filtered output should have <= rows than the baseline.
+        assert len(filtered) <= len(baseline)
+        # Any remaining ABE guides (non-NaN trinuc_edit_score) must be >= 1.0.
+        abe_rows = filtered[filtered["trinuc_edit_score"].notna()]
+        if len(abe_rows) > 0:
+            assert (abe_rows["trinuc_edit_score"] >= 1.0).all()
+
+    def test_edit_context_table_empty_string_disables_column(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """edit_context_table='' disables the lookup; every score is NaN."""
+        from beguided.pipeline import run_pipeline
+        import pandas as pd
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\nchr1\t75\tA\tG\n",
+        )
+        config["edit_context_table"] = ""
+        run_pipeline(config, start_step=1, end_step=1)
+
+        step1 = pd.read_csv(tmp_path / "out" / "step1_guidefinder.tsv", sep="\t")
+        assert "trinuc_edit_score" in step1.columns
+        # Every value should be NaN (column disabled).
+        assert step1["trinuc_edit_score"].isna().all()
+
+    def test_trinuc_edit_score_min_invalid_value_raises(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """trinuc_edit_score_min outside [0, 1] raises PipelineError."""
+        from beguided.pipeline import PipelineError, run_pipeline
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\nchr1\t75\tA\tG\n",
+            trinuc_edit_score_min=1.5,
+        )
+        with pytest.raises(PipelineError):
+            run_pipeline(config, start_step=1, end_step=1)

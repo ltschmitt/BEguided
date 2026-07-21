@@ -523,6 +523,61 @@ def test_download_results_applies_dynamic_filters(cfg_and_db):
     assert bad.status_code == 400
 
 
+def test_download_results_applies_trinuc_filter(cfg_and_db):
+    """The /download/results endpoint should respect the
+    trinuc_edit_score_min query param, keeping NaN (CBE) rows."""
+    import beguided.web.scheduler as sched_mod
+
+    records = [
+        {"chromosome": "chr1", "position": 50, "guide_score": 0.9,
+         "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
+         "trinuc_edit_score": 0.9},
+        {"chromosome": "chr1", "position": 80, "guide_score": 0.9,
+         "guide_rna_sequence": "CCCCCCCCCCCCCCCCCCCC",
+         "trinuc_edit_score": 0.1},
+        {"chromosome": "chr2", "position": 30, "guide_score": 0.9,
+         "guide_rna_sequence": "GGGGGGGGGGGGGGGGGGGG",
+         "trinuc_edit_score": None},  # CBE row — NaN, always kept
+    ]
+
+    def fake_execute_job(**kwargs):
+        return {
+            "job_id": kwargs["job_id"], "status": "complete",
+            "message": "ok", "records": records,
+        }
+
+    sched_mod.execute_job = fake_execute_job
+    client = _client(cfg_and_db)
+    submit = client.post(
+        "/run",
+        data={"raw_b64": _targets_tsv_b64(), "base_editor": "ABE8e"},
+    ).json()
+    for _ in range(40):
+        s = client.get("/status", params={"job_id": submit["job_id"]}).json()
+        if s["status"] in ("complete", "error", "cancelled"):
+            break
+        time.sleep(0.1)
+
+    # No filter -> all three rows.
+    res_all = client.get(
+        "/download/results",
+        params={"job_id": submit["job_id"]},
+    )
+    assert res_all.status_code == 200
+    lines = res_all.text.strip().split("\n")
+    assert len(lines) == 1 + 3
+
+    # trinuc_edit_score_min=0.5 -> drop the 0.1 row, keep 0.9 and NaN.
+    res_filtered = client.get(
+        "/download/results",
+        params={"job_id": submit["job_id"], "trinuc_edit_score_min": 0.5},
+    )
+    assert res_filtered.status_code == 200
+    rows = [l.split("\t") for l in res_filtered.text.strip().split("\n")[1:]]
+    positions = sorted(int(r[1]) for r in rows)
+    assert positions == [30, 50]  # NaN (CBE) at 30 + 0.9 at 50
+
+
 def test_download_results_filename_reflects_filters(cfg_and_db):
     """The Content-Disposition filename should encode the active filters."""
     import beguided.web.scheduler as sched_mod

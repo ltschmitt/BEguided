@@ -21,7 +21,10 @@ beguided/                  # Main package
 ├── editing/                 # Core base-editing logic
 │   ├── presets.py           # Base editor profile loading, PAM regex, validation
 │   ├── search.py            # PAM regex search
-│   └── mutations.py         # Editing simulation, bystander detection
+│   ├── mutations.py         # Editing simulation, bystander detection
+│   ├── context.py           # Trinucleotide edit-context lookup (ABE, Marquart 2021)
+│   └── data/
+│       └── edit_context_norm_proportion.tsv  # Bundled X-A-Y proportion table
 ├── guidefinder/             # Step 1: Guide generation
 │   └── core.py              # process_target, run_genome_wide, results_to_dataframe
 ├── bystander/               # Step 2: Bystander analysis
@@ -265,6 +268,7 @@ Both back the `run_pipeline(..., genome=..., interval_trees=...)` kwargs in `beg
 - `worst_offtarget_score` — lowest CCTOP score (most dangerous; `inf` if none)
 - `offtarget_count` — number of off-targets ≤ `count_threshold_score`
 - `worst_offtarget_chr`, `worst_offtarget_pos`, `worst_offtarget_sequence`
+- `trinuc_edit_score` — Marquart et al. 2021 normalised ABE8e proportion for the local `X-A-Y` trinucleotide context (0..1, `NaN` for CBE guides). Bundled table at `beguided/editing/data/edit_context_norm_proportion.tsv`; override with `input.edit_context_table`. Filterable via `trinuc_edit_score_min`.
 
 ### CCTOP Score Semantics
 - **Lower = more concerning** (mismatches near PAM)

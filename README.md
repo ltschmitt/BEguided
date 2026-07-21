@@ -10,7 +10,8 @@ BEguided is a Python package for designing guide RNAs for Cas9 base editors. It 
 - **On-target scoring** – CRISPRater score (adapted from CCTOP standalone) is computed for every 20-nt guide to estimate predicted on-target activity.
 - **Preset system** – Support multiple base editors with custom PAM patterns, guide lengths and editing windows (loaded from a TSV file).
 - **Bystander scanning** – Predict amino-acid consequences of unintended edits within the sequence by integrating GTF annotation, codon checks, and positional analysis.
-- **Guide filtering** – Filter by bystander effect (no bystanders, silent only, or accept all).
+- **Guide filtering** – Filter by bystander effect (no bystanders, silent only, or accept all), by CRISPRater on-target score, by GC content (40–60% "good" or 30–70% "acceptable"), by homopolymer runs (≥4-mer), and by ABE trinucleotide edit-context score (Marquart et al. 2021, ABE8e-derived).
+- **Edit-context scoring** – Every ABE guide gets a `trinuc_edit_score` from a bundled, normalised Marquart et al. 2021 (ABE8e) `X-A-Y` trinucleotide context table (1.0 = `CAC`, 0.02 = `AAA`). CBE guides are `NaN`. The `-` strand is reverse-complemented so the lookup uses the mRNA-sense context.
 - **Off-target scoring** – Search for off-target sites using BEguidedOFF (GPU-accelerated or CPU fallback) and score them with the CCTOP penalty model.
 - **CCTOP scoring** – Lower CCTOP scores indicate more concerning off-targets (mismatches near the PAM). The score is unbiased across PAM families.
 - **Column passthrough** – Any additional columns in your target input file (e.g. `mutation_occurance`, `genomic_mutation_id`) are preserved through all pipeline steps to the final output.
@@ -275,6 +276,10 @@ offtargets:
 | Key | Default | Description |
 |-----|---------|-------------|
 | `guide_score_threshold` | 0.5 | CRISPRater **minimum** score to keep a guide. Guides with a score below this value are removed in step 3. Range: 0–1 (higher = better). Set to 0 to disable. |
+| `gc_content_filter` | `off` | Filter guides by GC content of the 20-nt protospacer: `off` (no filter), `good` (keep 40–60%) or `acceptable` (keep 30–70%). Guides with a missing GC value are always kept. |
+| `filter_homopolymers` | `false` | When `true`, drop guides that contain a run of ≥4 identical bases (AAAA, TTTT, CCCC, GGGG). Set to `false` to keep everything. |
+| `trinuc_edit_score_min` | `null` | Minimum trinucleotide edit-context score (Marquart et al. 2021, ABE8e, normalised 0–1) to keep an ABE guide. The score reflects how likely the local `X-A-Y` context is to be edited (`CAC` = 1.0, `AAA` = 0.02). CBE rows are always kept (their `trinuc_edit_score` is `NaN` because the table is ABE-only). Set to `null` to disable. |
+| `input.edit_context_table` | bundled | Optional custom trinucleotide context TSV overriding the bundled copy. Empty string (`""`) disables the `trinuc_edit_score` column entirely. |
 | `offtargets.beguidedoff_genome` | — | Path to BEguidedOFF `.npz` genome |
 | `offtargets.mismatch_tolerance` | 5 | Max mismatches in 20-nt guide |
 | `offtargets.count_threshold_score` | 15.0 | CCTOP **maximum** for counting off-targets |
@@ -296,7 +301,9 @@ output_prefix/
 └── beguided_results.tsv    (step 6 – final merged output)
 ```
 
-The final `beguided_results.tsv` contains all guide results merged with off-target summary columns (`worst_offtarget_score`, `offtarget_count`, `worst_offtarget_chr`, `worst_offtarget_pos`, `worst_offtarget_sequence`). Every row also carries a `guide_score` column — the CRISPRater on-target activity score computed in step 1 (requires a 20-nt guide; non-20-nt base editor profiles are skipped with a warning). Any extra columns from your input target file are preserved in the final output.
+The final `beguided_results.tsv` contains all guide results merged with off-target summary columns (`worst_offtarget_score`, `offtarget_count`, `worst_offtarget_chr`, `worst_offtarget_pos`, `worst_offtarget_sequence`). Every row also carries a `guide_score` column — the CRISPRater on-target activity score computed in step 1 (requires a 20-nt guide; non-20-nt base editor profiles are skipped with a warning), plus `gc_content` (whole-guide GC percent, 0–100), `homopolymer` (boolean: `true` if the guide contains any run of ≥4 identical bases) and `trinuc_edit_score` (the Marquart et al. 2021 normalised ABE8e proportion for the local `X-A-Y` context, 0–1; `NaN` for CBE guides). The three sequence-property columns are computed for every guide length. Any extra columns from your input target file are preserved in the final output.
+
+> **Note on `trinuc_edit_score`:** The bundled table is derived from ABE8e spCas9 data (Marquart et al. 2021, https://doi.org/10.1038/s41467-021-25375-z) and is applied to **every ABE profile** as an approximation — actual editing efficiencies will differ between ABE8e, ABE9, ABE-Umax, etc. CBE profiles always produce `NaN` because the table is ABE-only. The `-` strand is handled by reverse-complementing the genomic 3-mer before lookup, so the value reflects the mRNA-sense context the paper measured.
 
 ## Base editor profiles
 

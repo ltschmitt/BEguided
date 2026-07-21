@@ -7,9 +7,11 @@ from beguided.genome.coordinates import (
     calculate_search_range,
 )
 from beguided.genome.sequence import apply_reverse_complement_if_needed, insert_mutation
+from beguided.editing.context import EditContextTable, is_abe, lookup_from_genome
 from beguided.editing.mutations import find_bystander_edits
 from beguided.editing.search import find_pams_regex
 from beguided.guidefinder.crisprater import get_score as get_crisprater_score
+from beguided.guidefinder.sequence_props import gc_content, has_homopolymer
 from beguided.models import GuideResult, CORE_COLUMN_ORDER
 
 logger = logging.getLogger("beguided.guidefinder")
@@ -17,12 +19,18 @@ logger = logging.getLogger("beguided.guidefinder")
 
 def process_target(
     genome_seq, chromosome, position, target_base, desired_base,
-    genome_base, base_editor_config, extra_columns=None
+    genome_base, base_editor_config, extra_columns=None,
+    edit_context_table=None,
 ):
     """Process a single target and return list of GuideResult objects.
 
     Args:
         extra_columns: Optional dict of additional input columns to preserve.
+        edit_context_table: Optional :class:`EditContextTable`. When supplied
+            and the profile is ABE (sense or antisense), each valid guide
+            gets a ``trinuc_edit_score`` from the Marquart et al. 2021
+            normalised ABE8e context table. CBE profiles and ``None`` leave
+            the field at ``None``.
 
     Returns:
         list of GuideResult (one per valid PAM, or a single special result).
@@ -136,6 +144,23 @@ def process_target(
                 base_editor_config.name,
             )
 
+        # Compute GC content (percent 0-100) and homopolymer flag for the
+        # 20-nt protospacer. Both are length-agnostic, unlike CRISPRater,
+        # so they are always populated for real guides.
+        guide_gc_content = gc_content(final_guide)
+        guide_has_homopolymer = has_homopolymer(final_guide)
+
+        # Trinucleotide edit-context score (Marquart et al. 2021, ABE8e).
+        # Only meaningful for ABE profiles; CBE rows stay None. The lookup
+        # uses the actual genomic context around the target, so it is the
+        # same value for every ABE profile selected for this target — the
+        # editor identity only matters for whether the field is populated.
+        guide_trinuc_score = None
+        if edit_context_table is not None and is_abe(target_base, desired_base):
+            guide_trinuc_score = lookup_from_genome(
+                edit_context_table, genome_seq, position, strand, target_base,
+            )
+
         bystander_positions = find_bystander_edits(
             final_guide, target_base, editing_pos,
             base_editor_config.general_edit_start,
@@ -167,6 +192,9 @@ def process_target(
                 editing_position=editing_pos,
                 strand_used=strand,
                 guide_score=guide_score,
+                gc_content=guide_gc_content,
+                homopolymer=guide_has_homopolymer,
+                trinuc_edit_score=guide_trinuc_score,
                 bystander_positions=bystander_positions,
                 genomic_context_upstream=context_up,
                 genomic_context_downstream=context_down,
@@ -202,6 +230,7 @@ _CORE_INPUT_COLS = {
 def run_genome_wide(
     genome, targets_df, profiles, base_editor_names,
     progress_callback=None, passthrough_extras=True,
+    edit_context_table=None,
 ):
     """Run guidefinder across all targets and base editor profiles.
 
@@ -219,6 +248,11 @@ def run_genome_wide(
             ``desired_base``) are carried through to each ``GuideResult`` and
             later expanded into DataFrame columns. If ``False``, extra input
             columns are dropped.
+        edit_context_table: Optional :class:`EditContextTable` forwarded to
+            :func:`process_target` so each valid ABE guide gets a
+            ``trinuc_edit_score`` from the Marquart et al. 2021 normalised
+            ABE8e context table. ``None`` (default) leaves the field at
+            ``None`` for every guide.
 
     Returns:
         list of GuideResult objects.
@@ -268,7 +302,8 @@ def run_genome_wide(
                 target_results = process_target(
                     genome_seq, chromosome, position,
                     target_base, desired_base,
-                    genome_base, base_editor_config, extra_columns=extra_columns
+                    genome_base, base_editor_config, extra_columns=extra_columns,
+                    edit_context_table=edit_context_table,
                 )
                 for result in target_results:
                     result.base_editor = base_editor_name

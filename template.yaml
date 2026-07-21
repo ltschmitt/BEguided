@@ -18,6 +18,12 @@ input:
   # Default: base_editor_profiles.tsv in working directory
   base_editor_profiles: "base_editor_profiles.tsv"
 
+  # Optional custom trinucleotide edit-context table (TSV format) overriding
+  # the bundled copy. The bundled table is derived from Marquart et al. 2021
+  # (ABE8e, normalised). Leave unset to use the bundled default; set to an
+  # empty string ("") to disable the trinuc_edit_score column entirely.
+  # edit_context_table: "path/to/custom_context.tsv"
+
   # GFF/GTF annotation file for transcript/CDS information
   # Required for bystander analysis (unless keep_bystanders=no_bystanders)
   gff_file: "path/to/annotation.gtf"
@@ -63,6 +69,27 @@ keep_bystanders: "all"
 # Value must be between 0 and 1 (higher = better score).
 # Set to 0 to disable filtering by on-target score.
 guide_score_threshold: 0.5
+
+# GC content filter for the 20-nt protospacer.
+# Options:
+#   "off"         -> do not filter by GC content (default; returns every guide)
+#   "good"        -> keep guides with GC between 40% and 60%
+#   "acceptable"  -> keep guides with GC between 30% and 70%
+# Guides with a missing GC value are always kept.
+gc_content_filter: "off"
+
+# Drop guides that contain a homopolymer run of 4 or more identical bases.
+# Both AAAA/TTTT (Pol III termination signal) and CCCC/GGGG runs are flagged.
+# Set to true to drop them, false to keep everything (default).
+filter_homopolymers: false
+
+# Minimum trinucleotide edit-context score (Marquart et al. 2021, ABE8e,
+# normalised 0..1) below which ABE guides are dropped in step 3.
+# The score reflects how likely the local X-A-Y context is to be edited
+# (e.g. CAC = 1.0, AAA = 0.02). CBE rows are always kept — the table is
+# ABE-only and their trinuc_edit_score is NaN by construction. Set to null
+# (or omit) to disable the filter.
+trinuc_edit_score_min: null
 
 # =============================================================================
 # OFF-TARGET SCREENING (Steps 4-6)

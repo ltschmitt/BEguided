@@ -7,7 +7,7 @@ import base64
 import io
 import logging
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader
 
-from beguided.filtering.filters import filter_guides
+from beguided.filtering.filters import filter_guides, VALID_GC_FILTERS
 from beguided.logging_config import setup_logging
 from beguided.web.condense import condense_df
 from beguided.web.config import (
@@ -842,6 +842,21 @@ def create_app() -> FastAPI:
             float,
             Query(ge=0.0, le=1.0, description="Minimum on-target guide score"),
         ] = 0.0,
+        gc_content_filter: Annotated[
+            str,
+            Query(description="GC content tier: off | good | acceptable"),
+        ] = "off",
+        filter_homopolymers: Annotated[
+            bool,
+            Query(description="Drop guides with >=4-mer homopolymer runs"),
+        ] = False,
+        trinuc_edit_score_min: Annotated[
+            Optional[float],
+            Query(
+                ge=0.0, le=1.0,
+                description="Minimum Marquart et al. 2021 ABE8e trinucleotide context score (ABE only; CBE rows kept)",
+            ),
+        ] = None,
         condense: Annotated[
             bool,
             Query(description="Collapse rows that differ only in base_editor"),
@@ -858,6 +873,12 @@ def create_app() -> FastAPI:
                 f"Expected one of: {', '.join(VALID_FILTER_MODES)}.",
                 status_code=400,
             )
+        if gc_content_filter not in VALID_GC_FILTERS:
+            return PlainTextResponse(
+                f"Invalid gc_content_filter: {gc_content_filter!r}. "
+                f"Expected one of: {', '.join(VALID_GC_FILTERS)}.",
+                status_code=400,
+            )
         if format not in ("tsv", "xlsx"):
             return PlainTextResponse(
                 f"Invalid format: {format!r}. Expected one of: tsv, xlsx.",
@@ -870,12 +891,21 @@ def create_app() -> FastAPI:
         df = filter_guides(df, {
             "mode": filter_mode,
             "guide_score_threshold": guide_score_threshold,
+            "gc_content_filter": gc_content_filter,
+            "filter_homopolymers": filter_homopolymers,
+            "trinuc_edit_score_min": trinuc_edit_score_min,
         })
         if condense:
             df = condense_df(df)
         suffix_parts = []
         if filter_mode != "all" or guide_score_threshold != 0.0:
             suffix_parts.append(f"{filter_mode}_s{guide_score_threshold:g}")
+        if gc_content_filter != "off":
+            suffix_parts.append(f"gc-{gc_content_filter}")
+        if filter_homopolymers:
+            suffix_parts.append("no-homopolymers")
+        if trinuc_edit_score_min is not None:
+            suffix_parts.append(f"trinuc-{trinuc_edit_score_min:g}")
         if condense:
             suffix_parts.append("condensed")
         suffix = "" if not suffix_parts else "_" + "_".join(suffix_parts)
