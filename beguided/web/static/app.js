@@ -135,6 +135,7 @@ const isSpryCas = (cas) => /spry/i.test(cas || "");
     }
 
     wireMultiselectEvents();
+    applyFilterTooltips();
     setMode(currentMode);
 })();
 
@@ -1197,6 +1198,38 @@ const RESULTS_COLUMN_TOOLTIPS = {
     trinuc_edit_score:
         "Marquart et al. 2021 normalised ABE8e editing proportion for the local X-A-Y trinucleotide context (the bases immediately before and after the target A). 0-1; NaN for CBE guides.",
 };
+
+// Maps each results-toolbar filter <select>/<input> id to the column whose
+// RESULTS_COLUMN_TOOLTIPS entry describes it. Tooltips are wired up at init
+// so the table header and the filter label always share the same text.
+const FILTER_TOOLTIP_COLUMN = {
+    bystanderFilter: "bystander_effect",
+    scoreFilter: "guide_score",
+    gcFilter: "gc_content",
+    homopolymerFilter: "homopolymer",
+    trinucFilter: "trinuc_edit_score",
+};
+
+// Apply RESULTS_COLUMN_TOOLTIPS entries to the corresponding filter <label>s
+// in the results toolbar. Sets both the native `title` attribute (browser
+// tooltip on hover) and appends the same info glyph used by the table headers
+// so users can see at a glance which filters have help text.
+function applyFilterTooltips() {
+    for (const [id, col] of Object.entries(FILTER_TOOLTIP_COLUMN)) {
+        const tip = RESULTS_COLUMN_TOOLTIPS[col];
+        if (!tip) continue;
+        const label = document.querySelector(`label[for="${id}"]`);
+        if (!label) continue;
+        label.title = tip;
+        if (!label.querySelector(".th-info")) {
+            const glyph = document.createElement("span");
+            glyph.className = "th-info";
+            glyph.setAttribute("aria-hidden", "true");
+            glyph.textContent = "\u24D8";
+            label.appendChild(glyph);
+        }
+    }
+}
 
 function columnLabel(name) {
     if (currentMode === "sequence"

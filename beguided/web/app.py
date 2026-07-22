@@ -542,12 +542,20 @@ def create_app() -> FastAPI:
 
         df.columns = df.columns.str.strip()
         preview = df.head(100).to_dict(orient="records")
+        # Normalize to a 4-column TSV before encoding. /check and /run both
+        # call _decode_targets(), which parses raw_b64 as TSV (sep="\t"), so
+        # passing through the original CSV/XLSX bytes would break the
+        # downstream column lookups (KeyError on "target_base").
+        targets_tsv = df[["chromosome", "position", "target_base", "desired_base"]]
+        targets_b64 = base64.b64encode(
+            targets_tsv.to_csv(sep="\t", index=False).encode()
+        ).decode("ascii")
         return {
             "ok": True,
             "row_count": len(df),
             "columns": df.columns.tolist(),
             "preview": preview,
-            "raw_b64": base64.b64encode(content).decode("ascii"),
+            "raw_b64": targets_b64,
         }
 
     @app.post("/sequence/parse")

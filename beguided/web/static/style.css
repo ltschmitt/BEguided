@@ -810,6 +810,20 @@ body {
     margin-left: 4px;
 }
 
+/* Filter labels in the results toolbar mirror the header tooltip behavior:
+   the <label> gets `title` from RESULTS_COLUMN_TOOLTIPS at init, the help
+   cursor signals the tooltip exists, and the same info glyph renders inline. */
+.results-toolbar label[title] {
+    cursor: help;
+}
+
+.results-toolbar label .th-info {
+    color: var(--muted);
+    opacity: 0.6;
+    font-size: 11px;
+    margin-left: 4px;
+}
+
 .data-table tbody td {
     padding: 8px 12px;
     border-bottom: 1px solid var(--border);

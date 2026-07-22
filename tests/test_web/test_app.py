@@ -164,6 +164,152 @@ def test_run_rejects_oversized_upload(cfg_and_db):
     assert res.status_code in (413, 400)
 
 
+def test_upload_csv_normalizes_to_tsv(cfg_and_db):
+    """Uploading a CSV must yield a TSV-normalized raw_b64 so /check and
+    /run (which always parse raw_b64 as TSV) can read the columns."""
+    client = _client(cfg_and_db)
+    csv_bytes = (
+        b"chromosome,position,target_base,desired_base\n"
+        b"chr1,100,A,G\n"
+        b"chr2,200,T,C\n"
+    )
+    res = client.post(
+        "/upload",
+        files={"file": ("targets.csv", io.BytesIO(csv_bytes), "text/csv")},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["row_count"] == 2
+
+    decoded = base64.b64decode(body["raw_b64"]).decode()
+    # Must be tab-separated with the 4 standard columns (not the original CSV).
+    assert decoded.startswith("chromosome\tposition\ttarget_base\tdesired_base\n")
+    assert "," not in decoded.splitlines()[1]
+    # /decode_targets style round-trip must succeed.
+    df = pd.read_csv(io.StringIO(decoded), sep="\t")
+    assert list(df.columns) == ["chromosome", "position", "target_base", "desired_base"]
+    assert df.iloc[0]["target_base"] == "A"
+    assert df.iloc[1]["desired_base"] == "C"
+
+
+def test_check_works_with_csv_upload(cfg_and_db):
+    """Full flow: upload a CSV, then post the returned raw_b64 to /check.
+    Regression test for the KeyError('target_base') bug where the original
+    comma-separated bytes were forwarded instead of being re-encoded as TSV.
+    """
+    client = _client(cfg_and_db)
+    csv_bytes = (
+        b"chromosome,position,target_base,desired_base\n"
+        b"chr1,100,A,G\n"
+        b"chr2,200,A,G\n"
+        b"chr3,300,T,C\n"
+    )
+    up = client.post(
+        "/upload",
+        files={"file": ("targets.csv", io.BytesIO(csv_bytes), "text/csv")},
+    ).json()
+    assert up["ok"] is True
+
+    res = client.post(
+        "/check",
+        data={"raw_b64": up["raw_b64"], "base_editor": "ABE8e"},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["total"] == 3
+    # ABE8e supports A->G plus its antisense complement T->C.
+    assert body["matched"] == 3
+    assert body["mismatched"] == 0
+    assert body["can_run"] is True
+
+
+def test_run_accepts_csv_upload(cfg_and_db):
+    """Full flow: upload a CSV and use the returned raw_b64 to start a job.
+    Regression test for the same /upload -> /run KeyError.
+    """
+    import beguided.web.scheduler as sched_mod
+
+    sched_mod.execute_job = lambda **kw: {
+        "job_id": kw["job_id"], "status": "complete",
+        "message": "ok", "records": [],
+    }
+
+    client = _client(cfg_and_db)
+    csv_bytes = (
+        b"chromosome,position,target_base,desired_base\n"
+        b"chr1,100,A,G\n"
+        b"chr2,200,A,G\n"
+    )
+    up = client.post(
+        "/upload",
+        files={"file": ("targets.csv", io.BytesIO(csv_bytes), "text/csv")},
+    ).json()
+    assert up["ok"] is True
+
+    res = client.post(
+        "/run",
+        data={"raw_b64": up["raw_b64"], "base_editor": "ABE8e"},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert "job_id" in body
+
+
+def test_upload_tsv_returns_tsv_raw_b64(cfg_and_db):
+    """Regression: a TSV upload should still produce a usable raw_b64 (TSV
+    bytes, not the empty/garbled output of the bugged path)."""
+    client = _client(cfg_and_db)
+    tsv_bytes = b"chromosome\tposition\ttarget_base\tdesired_base\nchr1\t100\tA\tG\n"
+    res = client.post(
+        "/upload",
+        files={"file": ("targets.tsv", io.BytesIO(tsv_bytes), "text/tab-separated-values")},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    decoded = base64.b64decode(body["raw_b64"]).decode()
+    df = pd.read_csv(io.StringIO(decoded), sep="\t")
+    assert list(df.columns) == ["chromosome", "position", "target_base", "desired_base"]
+    assert df.iloc[0]["target_base"] == "A"
+
+
+def test_upload_sara_csv_runs_check(cfg_and_db):
+    """Exact regression test for the user's reported file: sara_targetlist.csv
+    (3 A>G + 3 T>C). With the only configured profile being ABE8e, /check
+    must return 200 and classify the rows by editing direction (not blow up
+    with KeyError on the CSV-vs-TSV mismatch).
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    csv_path = repo_root / "sara_targetlist.csv"
+    if not csv_path.exists():
+        pytest.skip(f"{csv_path} not present in this checkout")
+    csv_bytes = csv_path.read_bytes()
+
+    client = _client(cfg_and_db)
+    up = client.post(
+        "/upload",
+        files={"file": ("sara_targetlist.csv", io.BytesIO(csv_bytes), "text/csv")},
+    ).json()
+    assert up["ok"] is True
+    assert up["row_count"] == 6
+
+    res = client.post(
+        "/check",
+        data={"raw_b64": up["raw_b64"], "base_editor": "ABE8e"},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["total"] == 6
+    # ABE8e supports A->G plus its antisense complement T->C, so all 6 rows
+    # are compatible.
+    assert body["matched"] == 6
+    assert body["mismatched"] == 0
+
+
 def test_run_rejects_unknown_base_editor(cfg_and_db):
     client = _client(cfg_and_db)
     res = client.post(
