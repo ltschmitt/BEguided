@@ -1,0 +1,51 @@
+# BEguided legal-page content.
+#
+# This file is committed to the repo as a SCHEMA REFERENCE ONLY — copy it
+# to ``legal.yaml``, fill in the real values, and mount that file into the
+# container at the path given by ``BEGUIDED_LEGAL_CONFIG`` (default
+# /etc/beguided/legal.yaml). ``legal.yaml`` MUST NOT be committed.
+#
+# Every field is optional. If the file is absent at startup the server
+# logs a WARNING and serves the legal pages with empty values. If the
+# file is present but malformed (invalid YAML, wrong top-level type)
+# the server fails fast.
+#
+# Required German legal disclosures (TMG/DDG §5, GDPR Art. 13/14) are
+# documented in compliance_safety.md.
+
+# Full legal name of the controller (e.g. university, institute, faculty).
+institution_name: ""
+
+# Postal address as a list of lines. Rendered as <br>-separated lines.
+address_lines: []
+
+# Person authorised to represent the institution (e.g. rector, dean, PI).
+vertretungsberechtigter: ""
+
+# Public contact email (must be reachable; required by §5 TMG/DDG).
+contact_email: ""
+
+# Public contact phone (optional but recommended).
+contact_phone: ""
+
+# Hosting provider disclosure (§5 TMG/DDG requires the hosting provider).
+hosting_provider: ""
+
+# Person responsible for content under § 18 MStV (usually the PI).
+content_responsible_mstv: ""
+
+# Data Protection Officer (Datenschutzbeauftragter).
+dpo_name: ""
+dpo_email: ""
+dpo_address: []
+
+# Competent supervisory authority (Landesdatenschutzbeauftragte[r]).
+# Example: "Landesbeauftragte für den Datenschutz und die Informationsfreiheit Baden-Württemberg".
+competent_dpa: ""
+
+# How long reverse-proxy / web-server logs are kept (separate from the
+# 24h job-database retention enforced by the app itself).
+log_retention_days: 7
+
+# Free-form date string shown on every legal page (e.g. "2026-07-23").
+last_updated: ""

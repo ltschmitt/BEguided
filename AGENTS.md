@@ -85,9 +85,30 @@ beguided-web             [--host 0.0.0.0] [--port 8000] [--reload] \
                          [--gtf-path ...] [--beguidedoff-genome ...] \
                          [--preload-genome | --no-preload-genome] \
                          [--preload-gtf | --no-preload-gtf] \
-                         [--genome-label ...]
+                         [--genome-label ...] \
+                         [--job-retention-hours 24] \
+                         [--allowed-hosts www.buchholz.org,buchholz.org] \
+                         [--trusted-proxy-ips 127.0.0.1,::1] \
+                         [--log-ip-salt ...] [--admin-token ...] \
+                         [--legal-config /etc/beguided/legal.yaml]
                          # Requires web extra: pixi run --environment web beguided-web
 ```
+
+### Deployment configuration
+
+The project uses **no `.env` file**. Every deployment value is read from
+shell environment variables and `docker-compose.yml` ships inline defaults
+for each one, so `docker compose up` works with zero configuration. Override
+per host via `docker-compose.override.yml` or by exporting the variable in
+your shell before `docker compose up`. See `docker-compose.yml` comments
+for the full list.
+
+Legal-page content (institution name, address, DPO, competent DPA, …)
+lives in a separate gitignored `legal.yaml` file. The committed template
+is `legal.yaml.example`. The container path is set via
+`BEGUIDED_LEGAL_CONFIG` (default `/etc/beguided/legal.yaml`); if the file
+is missing the legal pages render with empty values + a startup warning.
+See `compliance_safety.md` for the full pre-launch checklist.
 
 ### Running Tests
 
@@ -291,6 +312,9 @@ Both back the `run_pipeline(..., genome=..., interval_trees=...)` kwargs in `beg
   - `BEGUIDED_BEGUIDEDOFF_GENOME`
 - `BEGUIDED_PRELOAD_GENOME` / `--preload-genome` / `--no-preload-genome` — preload the genome FASTA at startup (default: enabled).
 - `BEGUIDED_PRELOAD_GTF` / `--preload-gtf` / `--no-preload-gtf` — preload the GTF annotation at startup (default: enabled).
+- `BEGUIDED_QUEUE_MAX`, `BEGUIDED_COOLDOWN_SECONDS`, `BEGUIDED_MAX_UPLOAD_MB` — scheduler caps (env-only; CLI overrides also exist).
+- `BEGUIDED_ALLOWED_HOSTS` / `BEGUIDED_TRUSTED_PROXY_IPS` / `BEGUIDED_JOB_RETENTION_HOURS` / `BEGUIDED_LOG_IP_SALT` / `BEGUIDED_ADMIN_TOKEN` — compliance knobs (see `compliance_safety.md`).
+- `BEGUIDED_LEGAL_CONFIG` / `--legal-config` — path to the gitignored `legal.yaml` with institution / DPO / DPA. Default `/etc/beguided/legal.yaml`. See `legal.yaml.example`.
 
 ### Sequence input mode
 

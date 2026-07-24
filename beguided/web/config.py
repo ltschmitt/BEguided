@@ -17,6 +17,22 @@ def _env_bool(name: str, default: bool) -> bool:
         return default
     return raw.strip().lower() not in ("0", "false", "no", "off", "")
 
+
+def _csv_env(name: str) -> List[str]:
+    """Read a comma-separated env var into a list of stripped non-empty strings.
+
+    Returns ``[]`` if the env var is unset or empty. Used for the new
+    ``BEGUIDED_ALLOWED_HOSTS`` / ``BEGUIDED_TRUSTED_PROXY_IPS`` knobs so the
+    operator can override the defaults from the shell environment (or via
+    ``docker-compose.override.yml``) without touching the code.
+    """
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return []
+    return [s.strip() for s in raw.split(",") if s.strip()]
+
+
+
 _DEFAULT_PRESETS = str(Path(__file__).resolve().parents[2] / "base_editor_profiles.tsv")
 _DEFAULT_GENOME = str(
     Path(__file__).resolve().parents[2]
@@ -73,9 +89,34 @@ class WebConfig:
     db_path: str = field(
         default_factory=lambda: os.getenv("BEGUIDED_DB_PATH", "/var/lib/beguided/jobs.db")
     )
-    queue_max: int = 8
-    cooldown_seconds: float = 60.0
-    max_upload_mb: int = 10
+    queue_max: int = field(
+        default_factory=lambda: int(os.getenv("BEGUIDED_QUEUE_MAX", "8"))
+    )
+    cooldown_seconds: float = field(
+        default_factory=lambda: float(os.getenv("BEGUIDED_COOLDOWN_SECONDS", "60"))
+    )
+    max_upload_mb: int = field(
+        default_factory=lambda: int(os.getenv("BEGUIDED_MAX_UPLOAD_MB", "10"))
+    )
+
+    # Compliance / hardening knobs (see compliance_safety.md)
+    job_retention_hours: int = 24
+    allowed_hosts: List[str] = field(
+        default_factory=lambda: _csv_env("BEGUIDED_ALLOWED_HOSTS")
+        or ["www.buchholz.org", "buchholz.org", "localhost", "127.0.0.1", "testserver"]
+    )
+    trusted_proxy_ips: List[str] = field(
+        default_factory=lambda: _csv_env("BEGUIDED_TRUSTED_PROXY_IPS") or ["127.0.0.1", "::1"]
+    )
+    log_ip_salt: str = field(
+        default_factory=lambda: os.getenv("BEGUIDED_LOG_IP_SALT", "").strip()
+    )
+    admin_token: str = field(
+        default_factory=lambda: os.getenv("BEGUIDED_ADMIN_TOKEN", "").strip()
+    )
+    legal_config_path: str = field(
+        default_factory=lambda: os.getenv("BEGUIDED_LEGAL_CONFIG", "").strip()
+    )
 
     @property
     def has_beguidedoff(self) -> bool:

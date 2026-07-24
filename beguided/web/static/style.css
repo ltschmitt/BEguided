@@ -979,3 +979,120 @@ pre.log {
     cursor: pointer;
     accent-color: var(--primary);
 }
+
+/* ---------------------------------------------------------------------------
+   Accessibility (BFSG / EAA readiness)
+   --------------------------------------------------------------------------- */
+
+/* Skip-link: visible only when focused via keyboard. Slides into view at
+   the very top of the viewport; positioned absolutely so it does not
+   affect layout of the rest of the page. */
+.skip-link {
+    position: absolute;
+    top: -40px;
+    left: 8px;
+    background: var(--primary);
+    color: #ffffff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 600;
+    z-index: 1100;
+    transition: top 120ms ease-out;
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+    top: 8px;
+    outline: 3px solid #fbbf24;
+    outline-offset: 2px;
+}
+
+/* Keyboard focus ring on every interactive element. Using
+   :focus-visible keeps the ring off for mouse clicks but draws it for
+   keyboard tabbing, which is what screen-reader and keyboard-only users
+   need. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 3px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* Site footer (Imprint / Privacy / AGB links). */
+.site-footer {
+    margin-top: 32px;
+    padding: 20px 0 12px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+}
+.site-footer nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+.site-footer nav a {
+    color: var(--primary);
+    text-decoration: none;
+}
+.site-footer nav a:hover,
+.site-footer nav a:focus-visible {
+    text-decoration: underline;
+}
+.site-footer-meta {
+    margin: 4px 0 0;
+    font-style: italic;
+}
+
+/* ---------------------------------------------------------------------------
+   Legal pages (Impressum, Datenschutz, AGB)
+   --------------------------------------------------------------------------- */
+
+.legal-section {
+    margin-top: 24px;
+}
+.legal-section h2 {
+    font-size: 1.1rem;
+    margin-bottom: 8px;
+    color: var(--text);
+}
+.legal-updated {
+    color: var(--muted);
+    font-style: italic;
+    margin-top: -4px;
+}
+.legal-address {
+    font-style: normal;
+    line-height: 1.6;
+}
+.legal-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 16px;
+    font-size: 14px;
+}
+.legal-table th,
+.legal-table td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+}
+.legal-table th {
+    background: var(--bg);
+    font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+   Honour OS reduced-motion preference
+   --------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+

@@ -46,7 +46,9 @@
         </div>
     </div>
     <div class="input-meta-row input-actions-row">
-        <input type="file" id="fileInput" accept=".tsv,.csv,.xlsx,.xls" />
+        <label class="btn btn-secondary" for="fileInput">Choose file</label>
+        <input type="file" id="fileInput" accept=".tsv,.csv,.xlsx,.xls"
+            aria-label="Choose target file (TSV, CSV, or Excel)" />
         <a href="/download/template" class="btn btn-secondary" download>Template</a>
         <button id="loadSpreadsheetExampleBtn" class="btn btn-secondary" type="button">Load example</button>
         <button id="runBtn" class="btn btn-primary right" disabled>Run</button>
@@ -285,6 +287,8 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="/static/vendor/chart.umd.min.js"
+    integrity="sha384-NrKB+u6Ts6AtkIhwPixiKTzgSKNblyhlk0Sohlgar9UHUBzai/sgnNNWWd291xqt"
+    crossorigin="anonymous"></script>
 <script src="/static/app.js"></script>
 {% endblock %}

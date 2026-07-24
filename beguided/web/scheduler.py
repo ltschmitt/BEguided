@@ -21,6 +21,7 @@ API:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -41,6 +42,31 @@ logger = logging.getLogger("beguided.web.scheduler")
 
 
 DEFAULT_DB_PATH = "/var/lib/beguided/jobs.db"
+
+# How often the retention sweeper wakes up and deletes finished jobs whose
+# ``finished_at`` is older than the configured retention window. The value is
+# deliberately shorter than the default 24-hour retention so the worst-case
+# over-retention is bounded by this interval.
+SWEEPER_INTERVAL_SECONDS = 15 * 60
+
+
+def _anonymise_ip(ip: str, salt: str) -> str:
+    """Return a short salted SHA-256 fingerprint of ``ip`` for log use.
+
+    Plaintext IP addresses in long-lived log files are personal data under
+    GDPR. With a salted hash the IP is not reversible from the log alone
+    and the salt can be rotated independently of the log retention window.
+
+    If ``salt`` is empty (e.g. unset in tests) the prefix ``ip:`` is
+    returned so the field is still traceable in local development without
+    writing the raw address to disk.
+    """
+    if not ip:
+        return "ip:none"
+    if not salt:
+        return f"ip:raw:{ip[:8]}"
+    digest = hashlib.sha256(f"{salt}:{ip}".encode("utf-8")).hexdigest()
+    return f"ip:{digest[:16]}"
 
 
 class SchedulerError(Exception):
@@ -77,21 +103,29 @@ class Scheduler:
         db_path: str = DEFAULT_DB_PATH,
         queue_max: int = 8,
         cooldown_seconds: float = 60.0,
+        job_retention_seconds: float = 24 * 3600,
+        log_ip_salt: str = "",
+        sweeper_interval_seconds: float = SWEEPER_INTERVAL_SECONDS,
     ):
         self.db_path = db_path
         self.queue_max = queue_max
         self.cooldown_seconds = cooldown_seconds
+        self.job_retention_seconds = max(0.0, float(job_retention_seconds))
+        self.log_ip_salt = log_ip_salt or ""
+        self.sweeper_interval_seconds = max(1.0, float(sweeper_interval_seconds))
 
         self._q: "queue.Queue[Job]" = queue.Queue(maxsize=queue_max)
         self._last_submit: dict[str, float] = {}
         self._db_lock = threading.Lock()
         self._running: dict[str, Job] = {}
         self._worker: Optional[threading.Thread] = None
+        self._sweeper: Optional[threading.Thread] = None
+        self._sweeper_stop = threading.Event()
 
     # ----- lifecycle -------------------------------------------------------
 
     def start(self) -> None:
-        """Idempotent: start the worker thread and ensure the DB schema."""
+        """Idempotent: start the worker + sweeper threads and init the DB schema."""
         self._init_db()
         if self._worker is None or not self._worker.is_alive():
             self._worker = threading.Thread(
@@ -99,19 +133,40 @@ class Scheduler:
             )
             self._worker.start()
             logger.info(
-                "Scheduler started (queue_max=%d, cooldown=%ds, db=%s)",
+                "Scheduler started (queue_max=%d, cooldown=%ds, retention=%ds, db=%s)",
                 self.queue_max,
                 int(self.cooldown_seconds),
+                int(self.job_retention_seconds),
                 self.db_path,
             )
+        if self.job_retention_seconds > 0 and (
+            self._sweeper is None or not self._sweeper.is_alive()
+        ):
+            self._sweeper_stop.clear()
+            self._sweeper = threading.Thread(
+                target=self._sweeper_loop,
+                name="beguided-sweeper",
+                daemon=True,
+            )
+            self._sweeper.start()
+            logger.info(
+                "Retention sweeper started (interval=%ds, retention=%ds)",
+                int(self.sweeper_interval_seconds),
+                int(self.job_retention_seconds),
+            )
+
+    def stop(self) -> None:
+        """Signal the sweeper to exit. Worker thread is a daemon and dies with the process."""
+        self._sweeper_stop.set()
 
     # ----- public API ------------------------------------------------------
 
     def submit(self, client_ip: str, payload: dict) -> Job:
         """Enqueue a new job. Raises ``Cooldown`` or ``QueueFull``."""
         ip = client_ip or "unknown"
-        now = time.monotonic()
+        self._prune_last_submit(now=time.monotonic())
         last = self._last_submit.get(ip, 0.0)
+        now = time.monotonic()
         remaining = self.cooldown_seconds - (now - last)
         if remaining > 0:
             raise Cooldown(retry_after=remaining)
@@ -145,7 +200,11 @@ class Scheduler:
                 )
             raise QueueFull(f"queue is full ({self.queue_max} pending jobs)")
         self._last_submit[ip] = now
-        logger.info("Job queued: %s (ip=%s)", job.job_id, ip)
+        logger.info(
+            "Job queued: %s (%s)",
+            job.job_id,
+            _anonymise_ip(ip, self.log_ip_salt),
+        )
         return job
 
     def cancel(self, job_id: str, token: str) -> bool:
@@ -234,9 +293,82 @@ class Scheduler:
                     finished_at   REAL
                 );
                 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+                CREATE INDEX IF NOT EXISTS idx_jobs_finished_at ON jobs(finished_at);
                 """
             )
 
+    # ----- retention sweeper ----------------------------------------------
+
+    def purge_old(self, older_than_seconds: Optional[float] = None) -> int:
+        """Delete every finished job whose ``finished_at`` is older than the cutoff.
+
+        Uses the scheduler's ``job_retention_seconds`` unless an explicit
+        ``older_than_seconds`` is provided. Returns the number of deleted
+        rows. Running or queued jobs are never deleted.
+        """
+        if older_than_seconds is None:
+            older_than_seconds = self.job_retention_seconds
+        if older_than_seconds <= 0:
+            return 0
+        cutoff = time.time() - older_than_seconds
+        with self._db_lock:
+            cur = self._conn().execute(
+                "DELETE FROM jobs "
+                "WHERE finished_at IS NOT NULL AND finished_at < ?",
+                (cutoff,),
+            )
+        deleted = cur.rowcount
+        if deleted:
+            logger.info(
+                "Retention sweep: deleted %d job(s) older than %.0fs.",
+                deleted,
+                older_than_seconds,
+            )
+        return deleted
+
+    def purge_all_finished(self) -> int:
+        """Delete every job whose status is not queued or running.
+
+        Used by the admin ``/admin/purge-all`` endpoint to honour manual
+        GDPR Art. 17 erasure requests and to wipe the table after a
+        security incident. Returns the number of deleted rows.
+        """
+        with self._db_lock:
+            cur = self._conn().execute(
+                "DELETE FROM jobs "
+                "WHERE status NOT IN ('queued', 'running')"
+            )
+        deleted = cur.rowcount
+        return deleted
+
+    def _prune_last_submit(self, now: float) -> None:
+        """Drop expired entries from ``_last_submit``.
+
+        The dict records the last submit time per client IP for cooldown
+        enforcement. Without pruning it grows unbounded over the lifetime of
+        the process. Entries are dropped once they are 4x the cooldown
+        window old — far enough past the actual cooldown that no client
+        could still be affected.
+        """
+        if not self._last_submit:
+            return
+        cutoff = now - max(4.0 * self.cooldown_seconds, 60.0)
+        stale = [ip for ip, t in self._last_submit.items() if t < cutoff]
+        for ip in stale:
+            self._last_submit.pop(ip, None)
+
+    def _sweeper_loop(self) -> None:
+        """Wake every ``sweeper_interval_seconds`` and delete old jobs."""
+        while not self._sweeper_stop.is_set():
+            # Sleep first so the initial DB row inserts from a fresh start
+            # are not deleted before they are queued. ``wait`` returns True
+            # when the event is set, which we treat as "exit early".
+            if self._sweeper_stop.wait(self.sweeper_interval_seconds):
+                return
+            try:
+                self.purge_old()
+            except Exception:
+                logger.exception("Retention sweep failed; will retry next interval.")
     def _worker_loop(self) -> None:
         # Local imports: keep heavy optional deps (BEguidedOFF) out of the
         # import graph until a job actually starts.

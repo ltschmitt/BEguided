@@ -6,6 +6,7 @@ import asyncio
 import base64
 import io
 import logging
+import secrets
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -14,6 +15,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from beguided.filtering.filters import filter_guides, VALID_GC_FILTERS
 from beguided.logging_config import setup_logging
@@ -50,8 +52,12 @@ from beguided.web.scheduler import (
 )
 from beguided.web.safety import (
     MaxBodySizeMiddleware,
+    ProxyHeadersMiddleware,
+    SecurityHeadersMiddleware,
+    validate_chromosomes,
     validate_operator_paths,
 )
+from beguided.web.legal_config import LegalConfig, load_legal_config
 from beguided.web.sse_logger import attach_sse_handler_to_beguided_logs, get_sse_handler
 
 logger = logging.getLogger("beguided.web.app")
@@ -61,6 +67,84 @@ VALID_FILTER_MODES = ("all", "no_bystanders", "silent")
 VALID_INPUT_MODES = ("spreadsheet", "sequence")
 CUSTOM_EDITOR_KEY = "custom"
 CUSTOM_EDITOR_LABEL = "Custom (uploaded)"
+
+# Module-level singleton for the legal-page content. Loaded once at
+# ``create_app`` startup from the YAML file referenced by
+# ``WebConfig.legal_config_path`` (env ``BEGUIDED_LEGAL_CONFIG``). The
+# route handlers read this rather than re-parsing the file per request.
+_legal_config: LegalConfig = LegalConfig()
+
+
+def install_legal_config(cfg: LegalConfig) -> LegalConfig:
+    """Override the module-level legal-config singleton."""
+    global _legal_config
+    _legal_config = cfg
+    return _legal_config
+
+
+def current_legal_config() -> LegalConfig:
+    """Return the legal config installed at app startup."""
+    return _legal_config
+
+# Magic bytes used by ``_sniff_upload_kind`` to reject uploads whose
+# extension lies about their contents. The XLSX / XLS formats are ZIP /
+# OLE compound documents; TSV / CSV / XLSX / XLS are the only extensions
+# accepted by ``/upload``. ASCII-printable bytes with at least one tab or
+# newline are accepted as TSV/CSV.
+_XLSX_MAGIC = b"PK\x03\x04"
+_XLS_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
+def _sniff_upload_kind(content: bytes, suffix: str) -> str:
+    """Return the inferred upload kind ("tsv", "csv", "xlsx", "xls", "binary").
+
+    Anything that contains a NUL byte in the first 1 KiB is treated as
+    binary and rejected unless the extension is an Office format whose
+    magic matches. Empty files are rejected.
+    """
+    head = content[:1024]
+    if not head:
+        return "binary"
+    sfx = suffix.lower()
+    if sfx in (".xlsx", ".xls"):
+        if sfx == ".xlsx" and head.startswith(_XLSX_MAGIC):
+            return "xlsx"
+        if sfx == ".xls" and head.startswith(_XLS_MAGIC):
+            return "xls"
+        return "binary"
+    # CSV / TSV: must be plain ASCII / UTF-8 with no NUL bytes and must
+    # contain at least one tab (TSV) or comma (CSV).
+    try:
+        head_text = head.decode("utf-8")
+    except UnicodeDecodeError:
+        return "binary"
+    if "\x00" in head_text:
+        return "binary"
+    if sfx == ".csv":
+        return "csv" if "," in head_text else "tsv"
+    if "\t" in head_text:
+        return "tsv"
+    if "," in head_text:
+        return "csv"
+    return "tsv"
+
+
+def _genome_chromosome_keys() -> list[str]:
+    """Return the chromosome keys of the preloaded genome, or [] if not ready.
+
+    Blocks briefly on the genome preload completion so the check runs
+    after the FASTA has been parsed. Returns an empty list if the genome
+    failed to preload, no genome is configured, or the preload is still
+    running after the short wait; in any of those cases the chromosome
+    check is skipped downstream so the UI flow is not blocked.
+    """
+    try:
+        genome = genome_cache.wait_until_ready(timeout=5.0)
+    except (RuntimeError, TimeoutError):
+        return []
+    if not genome:
+        return []
+    return list(genome.keys())
 
 
 def _render_template(name, **kwargs) -> str:
@@ -278,8 +362,31 @@ def create_app() -> FastAPI:
     cfg = get_config()
     app = FastAPI(title="BEguided Web")
 
+    # Load legal-page content once at startup. Missing or empty values
+    # are tolerated (the pages render with blanks + a startup warning);
+    # malformed YAML fails fast. The result is attached to ``app.state``
+    # so route handlers can read it without re-reading the file.
+    legal_cfg = load_legal_config(
+        Path(cfg.legal_config_path) if cfg.legal_config_path else None
+    )
+    app.state.legal_config = legal_cfg
+    install_legal_config(legal_cfg)
+
     # Cap request body size to keep memory bounded.
     app.add_middleware(MaxBodySizeMiddleware, max_bytes=cfg.max_upload_mb * 1024 * 1024)
+    # Add the fixed security response headers (CSP, X-Content-Type-Options,
+    # Referrer-Policy, Permissions-Policy, Cross-Origin-Opener-Policy;
+    # HSTS only on HTTPS). Stripped uvicorn ``Server`` header.
+    app.add_middleware(SecurityHeadersMiddleware)
+    # Resolve the real client IP from the trusted reverse proxy so the
+    # per-IP cooldown + access logs work once Caddy is in front.
+    app.add_middleware(
+        ProxyHeadersMiddleware,
+        trusted_hosts=cfg.trusted_proxy_ips or None,
+    )
+    # Reject requests whose Host header is not on the allow-list to
+    # defuse cache poisoning / DNS-rebinding attacks.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=cfg.allowed_hosts)
 
     # Static files
     base_dir = Path(__file__).resolve().parent
@@ -324,14 +431,18 @@ def create_app() -> FastAPI:
             db_path=cfg.db_path,
             queue_max=cfg.queue_max,
             cooldown_seconds=cfg.cooldown_seconds,
+            job_retention_seconds=cfg.job_retention_hours * 3600,
+            log_ip_salt=cfg.log_ip_salt,
         )
         install_scheduler(scheduler)
         scheduler.start()
         logger.info(
-            "BEguided web server started. queue_max=%d cooldown=%ds db=%s",
+            "BEguided web server started. queue_max=%d cooldown=%ds db=%s retention=%dh hosts=%s",
             cfg.queue_max,
             int(cfg.cooldown_seconds),
             cfg.db_path,
+            int(cfg.job_retention_hours),
+            ",".join(cfg.allowed_hosts),
         )
 
     @app.get("/", response_class=HTMLResponse)
@@ -347,6 +458,60 @@ def create_app() -> FastAPI:
             preload_gtf=cfg.preload_gtf,
         )
         return HTMLResponse(content=html)
+
+    def _render_legal(template_name: str) -> HTMLResponse:
+        cfg = get_config()
+        html = _render_template(
+            template_name,
+            legal=current_legal_config(),
+            retention_hours=int(cfg.job_retention_hours),
+        )
+        return HTMLResponse(content=html)
+
+    @app.get("/impressum", response_class=HTMLResponse)
+    def impressum() -> HTMLResponse:
+        """Impressum (TMG/DDG §5). Mandatory for any German-public web presence."""
+        return _render_legal("impressum.html")
+
+    @app.get("/datenschutz", response_class=HTMLResponse)
+    def datenschutz() -> HTMLResponse:
+        """Datenschutzerklärung (GDPR Art. 13)."""
+        return _render_legal("datenschutz.html")
+
+    @app.get("/agb", response_class=HTMLResponse)
+    def agb() -> HTMLResponse:
+        """Research-only terms of use."""
+        return _render_legal("agb.html")
+
+    @app.post("/admin/purge-all")
+    async def admin_purge_all(request: Request) -> JSONResponse:
+        """Manually purge every job from the DB.
+
+        Required to honour GDPR Art. 17 (right to erasure) requests that
+        arrive after the retention sweeper has already pruned the user's
+        data, or to wipe the table after a security incident. Gated by a
+        static ``BEGUIDED_ADMIN_TOKEN``; the endpoint refuses every
+        request when the token is not configured.
+        """
+        cfg = get_config()
+        if not cfg.admin_token:
+            return JSONResponse(
+                {"ok": False, "error": "Admin endpoint not configured."},
+                status_code=403,
+            )
+        provided = request.headers.get("x-admin-token", "")
+        # Constant-time comparison so a timing oracle cannot leak the token.
+        if not provided or not secrets.compare_digest(provided, cfg.admin_token):
+            return JSONResponse(
+                {"ok": False, "error": "Invalid admin token."},
+                status_code=403,
+            )
+        scheduler = current_scheduler()
+        deleted = scheduler.purge_all_finished()
+        logger.warning(
+            "Admin purge-all invoked: deleted %d job(s).", deleted
+        )
+        return JSONResponse({"ok": True, "deleted": deleted})
 
     @app.get("/config")
     def server_config() -> dict:
@@ -510,8 +675,26 @@ def create_app() -> FastAPI:
         content = await file.read()
         suffix = Path(file.filename or "").suffix.lower()
 
+        if not content:
+            return {"ok": False, "error": "Uploaded file is empty."}
+
+        # Reject uploads whose extension lies about their contents. A
+        # ``.tsv`` with a ZIP/OLE magic byte would otherwise be parsed as
+        # TSV, surface garbled columns, and reach the chromosome validator
+        # below with junk values.
+        kind = _sniff_upload_kind(content, suffix)
+        if kind == "binary":
+            return {
+                "ok": False,
+                "error": (
+                    f"Uploaded file contents do not match the "
+                    f"{suffix or '<no extension>'} extension. "
+                    "Allowed: .tsv, .csv, .xlsx, .xls."
+                ),
+            }
+
         try:
-            if suffix == ".csv":
+            if suffix == ".csv" or (kind == "csv" and suffix not in (".xlsx", ".xls")):
                 df = pd.read_csv(io.BytesIO(content))
             elif suffix in (".xlsx", ".xls"):
                 df = pd.read_excel(io.BytesIO(content))
@@ -541,6 +724,25 @@ def create_app() -> FastAPI:
             }
 
         df.columns = df.columns.str.strip()
+        # Validate every chromosome against the loaded genome if available
+        # (best-effort: if the genome is still preloading or absent the
+        # check is skipped so the UI flow is not blocked).
+        if genome_cache.is_ready():
+            invalid = validate_chromosomes(
+                df["chromosome"].astype(str).tolist(),
+                _genome_chromosome_keys(),
+            )
+            if invalid:
+                sample = ", ".join(sorted(set(invalid))[:5])
+                more = "" if len(set(invalid)) <= 5 else f" (+{len(set(invalid)) - 5} more)"
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Unknown chromosome(s) for the loaded genome: "
+                        f"{sample}{more}. Check spelling (e.g. 'chr1' vs '1')."
+                    ),
+                }
+
         preview = df.head(100).to_dict(orient="records")
         # Normalize to a 4-column TSV before encoding. /check and /run both
         # call _decode_targets(), which parses raw_b64 as TSV (sep="\t"), so
@@ -711,6 +913,28 @@ def create_app() -> FastAPI:
                     },
                     status_code=400,
                 )
+        else:
+            # Spreadsheet mode: validate chromosome names against the
+            # loaded genome before queueing the job so the user gets an
+            # immediate 400 instead of a per-target pipeline error.
+            chrom_keys = _genome_chromosome_keys()
+            if chrom_keys:
+                invalid = validate_chromosomes(
+                    df["chromosome"].astype(str).tolist(), chrom_keys
+                )
+                if invalid:
+                    sample = ", ".join(sorted(set(invalid))[:5])
+                    more = "" if len(set(invalid)) <= 5 else f" (+{len(set(invalid)) - 5} more)"
+                    return JSONResponse(
+                        {
+                            "ok": False,
+                            "error": (
+                                f"Unknown chromosome(s) for the loaded genome: "
+                                f"{sample}{more}. Check spelling (e.g. 'chr1' vs '1')."
+                            ),
+                        },
+                        status_code=400,
+                    )
 
         scheduler = current_scheduler()
         client_ip = request.client.host if request.client else "unknown"

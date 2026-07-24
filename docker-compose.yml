@@ -9,21 +9,23 @@
 #   docker compose logs -f web
 #   docker compose down
 #
-# Configuration via `.env` (or shell env):
-#   GENOME_HOST_DIR  Host directory with the reference FASTA + GTF
-#                    (default: ./genome). Set this to your real reference
-#                    directory if `./genome` is a symlink farm — bind mounts
-#                    do not follow symlinks to paths outside the mount source.
-#   PORT             Host port to publish (default: 8000).
-#   BEGUIDED_GENOME_LABEL  Display label shown in the UI (default: GRCh38.112).
+# Configuration:
+#   Every deployment knob is interpolated from a shell env var with a
+#   sensible default, so `docker compose up` works with no environment
+#   file at all. Per-host overrides go in `docker-compose.override.yml`
+#   or are exported in the shell before `docker compose up`.
+#
+#   GENOME_HOST_DIR            Host directory with the reference FASTA + GTF.
+#                              Default: ./genome.
+#   PORT                       Host port to publish. Default: 8000.
+#   BEGUIDED_GENOME_LABEL      Display label in the UI. Default: GRCh38.116.
+#   BEGUIDED_LEGAL_CONFIG      Path to legal.yaml inside the container.
+#                              Default: /etc/beguided/legal.yaml (mounted
+#                              from ./legal.yaml if present).
 #
 # Off-target search is intentionally disabled (BEGUIDED_BEGUIDEDOFF_GENOME=""
 # and the CPU web image does not install BEguidedOFF). The UI's off-target
 # checkbox will surface a clear error if enabled.
-#
-# Scheduler knobs (queue_max, cooldown, upload cap) are NOT read from env by
-# beguided.web.config.WebConfig — they are passed as CLI args in `command:`
-# below. To change them, edit the `command:` block.
 
 services:
   web:
@@ -36,29 +38,38 @@ services:
       - "${PORT:-8000}:8000"
     volumes:
       - "${GENOME_HOST_DIR:-./genome}:/app/genome:ro"
+      # legal.yaml is gitignored. If absent, the server starts with a
+      # WARNING and serves empty legal pages. See legal.yaml.example.
+      - ./legal.yaml:/etc/beguided/legal.yaml:ro
       - beguided-jobs:/var/lib/beguided
     environment:
       PYTHONUNBUFFERED: "1"
-      BEGUIDED_BASE_EDITOR_PROFILES_FILE: /app/base_editor_profiles.tsv
-      BEGUIDED_GENOME_FASTA: /app/genome/Homo_sapiens.GRCh38.116.fa
-      BEGUIDED_GTF_PATH: /app/genome/Homo_sapiens.GRCh38.116.gtf
-      BEGUIDED_BEGUIDEDOFF_GENOME: ""
-      BEGUIDED_DB_PATH: /var/lib/beguided/jobs.db
-      BEGUIDED_PRELOAD_GENOME: "true"
-      BEGUIDED_PRELOAD_GTF: "true"
+      BEGUIDED_BASE_EDITOR_PROFILES_FILE: "${BEGUIDED_BASE_EDITOR_PROFILES_FILE:-/app/base_editor_profiles.tsv}"
+      BEGUIDED_GENOME_FASTA: "${BEGUIDED_GENOME_FASTA:-/app/genome/Homo_sapiens.GRCh38.116.fa}"
+      BEGUIDED_GTF_PATH: "${BEGUIDED_GTF_PATH:-/app/genome/Homo_sapiens.GRCh38.116.gtf}"
+      BEGUIDED_BEGUIDEDOFF_GENOME: "${BEGUIDED_BEGUIDEDOFF_GENOME:-}"
+      BEGUIDED_DB_PATH: "${BEGUIDED_DB_PATH:-/var/lib/beguided/jobs.db}"
+      BEGUIDED_PRELOAD_GENOME: "${BEGUIDED_PRELOAD_GENOME:-true}"
+      BEGUIDED_PRELOAD_GTF: "${BEGUIDED_PRELOAD_GTF:-true}"
       BEGUIDED_GENOME_LABEL: "${BEGUIDED_GENOME_LABEL:-GRCh38.116}"
+      BEGUIDED_LEGAL_CONFIG: "${BEGUIDED_LEGAL_CONFIG:-/etc/beguided/legal.yaml}"
+      # Scheduler knobs (previously hardcoded in the command: block).
+      BEGUIDED_QUEUE_MAX: "${BEGUIDED_QUEUE_MAX:-8}"
+      BEGUIDED_COOLDOWN_SECONDS: "${BEGUIDED_COOLDOWN_SECONDS:-15}"
+      BEGUIDED_MAX_UPLOAD_MB: "${BEGUIDED_MAX_UPLOAD_MB:-2}"
+      # Compliance knobs. The two secrets MUST be set per host (the
+      # defaults here are placeholders that should be overridden).
+      BEGUIDED_ALLOWED_HOSTS: "${BEGUIDED_ALLOWED_HOSTS:-www.buchholz.org,buchholz.org}"
+      BEGUIDED_TRUSTED_PROXY_IPS: "${BEGUIDED_TRUSTED_PROXY_IPS:-127.0.0.1,::1}"
+      BEGUIDED_JOB_RETENTION_HOURS: "${BEGUIDED_JOB_RETENTION_HOURS:-24}"
+      BEGUIDED_ADMIN_TOKEN: "${BEGUIDED_ADMIN_TOKEN:-}"
+      BEGUIDED_LOG_IP_SALT: "${BEGUIDED_LOG_IP_SALT:-}"
     command:
       - beguided-web
       - --host
-      - 0.0.0.0
+      - "0.0.0.0"
       - --port
       - "8000"
-      - --queue-max
-      - "8"
-      - --cooldown-seconds
-      - "15"
-      - --max-upload-mb
-      - "2"
     restart: unless-stopped
 
 volumes:

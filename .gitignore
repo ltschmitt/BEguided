@@ -1,4 +1,7 @@
 # pixi environments
+nogit
+nogit/*
+.nogit/*
 .pixi/*
 !.pixi/config.toml
 opencode.json
@@ -12,7 +15,8 @@ __pycache__/
 .pytest_cache/
 results*
 config.yaml
-.env
+legal.yaml
+*.local.yaml
 pixi.lock
 beguided.egg-info/*
 scripts/*

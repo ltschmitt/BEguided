@@ -57,6 +57,118 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+# Default Content-Security-Policy for the BEguided web app.
+#
+# ``default-src 'self'`` covers everything not explicitly listed. The page
+# uses inline ``style="..."`` attributes and template-level inline styles
+# (e.g. ``style="color:var(--muted)"``), so ``style-src 'unsafe-inline'`` is
+# required. The JS bundle is loaded from ``/static/...`` so a same-origin
+# ``script-src`` is enough. No third-party origins are contacted on page
+# load. ``frame-ancestors 'none'`` disables clickjacking via iframes.
+DEFAULT_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "font-src 'self'; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Apply a fixed set of security response headers to every response.
+
+    HSTS is only emitted on HTTPS responses (gated on ``X-Forwarded-Proto``
+    from the trusted reverse proxy, falling back to the request scheme). The
+    uvicorn ``Server`` header is removed so the framework version is not
+    disclosed.
+    """
+
+    def __init__(self, app, csp: str = DEFAULT_CSP):
+        super().__init__(app)
+        self.csp = csp
+
+    @staticmethod
+    def _is_https(request: Request) -> bool:
+        forwarded_proto = request.headers.get("x-forwarded-proto", "").lower().strip()
+        if forwarded_proto == "https":
+            return True
+        return request.url.scheme == "https"
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers.setdefault("Content-Security-Policy", self.csp)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+        )
+        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        if self._is_https(request):
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
+        # uvicorn adds ``server: uvicorn`` by default; replace it with a
+        # neutral value so the framework version is not disclosed.
+        response.headers["Server"] = "beguided"
+        return response
+
+
+class ProxyHeadersMiddleware:
+    """ASGI middleware that resolves the real client IP from ``X-Forwarded-For``.
+
+    Implemented locally because Starlette 1.x removed
+    ``starlette.middleware.proxy_headers``. Only updates
+    ``scope["client"]`` when the immediate upstream peer is on the
+    trusted-hosts allow-list (so an attacker on the public internet
+    cannot forge the header). The first IP in the comma-separated
+    ``X-Forwarded-For`` chain is taken as the real client.
+    """
+
+    def __init__(self, app, trusted_hosts=None):
+        self.app = app
+        # ``trusted_hosts`` may be None (trust nothing), an iterable of
+        # IP literals / CIDRs (compared as exact strings for simplicity),
+        # or "*" (trust every upstream — only useful in tests).
+        if trusted_hosts is None:
+            self._trusted = set()
+        elif isinstance(trusted_hosts, str):
+            self._trusted = {trusted_hosts}
+        else:
+            self._trusted = {str(h).strip() for h in trusted_hosts if str(h).strip()}
+        self._trust_all = self._trusted == {"*"}
+
+    def _is_trusted(self, peer_host: Optional[str]) -> bool:
+        if self._trust_all:
+            return True
+        return peer_host in self._trusted if peer_host else False
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        client = scope.get("client")
+        if client is not None and self._is_trusted(client[0]):
+            headers = {
+                k.decode("latin-1").lower(): v.decode("latin-1")
+                for k, v in scope.get("headers", [])
+            }
+            forwarded = headers.get("x-forwarded-for")
+            if forwarded:
+                first = forwarded.split(",")[0].strip()
+                if first:
+                    port = client[1] if len(client) > 1 else 0
+                    scope["client"] = (first, port)
+
+        await self.app(scope, receive, send)
+
+
 def validate_path(path: Optional[str], label: str, *, must_be_file: bool = True) -> Path:
     """Resolve ``path`` and verify it exists and (optionally) is a file.
 

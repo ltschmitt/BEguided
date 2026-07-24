@@ -108,6 +108,64 @@ def main():
         default=None,
         help="Disable GTF preload. The GTF is then parsed per-job instead.",
     )
+    parser.add_argument(
+        "--job-retention-hours",
+        type=float,
+        default=None,
+        help=(
+            "Retention window for finished jobs in jobs.db (default: 24). "
+            "Sweeper deletes any finished row older than this. "
+            "Set to 0 to disable. Env: BEGUIDED_JOB_RETENTION_HOURS."
+        ),
+    )
+    parser.add_argument(
+        "--allowed-hosts",
+        default=None,
+        help=(
+            "Comma-separated list of allowed Host-header values "
+            "(default: 'www.buchholz.org,buchholz.org,localhost'). "
+            "Env: BEGUIDED_ALLOWED_HOSTS."
+        ),
+    )
+    parser.add_argument(
+        "--trusted-proxy-ips",
+        default=None,
+        help=(
+            "Comma-separated list of upstream proxy IPs trusted to set "
+            "X-Forwarded-For / X-Forwarded-Proto (default: '127.0.0.1,::1'). "
+            "Env: BEGUIDED_TRUSTED_PROXY_IPS."
+        ),
+    )
+    parser.add_argument(
+        "--log-ip-salt",
+        default=None,
+        help=(
+            "Salt used to hash client IPs in log lines (GDPR hygiene). "
+            "Empty = no hashing (development only). "
+            "Env: BEGUIDED_LOG_IP_SALT."
+        ),
+    )
+    parser.add_argument(
+        "--admin-token",
+        default=None,
+        help=(
+            "Static token required by POST /admin/purge-all. "
+            "Empty = endpoint refuses every request. "
+            "Env: BEGUIDED_ADMIN_TOKEN."
+        ),
+    )
+    parser.add_argument(
+        "--legal-config",
+        default=None,
+        help=(
+            "Path to the YAML file with legal-page content (institution "
+            "name, address, DPO, competent DPA, etc.). Default: "
+            "/etc/beguided/legal.yaml. Empty = serve empty legal pages "
+            "with a startup warning. The file is gitignored; only the "
+            "schema reference at legal.yaml.example is committed. "
+            "Env: BEGUIDED_LEGAL_CONFIG."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -134,6 +192,22 @@ def main():
         kwargs["genome_label"] = args.genome_label
     if args.preload_gtf is not None:
         kwargs["preload_gtf"] = args.preload_gtf
+    if args.job_retention_hours is not None:
+        kwargs["job_retention_hours"] = float(args.job_retention_hours)
+    if args.allowed_hosts is not None:
+        kwargs["allowed_hosts"] = [
+            s.strip() for s in args.allowed_hosts.split(",") if s.strip()
+        ]
+    if args.trusted_proxy_ips is not None:
+        kwargs["trusted_proxy_ips"] = [
+            s.strip() for s in args.trusted_proxy_ips.split(",") if s.strip()
+        ]
+    if args.log_ip_salt is not None:
+        kwargs["log_ip_salt"] = args.log_ip_salt
+    if args.admin_token is not None:
+        kwargs["admin_token"] = args.admin_token
+    if args.legal_config is not None:
+        kwargs["legal_config_path"] = args.legal_config
     cfg = WebConfig(**kwargs)
     set_config(cfg)
 

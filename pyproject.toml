@@ -40,6 +40,7 @@ include = ["beguided*"]
 
 [tool.setuptools.package-data]
 "beguided.editing.data" = ["*.tsv"]
+"beguided.web.static" = ["vendor/*.js"]
 
 # ---------------------------------------------------------------------------
 # Pixi workspace configuration

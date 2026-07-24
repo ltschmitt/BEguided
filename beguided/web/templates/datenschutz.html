@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}Privacy Policy — BEguided{% endblock %}
+
+{% block content %}
+<h1 style="margin-top:0;">Privacy Policy</h1>
+{% if legal.last_updated %}<p class="legal-updated">Last updated: {{ legal.last_updated }}</p>{% endif %}
+
+<p>
+    This Privacy Policy informs you about the nature, scope and purpose of
+    the processing of personal data within our online offering and the
+    related websites, functions and content (collectively: "service").
+    With regard to the terminology used (such as "processing" or
+    "controller"), we refer to the definitions in Art. 4 GDPR.
+</p>
+
+<section class="legal-section">
+    <h2>1. Controller</h2>
+    <address class="legal-address">
+        <strong>{{ legal.institution_name }}</strong><br>
+        {% for line in legal.address_lines %}{{ line }}<br>{% endfor %}
+        {% if legal.contact_email %}Email: <a href="mailto:{{ legal.contact_email }}">{{ legal.contact_email }}</a>{% endif %}
+    </address>
+</section>
+
+<section class="legal-section">
+    <h2>2. Data Protection Officer</h2>
+    <address class="legal-address">
+        {{ legal.dpo_name }}<br>
+        {% for line in legal.dpo_address %}{{ line }}<br>{% endfor %}
+        {% if legal.dpo_email %}Email: <a href="mailto:{{ legal.dpo_email }}">{{ legal.dpo_email }}</a>{% endif %}
+    </address>
+</section>
+
+<section class="legal-section">
+    <h2>3. Categories of personal data</h2>
+    <ul>
+        <li>
+            <strong>Client metadata:</strong> IP address (salted SHA-256
+            fingerprint in logs only), user-agent string, request
+            timestamp.
+        </li>
+        <li>
+            <strong>Uploaded content:</strong> the targets file you upload
+            (chromosome, position, target_base, desired_base) or the raw
+            sequences you paste. These may include genomic coordinates
+            that, in combination with other data, can identify a person.
+        </li>
+        <li>
+            <strong>Generated results:</strong> the guide RNAs and editing
+            predictions returned by the pipeline.
+        </li>
+        <li>
+            <strong>Custom base editor profiles:</strong> any custom TSV you
+            upload is held in memory only and discarded on server restart.
+        </li>
+    </ul>
+</section>
+
+<section class="legal-section">
+    <h2>4. Purposes and legal bases</h2>
+    <table class="legal-table">
+        <thead>
+            <tr><th>Purpose</th><th>Data</th><th>Legal basis</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Operating the guide RNA design service</td>
+                <td>Uploaded targets, generated guides</td>
+                <td>Art. 6(1)(b) GDPR (contract performance) and
+                    Art. 9(2)(j) GDPR (scientific research)</td>
+            </tr>
+            <tr>
+                <td>Rate-limiting and abuse prevention</td>
+                <td>Hashed client IP</td>
+                <td>Art. 6(1)(f) GDPR (legitimate interest)</td>
+            </tr>
+            <tr>
+                <td>Security incident response and audit</td>
+                <td>Hashed client IP, request timestamps</td>
+                <td>Art. 6(1)(f) GDPR (legitimate interest)</td>
+            </tr>
+        </tbody>
+    </table>
+    <p>
+        If you upload personally identifying human genomic data you must
+        have your own legal basis for the underlying processing (typically
+        informed consent under Art. 9(2)(a) or a research exemption under
+        Art. 9(2)(j)). BEguided does not provide that legal basis for you.
+    </p>
+</section>
+
+<section class="legal-section">
+    <h2>5. Recipients</h2>
+    <p>
+        Your data is processed exclusively on our own infrastructure. We
+        do not transfer your data to third parties. The page loads no
+        third-party scripts, fonts, or analytics beacons; Chart.js is
+        served from the same origin with a Subresource Integrity hash.
+    </p>
+    <p>
+        The reverse proxy (Caddy) terminates TLS in front of the
+        application and may log hashed client IPs. Logs are retained for
+        at most {{ legal.log_retention_days }} days and then deleted.
+    </p>
+</section>
+
+<section class="legal-section">
+    <h2>6. Storage duration</h2>
+    <p>
+        Uploaded targets, generated guide results and job metadata are
+        retained in the job database for at most <strong>{{ retention_hours }} hours</strong>
+        after the job finishes and are then automatically deleted by a
+        background sweeper. The revoke token associated with a job is
+        stored only as a salted hash; the raw token is shown to you once
+        at submission time.
+    </p>
+    <p>
+        You can request earlier deletion at any time by contacting
+        {% if legal.contact_email %}<a href="mailto:{{ legal.contact_email }}">{{ legal.contact_email }}</a>{% else %}the controller{% endif %}
+        and quoting your job ID.
+    </p>
+</section>
+
+<section class="legal-section">
+    <h2>7. Your rights</h2>
+    <ul>
+        <li>Right of access (Art. 15 GDPR)</li>
+        <li>Right to rectification (Art. 16 GDPR)</li>
+        <li>Right to erasure (Art. 17 GDPR)</li>
+        <li>Right to restriction of processing (Art. 18 GDPR)</li>
+        <li>Right to data portability (Art. 20 GDPR)</li>
+        <li>Right to object (Art. 21 GDPR)</li>
+        <li>Right to lodge a complaint with a supervisory authority (Art. 77 GDPR)</li>
+    </ul>
+    <p>
+        The competent supervisory authority is:
+        <em>{{ legal.competent_dpa }}</em>.
+    </p>
+</section>
+
+<section class="legal-section">
+    <h2>8. Cookies and similar technologies</h2>
+    <p>
+        The service does not set cookies and does not use tracking
+        technologies. The first-party storage associated with the UI is
+        limited to the in-memory state of your browser tab.
+    </p>
+</section>
+
+<section class="legal-section">
+    <h2>9. Changes to this policy</h2>
+    <p>
+        We may update this Privacy Policy to reflect changes in our
+        processing or in applicable law. The "Last updated" date at the
+        top of this page reflects the most recent change.
+    </p>
+</section>
+{% endblock %}

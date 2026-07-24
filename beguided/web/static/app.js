@@ -44,6 +44,12 @@ const profilesAlert = document.getElementById("profilesAlert");
 const profilesSource = document.getElementById("profilesSource");
 const profilesTableContainer = document.getElementById("profilesTableContainer");
 
+// Toast region announces status changes to screen readers.
+if (toastContainer) {
+    toastContainer.setAttribute("role", "status");
+    toastContainer.setAttribute("aria-live", "polite");
+}
+
 let currentMode = "sequence";
 let uploadedRawB64 = null;
 let customGenomeB64 = null;
@@ -72,6 +78,22 @@ const baseEditorEditingTypes = new Map();
 // Live Chart.js instance for the Summary tab. Tracked so we can destroy the
 // previous chart before re-rendering to avoid leaks and stacked canvases.
 let summaryChartInstance = null;
+
+// Honour the OS reduced-motion preference for Chart.js. Without this, the
+// summary bar chart animates every render which can trigger vestibular
+// discomfort. CSS transitions are already suppressed by the
+// ``prefers-reduced-motion`` block in style.css.
+(function applyReducedMotionToChart() {
+    try {
+        const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (reduced && typeof Chart !== "undefined" && Chart && Chart.defaults) {
+            Chart.defaults.animation = false;
+        }
+    } catch (_) {
+        // matchMedia is not available (very old browsers); Chart.js falls
+        // back to its default animation, which is acceptable.
+    }
+})();
 
 // Base editor multi-select state. `availableEditors` is the list of editors
 // rendered as checkboxes (fetched from /base-editor-table?source=default).
@@ -425,7 +447,37 @@ function wireMultiselectEvents() {
     });
 
     document.addEventListener("keydown", (ev) => {
-        if (ev.key === "Escape") closeMultiselectPanel();
+        if (ev.key === "Escape" && !beMultiselectPanel.hasAttribute("hidden")) {
+            closeMultiselectPanel();
+            beMultiselectBtn.focus();
+            return;
+        }
+        if (beMultiselectPanel.hasAttribute("hidden")) return;
+        if (ev.key === "Home" || ev.key === "End") {
+            const boxes = [...beCheckboxGroups.querySelectorAll('input[type="checkbox"]')];
+            if (boxes.length === 0) return;
+            ev.preventDefault();
+            const target = ev.key === "Home" ? boxes[0] : boxes[boxes.length - 1];
+            target.focus();
+        } else if (ev.key === "Tab") {
+            // Focus trap: keep Tab cycling within the open panel.
+            const focusables = [
+                ...beMultiselectPanel.querySelectorAll(
+                    'button, input[type="checkbox"]'
+                ),
+            ].filter(el => !el.disabled && el.offsetParent !== null);
+            if (focusables.length === 0) return;
+            const first = focusables[0];
+            const last = focusables[focusables.length - 1];
+            const active = document.activeElement;
+            if (ev.shiftKey && active === first) {
+                ev.preventDefault();
+                last.focus();
+            } else if (!ev.shiftKey && active === last) {
+                ev.preventDefault();
+                first.focus();
+            }
+        }
     });
 }
 
@@ -818,7 +870,7 @@ async function uploadTargetsFile(file) {
         runBtn.disabled = true;
         compatibilityInfo.textContent = "";
         checkAlert.style.display = "none";
-        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">${data.error}</p>`;
+        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">${escapeHtml(data.error || "Upload failed.")}</p>`;
         return;
     }
 
