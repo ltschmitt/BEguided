@@ -105,7 +105,7 @@ for the full list.
 
 Legal-page content (institution name, address, DPO, competent DPA, …)
 lives in a separate gitignored `legal.yaml` file. The committed template
-is `legal.yaml.example`. The container path is set via
+is `configs/web-legal.yaml`. The container path is set via
 `BEGUIDED_LEGAL_CONFIG` (default `/etc/beguided/legal.yaml`); if the file
 is missing the legal pages render with empty values + a startup warning.
 See `compliance_safety.md` for the full pre-launch checklist.
@@ -225,7 +225,7 @@ python -m pytest tests/test_editing/test_presets.py::TestPAMToRegex -v
 - `tests/fixtures/sample_targets.tsv`: Small test input
 - `tests/fixtures/sample_genome.fasta`: Test genome
 - `tests/fixtures/mini_genome.npz`: BEguidedOFF-encoded mini genome for off-target tests
-- `base_editor_profiles.tsv`: Base editor profile configurations
+- `configs/base_editor_profiles.tsv`: Bundled base editor profile configurations (20-nt guides)
 
 ## Important Implementation Details
 
@@ -314,7 +314,7 @@ Both back the `run_pipeline(..., genome=..., interval_trees=...)` kwargs in `beg
 - `BEGUIDED_PRELOAD_GTF` / `--preload-gtf` / `--no-preload-gtf` — preload the GTF annotation at startup (default: enabled).
 - `BEGUIDED_QUEUE_MAX`, `BEGUIDED_COOLDOWN_SECONDS`, `BEGUIDED_MAX_UPLOAD_MB` — scheduler caps (env-only; CLI overrides also exist).
 - `BEGUIDED_ALLOWED_HOSTS` / `BEGUIDED_TRUSTED_PROXY_IPS` / `BEGUIDED_JOB_RETENTION_HOURS` / `BEGUIDED_LOG_IP_SALT` / `BEGUIDED_ADMIN_TOKEN` — compliance knobs (see `compliance_safety.md`).
-- `BEGUIDED_LEGAL_CONFIG` / `--legal-config` — path to the gitignored `legal.yaml` with institution / DPO / DPA. Default `/etc/beguided/legal.yaml`. See `legal.yaml.example`.
+- `BEGUIDED_LEGAL_CONFIG` / `--legal-config` — path to the operator's `web-legal.yaml` with institution / DPO / DPA. Default `/etc/beguided/legal.yaml`. See `configs/web-legal.yaml` (template, committed empty).
 
 ### Sequence input mode
 

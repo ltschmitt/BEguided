@@ -15,8 +15,8 @@ input:
   genome: "path/to/genome.fa"
 
   # Base editor profiles (TSV format)
-  # Default: base_editor_profiles.tsv in working directory
-  base_editor_profiles: "base_editor_profiles.tsv"
+  # Default: configs/base_editor_profiles.tsv
+  base_editor_profiles: "configs/base_editor_profiles.tsv"
 
   # Optional custom trinucleotide edit-context table (TSV format) overriding
   # the bundled copy. The bundled table is derived from Marquart et al. 2021

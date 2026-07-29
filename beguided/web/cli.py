@@ -31,7 +31,7 @@ def main():
     parser.add_argument(
         "--base-editor-profiles-file",
         default=None,
-        help="Base editor profiles TSV file (default: env BEGUIDED_BASE_EDITOR_PROFILES_FILE or base_editor_profiles.tsv)",
+        help="Base editor profiles TSV file (default: env BEGUIDED_BASE_EDITOR_PROFILES_FILE or configs/base_editor_profiles.tsv)",
     )
     parser.add_argument(
         "--genome-fasta",
@@ -162,7 +162,7 @@ def main():
             "name, address, DPO, competent DPA, etc.). Default: "
             "/etc/beguided/legal.yaml. Empty = serve empty legal pages "
             "with a startup warning. The file is gitignored; only the "
-            "schema reference at legal.yaml.example is committed. "
+            "schema reference at configs/web-legal.yaml is committed. "
             "Env: BEGUIDED_LEGAL_CONFIG."
         ),
     )

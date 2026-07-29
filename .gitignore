@@ -1,7 +1,5 @@
 # pixi environments
-nogit
-nogit/*
-.nogit/*
+nogit/
 .pixi/*
 !.pixi/config.toml
 opencode.json

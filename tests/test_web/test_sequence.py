@@ -586,9 +586,9 @@ class TestSequenceModeEndToEnd:
         import tempfile, os
 
         repo_root = Path(__file__).resolve().parents[2]
-        presets_path = repo_root / "base_editor_profiles.tsv"
+        presets_path = repo_root / "configs" / "base_editor_profiles.tsv"
         if not presets_path.exists():
-            pytest.skip("base_editor_profiles.tsv not found in repo root")
+            pytest.skip("configs/base_editor_profiles.tsv not found in repo root")
 
         records = parse_sequence_text(_wrap(CANONICAL_STRIPPED, header="t1"))
         targets_df = records_to_targets_dataframe(records)
@@ -630,9 +630,9 @@ class TestSequenceModeEndToEnd:
         from beguided.pipeline import run_pipeline
 
         repo_root = Path(__file__).resolve().parents[2]
-        presets_path = repo_root / "base_editor_profiles.tsv"
+        presets_path = repo_root / "configs" / "base_editor_profiles.tsv"
         if not presets_path.exists():
-            pytest.skip("base_editor_profiles.tsv not found in repo root")
+            pytest.skip("configs/base_editor_profiles.tsv not found in repo root")
 
         user_text = (
             ">target_C\n"

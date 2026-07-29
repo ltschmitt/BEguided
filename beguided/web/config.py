@@ -33,7 +33,7 @@ def _csv_env(name: str) -> List[str]:
 
 
 
-_DEFAULT_PRESETS = str(Path(__file__).resolve().parents[2] / "base_editor_profiles.tsv")
+_DEFAULT_PRESETS = str(Path(__file__).resolve().parents[2] / "configs" / "base_editor_profiles.tsv")
 _DEFAULT_GENOME = str(
     Path(__file__).resolve().parents[2]
     / "genome"

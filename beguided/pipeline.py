@@ -117,7 +117,7 @@ def _read_new_style_config(config):
     result["targets"] = input_cfg.get("targets")
     result["genome"] = input_cfg.get("genome")
     result["base_editor_profiles_file"] = input_cfg.get(
-        "base_editor_profiles", "base_editor_profiles.tsv"
+        "base_editor_profiles", "configs/base_editor_profiles.tsv"
     )
     result["gff_file"] = input_cfg.get("gff_file")
 

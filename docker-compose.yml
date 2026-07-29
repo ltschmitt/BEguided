@@ -38,13 +38,15 @@ services:
       - "${PORT:-8000}:8000"
     volumes:
       - "${GENOME_HOST_DIR:-./genome}:/app/genome:ro"
-      # legal.yaml is gitignored. If absent, the server starts with a
-      # WARNING and serves empty legal pages. See legal.yaml.example.
+      # The operator's web-legal.yaml is gitignored. The committed template
+      # at configs/web-legal.yaml is empty and is NOT loaded by default —
+      # the operator creates their own file and points at it via
+      # BEGUIDED_LEGAL_CONFIG + a bind mount.
       - ./legal.yaml:/etc/beguided/legal.yaml:ro
       - beguided-jobs:/var/lib/beguided
     environment:
       PYTHONUNBUFFERED: "1"
-      BEGUIDED_BASE_EDITOR_PROFILES_FILE: "${BEGUIDED_BASE_EDITOR_PROFILES_FILE:-/app/base_editor_profiles.tsv}"
+      BEGUIDED_BASE_EDITOR_PROFILES_FILE: "${BEGUIDED_BASE_EDITOR_PROFILES_FILE:-/app/configs/base_editor_profiles.tsv}"
       BEGUIDED_GENOME_FASTA: "${BEGUIDED_GENOME_FASTA:-/app/genome/Homo_sapiens.GRCh38.116.fa}"
       BEGUIDED_GTF_PATH: "${BEGUIDED_GTF_PATH:-/app/genome/Homo_sapiens.GRCh38.116.gtf}"
       BEGUIDED_BEGUIDEDOFF_GENOME: "${BEGUIDED_BEGUIDEDOFF_GENOME:-}"

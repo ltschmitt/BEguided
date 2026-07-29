@@ -40,7 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy source and install BEguided (core only)
 COPY pyproject.toml README.md ./
 COPY beguided/ ./beguided/
-COPY base_editor_profiles.tsv ./
+COPY configs/base_editor_profiles.tsv ./configs/
 RUN pip install --no-cache-dir -e "."
 
 # Create directories for user-provided data
@@ -59,7 +59,7 @@ RUN pip install --no-cache-dir -e ".[web]"
 RUN mkdir -p /var/lib/beguided
 
 ENV PYTHONUNBUFFERED=1
-ENV BEGUIDED_BASE_EDITOR_PROFILES_FILE=/app/base_editor_profiles.tsv
+ENV BEGUIDED_BASE_EDITOR_PROFILES_FILE=/app/configs/base_editor_profiles.tsv
 
 EXPOSE 8000
 
@@ -125,7 +125,7 @@ RUN pip install --no-cache-dir -e ".[web]"
 RUN mkdir -p /var/lib/beguided
 
 ENV PYTHONUNBUFFERED=1
-ENV BEGUIDED_BASE_EDITOR_PROFILES_FILE=/app/base_editor_profiles.tsv
+ENV BEGUIDED_BASE_EDITOR_PROFILES_FILE=/app/configs/base_editor_profiles.tsv
 
 EXPOSE 8000
 
