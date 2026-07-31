@@ -115,7 +115,6 @@ def cfg_and_client(tmp_path, monkeypatch):
         queue_max=2,
         cooldown_seconds=0,
         max_upload_mb=5,
-        allowed_hosts=["testserver", "www.example.org"],
         trusted_proxy_ips=["127.0.0.1"],
         admin_token="test-admin-token",
         log_ip_salt="test-salt",
@@ -155,13 +154,6 @@ def test_security_headers_on_json(cfg_and_client):
     assert res.headers.get("x-content-type-options") == "nosniff"
 
 
-def test_trusted_host_middleware_rejects_unknown_host(cfg_and_client):
-    _, _, client = cfg_and_client
-    # TestClient uses "testserver" by default which is allow-listed.
-    res = client.get("/", headers={"Host": "evil.example.com"})
-    assert res.status_code == 400
-
-
 def test_proxy_headers_set_real_client_ip(tmp_path, monkeypatch):
     """ProxyHeadersMiddleware must surface the X-Forwarded-For client IP."""
     from beguided.web import config as cfg_mod
@@ -185,7 +177,6 @@ def test_proxy_headers_set_real_client_ip(tmp_path, monkeypatch):
         queue_max=2,
         cooldown_seconds=0,
         max_upload_mb=5,
-        allowed_hosts=["testserver"],
         # ``testclient`` is the hostname Starlette's TestClient uses for
         # the simulated upstream peer. Including it here exercises the
         # real middleware path the way Caddy will use it in production.
@@ -280,7 +271,6 @@ def test_legal_routes_interpolate_config(tmp_path):
         queue_max=2,
         cooldown_seconds=0,
         max_upload_mb=5,
-        allowed_hosts=["testserver"],
         trusted_proxy_ips=["127.0.0.1"],
         legal_config_path=str(legal_path),
     ))
@@ -315,6 +305,25 @@ def test_load_legal_config_missing_returns_empty(tmp_path):
     assert cfg.contact_email == ""
     assert cfg.dpo_name == ""
     assert cfg.log_retention_days == 0
+
+
+def test_load_legal_config_directory_returns_empty(tmp_path, caplog):
+    """A directory at the config path (the docker bind-mount footgun when
+    the host file is missing) must be treated like a missing file."""
+    import logging
+
+    from beguided.web.legal_config import load_legal_config
+
+    p = tmp_path / "legal.yaml"
+    p.mkdir()
+    with caplog.at_level(logging.WARNING, logger="beguided.web.legal_config"):
+        cfg = load_legal_config(p)
+    assert cfg.institution_name == ""
+    assert cfg.address_lines == []
+    assert cfg.contact_email == ""
+    assert cfg.dpo_name == ""
+    assert cfg.log_retention_days == 0
+    assert any("not found or is not a file" in rec.message for rec in caplog.records)
 
 
 def test_load_legal_config_none_returns_empty():

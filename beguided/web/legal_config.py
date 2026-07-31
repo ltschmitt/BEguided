@@ -78,8 +78,10 @@ def load_legal_config(path: Optional[Path]) -> LegalConfig:
     - ``path is None`` → return ``LegalConfig()`` silently. Used when the
       operator has not configured ``BEGUIDED_LEGAL_CONFIG`` at all (tests,
       local dev with no legal pages).
-    - ``path`` points at a missing file → return ``LegalConfig()`` and log
-      a WARNING. The operator probably forgot to mount ``legal.yaml``.
+    - ``path`` points at a missing file OR a directory → return
+      ``LegalConfig()`` and log a WARNING. The operator probably forgot
+      to mount ``legal.yaml``, or the bind mount target became a directory
+      because the host file did not exist when docker compose started.
     - ``path`` exists and parses cleanly → return the populated config
       and log an INFO line so the startup banner confirms the source.
     - ``path`` exists but YAML is malformed or the top-level is not a
@@ -90,10 +92,10 @@ def load_legal_config(path: Optional[Path]) -> LegalConfig:
         return LegalConfig()
 
     p = Path(path).expanduser()
-    if not p.exists():
+    if not p.exists() or p.is_dir():
         logger.warning(
-            "Legal config %s not found; serving empty legal pages. "
-            "Create the file or update BEGUIDED_LEGAL_CONFIG.",
+            "Legal config %s not found or is not a file; serving empty "
+            "legal pages. Create the file or update BEGUIDED_LEGAL_CONFIG.",
             p,
         )
         return LegalConfig()

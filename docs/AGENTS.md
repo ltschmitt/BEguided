@@ -87,7 +87,6 @@ beguided-web             [--host 0.0.0.0] [--port 8000] [--reload] \
                          [--preload-gtf | --no-preload-gtf] \
                          [--genome-label ...] \
                          [--job-retention-hours 24] \
-                         [--allowed-hosts www.buchholz.org,buchholz.org] \
                          [--trusted-proxy-ips 127.0.0.1,::1] \
                          [--log-ip-salt ...] [--admin-token ...] \
                          [--legal-config /etc/beguided/legal.yaml]
@@ -106,9 +105,11 @@ for the full list.
 Legal-page content (institution name, address, DPO, competent DPA, …)
 lives in a separate gitignored `legal.yaml` file. The committed template
 is `configs/web-legal.yaml`. The container path is set via
-`BEGUIDED_LEGAL_CONFIG` (default `/etc/beguided/legal.yaml`); if the file
-is missing the legal pages render with empty values + a startup warning.
-See `compliance_safety.md` for the full pre-launch checklist.
+`BEGUIDED_LEGAL_CONFIG` (default `/etc/beguided/legal.yaml`); if the
+file is missing (or the bind-mount resolved to an empty directory because
+the host file did not exist) the legal pages render with empty values +
+a startup warning. See `compliance_safety.md` for the full pre-launch
+checklist.
 
 ### Running Tests
 
@@ -313,7 +314,7 @@ Both back the `run_pipeline(..., genome=..., interval_trees=...)` kwargs in `beg
 - `BEGUIDED_PRELOAD_GENOME` / `--preload-genome` / `--no-preload-genome` — preload the genome FASTA at startup (default: enabled).
 - `BEGUIDED_PRELOAD_GTF` / `--preload-gtf` / `--no-preload-gtf` — preload the GTF annotation at startup (default: enabled).
 - `BEGUIDED_QUEUE_MAX`, `BEGUIDED_COOLDOWN_SECONDS`, `BEGUIDED_MAX_UPLOAD_MB` — scheduler caps (env-only; CLI overrides also exist).
-- `BEGUIDED_ALLOWED_HOSTS` / `BEGUIDED_TRUSTED_PROXY_IPS` / `BEGUIDED_JOB_RETENTION_HOURS` / `BEGUIDED_LOG_IP_SALT` / `BEGUIDED_ADMIN_TOKEN` — compliance knobs (see `compliance_safety.md`).
+- `BEGUIDED_TRUSTED_PROXY_IPS` / `BEGUIDED_JOB_RETENTION_HOURS` / `BEGUIDED_LOG_IP_SALT` / `BEGUIDED_ADMIN_TOKEN` — compliance knobs (see `compliance_safety.md`).
 - `BEGUIDED_LEGAL_CONFIG` / `--legal-config` — path to the operator's `web-legal.yaml` with institution / DPO / DPA. Default `/etc/beguided/legal.yaml`. See `configs/web-legal.yaml` (template, committed empty).
 
 ### Sequence input mode

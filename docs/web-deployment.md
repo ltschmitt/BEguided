@@ -51,10 +51,6 @@ www.buchholz.org {
 
 The web app reads `X-Forwarded-For` / `X-Forwarded-Proto` to recover the real client IP and HTTPS scheme, but only when the upstream peer is on the `BEGUIDED_TRUSTED_PROXY_IPS` allow-list (default `127.0.0.1,::1`). Add Caddy's peer IP if it runs in a separate container.
 
-### Host-header allow-list
-
-`BEGUIDED_ALLOWED_HOSTS` (CSV, default `www.buchholz.org,buchholz.org,localhost,127.0.0.1,testserver`) gates Starlette's `TrustedHostMiddleware`. Requests with any other `Host:` value are rejected with HTTP 400. For production, drop the dev values.
-
 ## GDPR / German-public compliance
 
 Mandatory for any German-public web presence. The audit + remediation history lives in `nogit/compliance_safety.md` (private, gitignored). The operational summary:
@@ -101,7 +97,7 @@ Tell the app where to find it (any of):
 - docker-compose: `BEGUIDED_LEGAL_CONFIG: "/etc/beguided/web-legal.yaml"` + a bind mount for the file
 
 Behaviour:
-- File missing or path empty → WARNING logged, pages render with empty values
+- File missing, path empty, or path is a directory → WARNING logged, pages render with empty values. (The directory case covers the docker bind-mount footgun: if the host `legal.yaml` does not exist, Docker creates an empty directory at the mount target inside the container.)
 - File present, malformed YAML → fail-fast at startup
 - File present, top-level is not a mapping → fail-fast at startup
 - File present, valid → loaded once, every legal page renders with the values
@@ -130,7 +126,6 @@ The retention sweeper runs every 15 min by default.
 
 - [ ] `configs/web-legal.yaml` filled in by someone who can read German legalese; reviewed for accuracy
 - [ ] `BEGUIDED_ADMIN_TOKEN` and `BEGUIDED_LOG_IP_SALT` set to 32+ random bytes
-- [ ] `BEGUIDED_ALLOWED_HOSTS=www.buchholz.org,buchholz.org` (no dev hosts)
 - [ ] `BEGUIDED_TRUSTED_PROXY_IPS=127.0.0.1,::1` (or Caddy's container IP)
 - [ ] Caddy reaches Let's Encrypt and serves HTTPS
 - [ ] Browser dev-tools: no requests to non-`buchholz.org` hosts on first load; all security headers present

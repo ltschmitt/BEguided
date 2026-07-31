@@ -15,7 +15,6 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from beguided.filtering.filters import filter_guides, VALID_GC_FILTERS
 from beguided.logging_config import setup_logging
@@ -384,9 +383,6 @@ def create_app() -> FastAPI:
         ProxyHeadersMiddleware,
         trusted_hosts=cfg.trusted_proxy_ips or None,
     )
-    # Reject requests whose Host header is not on the allow-list to
-    # defuse cache poisoning / DNS-rebinding attacks.
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=cfg.allowed_hosts)
 
     # Static files
     base_dir = Path(__file__).resolve().parent
@@ -437,12 +433,11 @@ def create_app() -> FastAPI:
         install_scheduler(scheduler)
         scheduler.start()
         logger.info(
-            "BEguided web server started. queue_max=%d cooldown=%ds db=%s retention=%dh hosts=%s",
+            "BEguided web server started. queue_max=%d cooldown=%ds db=%s retention=%dh",
             cfg.queue_max,
             int(cfg.cooldown_seconds),
             cfg.db_path,
             int(cfg.job_retention_hours),
-            ",".join(cfg.allowed_hosts),
         )
 
     @app.get("/", response_class=HTMLResponse)

@@ -21,10 +21,10 @@ def _env_bool(name: str, default: bool) -> bool:
 def _csv_env(name: str) -> List[str]:
     """Read a comma-separated env var into a list of stripped non-empty strings.
 
-    Returns ``[]`` if the env var is unset or empty. Used for the new
-    ``BEGUIDED_ALLOWED_HOSTS`` / ``BEGUIDED_TRUSTED_PROXY_IPS`` knobs so the
-    operator can override the defaults from the shell environment (or via
-    ``docker-compose.override.yml``) without touching the code.
+    Returns ``[]`` if the env var is unset or empty. Used for the
+    ``BEGUIDED_TRUSTED_PROXY_IPS`` knob so the operator can override the
+    defaults from the shell environment (or via ``docker-compose.override.yml``)
+    without touching the code.
     """
     raw = os.getenv(name, "").strip()
     if not raw:
@@ -101,10 +101,6 @@ class WebConfig:
 
     # Compliance / hardening knobs (see compliance_safety.md)
     job_retention_hours: int = 24
-    allowed_hosts: List[str] = field(
-        default_factory=lambda: _csv_env("BEGUIDED_ALLOWED_HOSTS")
-        or ["www.buchholz.org", "buchholz.org", "localhost", "127.0.0.1", "testserver"]
-    )
     trusted_proxy_ips: List[str] = field(
         default_factory=lambda: _csv_env("BEGUIDED_TRUSTED_PROXY_IPS") or ["127.0.0.1", "::1"]
     )

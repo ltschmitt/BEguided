@@ -61,7 +61,6 @@ services:
       BEGUIDED_MAX_UPLOAD_MB: "${BEGUIDED_MAX_UPLOAD_MB:-2}"
       # Compliance knobs. The two secrets MUST be set per host (the
       # defaults here are placeholders that should be overridden).
-      BEGUIDED_ALLOWED_HOSTS: "${BEGUIDED_ALLOWED_HOSTS:-www.buchholz.org,buchholz.org}"
       BEGUIDED_TRUSTED_PROXY_IPS: "${BEGUIDED_TRUSTED_PROXY_IPS:-127.0.0.1,::1}"
       BEGUIDED_JOB_RETENTION_HOURS: "${BEGUIDED_JOB_RETENTION_HOURS:-24}"
       BEGUIDED_ADMIN_TOKEN: "${BEGUIDED_ADMIN_TOKEN:-}"

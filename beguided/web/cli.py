@@ -119,15 +119,6 @@ def main():
         ),
     )
     parser.add_argument(
-        "--allowed-hosts",
-        default=None,
-        help=(
-            "Comma-separated list of allowed Host-header values "
-            "(default: 'www.buchholz.org,buchholz.org,localhost'). "
-            "Env: BEGUIDED_ALLOWED_HOSTS."
-        ),
-    )
-    parser.add_argument(
         "--trusted-proxy-ips",
         default=None,
         help=(
@@ -194,10 +185,6 @@ def main():
         kwargs["preload_gtf"] = args.preload_gtf
     if args.job_retention_hours is not None:
         kwargs["job_retention_hours"] = float(args.job_retention_hours)
-    if args.allowed_hosts is not None:
-        kwargs["allowed_hosts"] = [
-            s.strip() for s in args.allowed_hosts.split(",") if s.strip()
-        ]
     if args.trusted_proxy_ips is not None:
         kwargs["trusted_proxy_ips"] = [
             s.strip() for s in args.trusted_proxy_ips.split(",") if s.strip()
