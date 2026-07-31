@@ -411,6 +411,80 @@ def test_store_lives_in_memory_only(cfg_and_db, tmp_path):
     assert client.get("/base-editor-profiles/status").json()["loaded"] is False
 
 
+def test_reupload_same_tsv_is_idempotent(cfg_and_db):
+    """The browser-side localStorage cache re-POSTs the same bytes on every
+    page load. The server must accept the re-upload without complaint and
+    end up holding the same profiles."""
+    client = _client(cfg_and_db)
+    for _ in range(2):
+        res = client.post(
+            "/base-editor-profiles/upload",
+            files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["ok"] is True
+        assert res.json()["names"] == ["CustomABE1", "CustomCBE1"]
+
+    status = client.get("/base-editor-profiles/status").json()
+    assert status["loaded"] is True
+    assert status["names"] == ["CustomABE1", "CustomCBE1"]
+
+
+def test_reupload_different_tsv_replaces(cfg_and_db):
+    """A new upload supersedes whatever was previously stored. The
+    localStorage cache mirrors this: every successful upload overwrites the
+    stored bytes, so the next page load re-POSTs the latest file only."""
+    client = _client(cfg_and_db)
+    first = HEADER + "FirstBE\tABE\t2\t13\t3\t8\tNGG\n"
+    second = HEADER + "SecondBE\tCBE\t2\t10\t6\t6\tNGG\n"
+
+    res = client.post(
+        "/base-editor-profiles/upload",
+        files={"file": ("p.tsv", io.BytesIO(first.encode()), "text/tab-separated-values")},
+    )
+    assert res.status_code == 200
+    assert res.json()["names"] == ["FirstBE"]
+
+    res = client.post(
+        "/base-editor-profiles/upload",
+        files={"file": ("p.tsv", io.BytesIO(second.encode()), "text/tab-separated-values")},
+    )
+    assert res.status_code == 200
+    assert res.json()["names"] == ["SecondBE"]
+
+    status = client.get("/base-editor-profiles/status").json()
+    assert status["names"] == ["SecondBE"]
+    table = client.get("/base-editor-table?source=custom").json()
+    custom_names = [row["name"] for row in table["rows"]]
+    assert "FirstBE" not in custom_names
+    assert "SecondBE" in custom_names
+
+
+def test_invalid_reupload_does_not_clear_existing(cfg_and_db):
+    """If the browser's localStorage holds a stale TSV that fails server
+    validation, the existing server-side store must remain intact. The JS
+    hydrate path drops the local entry on validation failure, so this
+    guarantees a failed bootstrap never erases another user's upload on
+    the same server."""
+    client = _client(cfg_and_db)
+    res = client.post(
+        "/base-editor-profiles/upload",
+        files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    )
+    assert res.status_code == 200
+
+    bad = "name\tediting\nNoPam\tABE\n"
+    res = client.post(
+        "/base-editor-profiles/upload",
+        files={"file": ("p.tsv", io.BytesIO(bad.encode()), "text/tab-separated-values")},
+    )
+    assert res.status_code == 400
+
+    status = client.get("/base-editor-profiles/status").json()
+    assert status["loaded"] is True
+    assert status["names"] == ["CustomABE1", "CustomCBE1"]
+
+
 def test_build_config_writes_custom_profiles_to_workdir(cfg_and_db, tmp_path):
     import base64 as _b64
 

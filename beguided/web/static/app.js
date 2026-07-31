@@ -71,6 +71,7 @@ let customEditorKey = "custom";
 let customEditorLabel = "Custom (uploaded)";
 let customProfilesLoaded = false;
 let lastProfilesTableSource = null;
+const CUSTOM_PROFILES_LS_KEY = "beguidedCustomProfiles";
 // Editor name -> editing type ("ABE" / "CBE" / ...) lookup, populated from
 // /base-editor-table?source=combined. Used by the Summary bar chart to color
 // per-editor bars by editing type.
@@ -142,6 +143,11 @@ const isSpryCas = (cas) => /spry/i.test(cas || "");
         console.warn("Failed to fetch gtf status:", err);
     }
     // Hydrate the custom profiles state and render the Base Editors table.
+    try {
+        await hydrateCustomProfilesFromLocalStorage();
+    } catch (err) {
+        console.warn("Failed to rehydrate custom profiles:", err);
+    }
     try {
         await refreshProfilesStatus({ keepDropdownValue: true });
     } catch (err) {
@@ -1347,6 +1353,53 @@ function activeProfilesSource() {
     return "default";
 }
 
+function readCustomProfilesFromLocalStorage() {
+    try {
+        return localStorage.getItem(CUSTOM_PROFILES_LS_KEY);
+    } catch (_) {
+        return null;
+    }
+}
+
+function writeCustomProfilesToLocalStorage(text) {
+    try {
+        localStorage.setItem(CUSTOM_PROFILES_LS_KEY, text);
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function clearCustomProfilesFromLocalStorage() {
+    try {
+        localStorage.removeItem(CUSTOM_PROFILES_LS_KEY);
+    } catch (_) {
+    }
+}
+
+async function hydrateCustomProfilesFromLocalStorage() {
+    const text = readCustomProfilesFromLocalStorage();
+    if (!text) return;
+    try {
+        const form = new FormData();
+        form.append(
+            "file",
+            new Blob([text], { type: "text/tab-separated-values" }),
+            "custom_profiles.tsv"
+        );
+        const res = await fetch("/base-editor-profiles/upload", {
+            method: "POST",
+            body: form,
+        });
+        const data = await res.json().catch(() => ({ ok: false }));
+        if (!data || !data.ok) {
+            clearCustomProfilesFromLocalStorage();
+        }
+    } catch (err) {
+        console.warn("Failed to rehydrate custom profiles from localStorage:", err);
+    }
+}
+
 async function refreshProfilesStatus(opts = {}) {
     let data;
     try {
@@ -1420,6 +1473,7 @@ if (profilesUpload) {
     profilesUpload.addEventListener("change", async () => {
         const file = profilesUpload.files[0];
         if (!file) return;
+        const fileText = await file.text();
         const form = new FormData();
         form.append("file", file);
 
@@ -1447,6 +1501,8 @@ if (profilesUpload) {
             profilesUpload.value = "";
             return;
         }
+
+        writeCustomProfilesToLocalStorage(fileText);
 
         hideProfilesAlert();
         showProfilesAlert(

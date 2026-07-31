@@ -65,7 +65,7 @@ Mandatory for any German-public web presence. The audit + remediation history li
 | **Datenschutzerklärung** (GDPR Art. 13) | `/datenschutz` route renders from the same YAML |
 | **Terms of Use** | `/agb` route renders from the same YAML |
 | **Cookie banner** | Not needed — the service sets no cookies |
-| **Data minimisation** | Pipeline only reads the columns it needs; uploads auto-deleted after 24h |
+| **Data minimisation** | Pipeline only reads the columns it needs; uploads auto-deleted after 24h; custom profiles persist only in the uploader's browser `localStorage` and the server's RAM |
 | **Right to erasure** | `POST /admin/purge-all` with `X-Admin-Token` header purges every job immediately |
 | **Special-category data warning** | Footer of every page |
 | **Third-party requests** | None. Chart.js is self-hosted with an SRI hash. |
@@ -122,6 +122,7 @@ Behaviour:
 | Revoke tokens | Hashed SHA-256 in `jobs.db`; raw token shown to user once |
 | Scheduler cooldown map | In-memory, TTL-pruned after 4× `cooldown_seconds` |
 | Proxy / web logs | Operator-defined (`legal.log_retention_days`); salted IP |
+| Uploaded custom base editor profiles | Server: in-memory only, lost on restart. Browser: cached in `localStorage` (`beguidedCustomProfiles`) and re-POSTed on every page load so the same browser rehydrates the server copy automatically. Switching browsers or computers starts fresh; clearing site data wipes the local copy. |
 
 The retention sweeper runs every 15 min by default.
 
