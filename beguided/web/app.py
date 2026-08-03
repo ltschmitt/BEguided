@@ -6,9 +6,11 @@ import asyncio
 import base64
 import io
 import logging
+import re
 import secrets
 from pathlib import Path
 from typing import Annotated, Optional
+from urllib.parse import urlparse
 
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
@@ -93,6 +95,11 @@ def current_legal_config() -> LegalConfig:
 _XLSX_MAGIC = b"PK\x03\x04"
 _XLS_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
+# Match a single inline markdown link ``[text](url)``. Anchored on both ends
+# so a plain-text cell never accidentally loses its text. Whitespace inside
+# the brackets is preserved as part of the link text.
+_MARKDOWN_LINK_RE = re.compile(r"^\[([^\]]*)\]\(([^)]*)\)$")
+
 
 def _sniff_upload_kind(content: bytes, suffix: str) -> str:
     """Return the inferred upload kind ("tsv", "csv", "xlsx", "xls", "binary").
@@ -154,11 +161,40 @@ def _render_template(name, **kwargs) -> str:
     return template.render(**kwargs)
 
 
+def _parse_source_link(value: object) -> dict:
+    """Parse a TSV ``source`` cell into ``{text, url}``.
+
+    Accepts the inline markdown form ``[text](url)`` and keeps the URL only
+    when it uses an ``http(s)`` scheme (anything else — e.g. ``javascript:``
+    — collapses to ``url=None`` so the frontend renders plain text).
+    Plain-text cells return ``{text: <value>, url: None}``.
+    """
+    text = "" if value is None else str(value)
+    match = _MARKDOWN_LINK_RE.match(text.strip())
+    if not match:
+        return {"text": text, "url": None}
+    link_text, url = match.group(1), match.group(2).strip()
+    if not url:
+        return {"text": link_text, "url": None}
+    parsed = urlparse(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        return {"text": text, "url": None}
+    return {"text": link_text, "url": url}
+
+
 def _df_to_table_rows(df: pd.DataFrame, source: str) -> list[dict]:
     """Convert a profiles DataFrame to the condensed row format used by
-    the API. Each row includes a ``source`` field ("default" / "custom")."""
+    the API. Each row includes an ``origin`` field ("default" / "custom")
+    and a ``source`` field with ``{text, url}`` parsed from the TSV's
+    optional ``source`` column (empty when the column is absent, e.g. for
+    uploaded custom profiles)."""
+    has_source_col = "source" in df.columns
     rows = []
     for _, r in df.iterrows():
+        if has_source_col:
+            source_link = _parse_source_link(r["source"])
+        else:
+            source_link = {"text": "", "url": None}
         rows.append({
             "name": str(r["name"]),
             "editing": str(r["editing"]),
@@ -166,7 +202,8 @@ def _df_to_table_rows(df: pd.DataFrame, source: str) -> list[dict]:
             "high": f"{int(r['high_edit_start'])}-{int(r['high_edit_end'])}",
             "pam": str(r["pam"]),
             "cas": str(r.get("cas", "")) if "cas" in df.columns else "",
-            "source": source,
+            "origin": source,
+            "source": source_link,
         })
     return rows
 
@@ -553,7 +590,7 @@ def create_app() -> FastAPI:
         ``source=custom`` reads the in-memory uploaded TSV (rejected if no
         upload has happened). ``source=combined`` returns the union of
         default + custom profiles in one list, with each row tagged via its
-        ``source`` field.
+        ``origin`` field ("default" / "custom").
 
         Merges general_edit_start/end into a ``general`` column and
         high_edit_start/end into a ``high`` column, each formatted as

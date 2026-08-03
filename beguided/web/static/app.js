@@ -36,7 +36,6 @@ const modeSequenceBtn = document.getElementById("modeSequence");
 const spreadsheetPanel = document.getElementById("spreadsheetPanel");
 const sequencePanel = document.getElementById("sequencePanel");
 const sequenceInput = document.getElementById("sequenceInput");
-const parseSequenceBtn = document.getElementById("parseSequenceBtn");
 const loadSequenceExampleBtn = document.getElementById("loadSequenceExampleBtn");
 const loadSpreadsheetExampleBtn = document.getElementById("loadSpreadsheetExampleBtn");
 const profilesUpload = document.getElementById("profilesUpload");
@@ -189,7 +188,7 @@ async function loadAvailableEditors() {
         editing: r.editing,
         cas: r.cas || "",
         pam: r.pam,
-        source: r.source,
+        origin: r.origin,
     }));
     baseEditorEditingTypes.clear();
     for (const r of data.rows) {
@@ -210,7 +209,7 @@ async function loadAvailableEditors() {
 // (otherwise it would be a no-op identical to "All").
 function updateQuickToggleVisibility() {
     const panel = beMultiselectPanel;
-    const hasCustom = availableEditors.some(ed => ed.source === "custom");
+    const hasCustom = availableEditors.some(ed => ed.origin === "custom");
     const customBtn = panel.querySelector(
         '.be-quick-toggles button[data-toggle="custom"]'
     );
@@ -231,8 +230,8 @@ function renderCheckboxGroups() {
         return;
     }
 
-    const customEditors = availableEditors.filter(ed => ed.source === "custom");
-    const defaultEditors = availableEditors.filter(ed => ed.source !== "custom");
+    const customEditors = availableEditors.filter(ed => ed.origin === "custom");
+    const defaultEditors = availableEditors.filter(ed => ed.origin !== "custom");
 
     let html = "";
 
@@ -403,7 +402,7 @@ function applyQuickToggle(toggle) {
     } else if (toggle === "custom") {
         selectedEditors = new Set(
             availableEditors
-                .filter(r => r.source === "custom")
+                .filter(r => r.origin === "custom")
                 .map(r => r.name)
         );
     } else if (toggle === "none") {
@@ -681,7 +680,7 @@ function setMode(mode) {
     // Move the shared Run button into the active input panel's action row so
     // it stays visually anchored next to the input controls. The 'right' class
     // pushes it to the far edge of the row in spreadsheet mode; in sequence
-    // mode it must sit immediately after the Parse button, so we strip it.
+    // mode it sits next to the Load example button, so we strip it.
     const targetRow = mode === "spreadsheet"
         ? spreadsheetPanel.querySelector(".input-actions-row")
         : sequencePanel.querySelector(".input-meta-row");
@@ -691,18 +690,21 @@ function setMode(mode) {
     runBtn.classList.toggle("right", mode === "spreadsheet");
 
     // Reset state when switching modes: a previously uploaded file is
-    // irrelevant for sequence input and vice-versa.
+    // irrelevant for sequence input and vice-versa. In sequence mode the Run
+    // button starts enabled because clicking it triggers the parse + check +
+    // run flow itself; in spreadsheet mode it stays disabled until a file is
+    // uploaded (handled by uploadTargetsFile → runCompatibilityCheck).
     uploadedRawB64 = null;
     customGenomeB64 = null;
     matchedBaseEditorCount = 0;
-    runBtn.disabled = true;
+    runBtn.disabled = (mode === "spreadsheet");
     compatibilityInfo.textContent = "";
     checkAlert.style.display = "none";
     inputAlert.style.display = "none";
     inputPanel.innerHTML = `<p style="color: var(--muted);padding:16px;">${
         mode === "spreadsheet"
             ? "Upload a targets file to preview input data."
-            : "Parse sequences to preview input data."
+            : "Paste sequences above and click Run to parse and start the pipeline."
     }</p>`;
 }
 
@@ -749,28 +751,14 @@ async function runCompatibilityCheck() {
     }
 }
 
-// Sequence-mode parse handler. Posts the textarea content to /sequence/parse
-// and, on success, mirrors the spreadsheet-mode state (raw_b64 + preview +
-// compatibility check).
-async function parseSequences() {
+// Sequence-mode parse helper. Posts the textarea content to /sequence/parse
+// and returns a structured result. No UI side effects — callers decide how
+// to surface errors and whether to switch tabs.
+async function parseSequenceText() {
     const text = sequenceInput.value;
     if (!text.trim()) {
-        showToast("error", "Paste at least one sequence.");
-        runBtn.disabled = true;
-        matchedBaseEditorCount = 0;
-        compatibilityInfo.textContent = "";
-        checkAlert.style.display = "none";
-        return;
+        return { ok: false, error: "Paste at least one sequence." };
     }
-
-    // Switch to the Input tab immediately so the user sees feedback — and any
-    // error messages — the moment they click Parse.
-    switchTab("inputTab");
-    inputAlert.style.display = "none";
-    checkAlert.style.display = "none";
-    compatibilityInfo.textContent = "";
-    inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">Parsing sequences\u2026</p>`;
-
     const form = new FormData();
     form.append("text", text);
     let res, data;
@@ -778,41 +766,23 @@ async function parseSequences() {
         res = await fetch("/sequence/parse", { method: "POST", body: form });
         data = await res.json();
     } catch (err) {
-        showAlert(inputAlert, "error", `Parse failed: ${err}`);
-        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">Parse failed.</p>`;
-        return;
+        return { ok: false, error: `Parse failed: ${err}` };
     }
-
-    if (res.status === 413) {
-        showAlert(inputAlert, "error", data.error || "Input too large.");
-        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">${escapeHtml(data.error || "Input too large.")}</p>`;
-        return;
+    if (res.status === 413 || !data.ok) {
+        return { ok: false, error: data.error || "Parse failed." };
     }
-
-    if (!data.ok) {
-        showAlert(inputAlert, "error", data.error);
-        uploadedRawB64 = null;
-        customGenomeB64 = null;
-        matchedBaseEditorCount = 0;
-        runBtn.disabled = true;
-        compatibilityInfo.textContent = "";
-        checkAlert.style.display = "none";
-        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">${escapeHtml(data.error)}</p>`;
-        return;
-    }
-
-    showAlert(inputAlert, "success", `Parsed ${data.row_count} sequence(s). Showing up to 100.`);
-    uploadedRawB64 = data.raw_b64;
-    customGenomeB64 = data.custom_genome_b64;
-    inputPanel.innerHTML = renderSequencePreview(data.preview);
-    await runCompatibilityCheck();
+    return {
+        ok: true,
+        raw_b64: data.raw_b64,
+        custom_genome_b64: data.custom_genome_b64,
+        preview: data.preview,
+        row_count: data.row_count,
+    };
 }
-
-parseSequenceBtn.addEventListener("click", parseSequences);
 
 // Sequence-mode "Load example" button. Populates the textarea with a small
 // multi-record FASTA (matches the example shown in the textarea's explanation
-// text) and then runs the regular parse flow.
+// text). Parsing now happens on Run click, not here.
 const SEQUENCE_EXAMPLE_FASTA =
     ">my_target_1\n" +
     "ATAGAGTATAGACCC[A>G]CTATCCAGTCTACCTAGGGAATC\n" +
@@ -823,7 +793,6 @@ if (loadSequenceExampleBtn) {
     loadSequenceExampleBtn.addEventListener("click", () => {
         if (currentMode !== "sequence") setMode("sequence");
         sequenceInput.value = SEQUENCE_EXAMPLE_FASTA;
-        parseSequences();
     });
 }
 
@@ -909,14 +878,45 @@ if (loadSpreadsheetExampleBtn) {
 
 // Run pipeline
 runBtn.addEventListener("click", async () => {
-    if (!uploadedRawB64) return;
     if (selectedEditors.size === 0) {
         showToast("error", "Select at least one base editor.");
         return;
     }
+
+    // Sequence mode: parse on Run if not already parsed. On parse error, route
+    // the user to the Input tab so the error is visible; on success, render
+    // the preview silently into inputPanel and continue without switching tabs.
+    let parsedThisClick = false;
     if (currentMode === "sequence" && !customGenomeB64) {
-        showToast("error", "Parse sequences before running.");
-        return;
+        inputAlert.style.display = "none";
+        checkAlert.style.display = "none";
+        compatibilityInfo.textContent = "";
+        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">Parsing sequences\u2026</p>`;
+        const parsed = await parseSequenceText();
+        if (!parsed.ok) {
+            switchTab("inputTab");
+            showAlert(inputAlert, "error", parsed.error);
+            inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">${escapeHtml(parsed.error)}</p>`;
+            runBtn.disabled = false;
+            return;
+        }
+        uploadedRawB64 = parsed.raw_b64;
+        customGenomeB64 = parsed.custom_genome_b64;
+        inputPanel.innerHTML = renderSequencePreview(parsed.preview);
+        parsedThisClick = true;
+    }
+
+    if (!uploadedRawB64) return;
+
+    // When parse just happened, re-run the compatibility check before
+    // submitting so the user is alerted to any target/editor mismatches. On
+    // mismatch, route to the Input tab where the checkAlert is shown.
+    if (parsedThisClick) {
+        await runCompatibilityCheck();
+        if (runBtn.disabled) {
+            switchTab("inputTab");
+            return;
+        }
     }
 
     runBtn.disabled = true;
@@ -1314,11 +1314,24 @@ function displayColumnName(name) {
     return name.replace(/_/g, " ");
 }
 
+// Render the ``source`` cell as a clickable link when the backend supplies
+// a parsed URL; otherwise fall back to the raw (HTML-escaped) text. The
+// backend only ever emits http/https URLs here, but we still escape both
+// the href and the link text so a stray value cannot inject markup.
+function formatSourceCell(value) {
+    const src = (value && typeof value === "object") ? value : { text: "", url: null };
+    const text = src.text == null ? "" : String(src.text);
+    if (src.url) {
+        return `<a href="${escapeHtml(src.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
+    }
+    return escapeHtml(text);
+}
+
 function renderBaseEditorTable(rows) {
     if (!rows || rows.length === 0) {
         return `<p style="color:var(--muted);">No base editor profiles available.</p>`;
     }
-    const cols = ["name", "editing", "general", "high", "pam", "cas"];
+    const cols = ["name", "editing", "general", "high", "pam", "cas", "source"];
     const labels = {
         name: "Name",
         editing: "Editing",
@@ -1326,6 +1339,7 @@ function renderBaseEditorTable(rows) {
         high: "High-activity window",
         pam: "PAM",
         cas: "Cas",
+        source: "Source",
     };
     let html = `<table class="data-table"><thead><tr>`;
     cols.forEach(c => {
@@ -1335,8 +1349,12 @@ function renderBaseEditorTable(rows) {
     rows.forEach(row => {
         html += `<tr>`;
         cols.forEach(c => {
-            const v = row[c] !== undefined ? String(row[c]) : "";
-            html += `<td>${escapeHtml(v)}</td>`;
+            if (c === "source") {
+                html += `<td>${formatSourceCell(row[c])}</td>`;
+            } else {
+                const v = row[c] !== undefined ? String(row[c]) : "";
+                html += `<td>${escapeHtml(v)}</td>`;
+            }
         });
         html += `</tr>`;
     });

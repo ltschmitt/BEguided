@@ -63,10 +63,9 @@
                 placeholder="Paste a single sequence or FASTA. Mark the edit with [A>G], [T>C], [C>T] or [G>A].&#10;&#10;The bracket becomes the base at that position. Example:&#10;ATAG[T>C]GACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACG&#10;  position 5 = T (from bracket), position 6 = G (was after `]`)&#10;&#10;Multiple sequences (FASTA):&#10;&gt;my_target_1&#10;ATAGAGTATAGACCC[A>G]CTATCCAGTCTACCTAGGGAATC&#10;&gt;my_target_2&#10;GGGCATAGCCATGTAGCATT[T>C]GCAATTGGCCATGCATTTACC"></textarea>
             <div class="input-meta-row" style="margin-top:10px;">
                 <span id="sequenceHint" class="muted">
-                    One <code>[X&gt;Y]</code> bracket per sequence, where X and Y are A/C/G/T.
+                    One <code>[X&gt;Y]</code> bracket per sequence, where X and Y are A/C/G/T. Click <strong>Run</strong> to parse and start the pipeline.
                 </span>
                 <button id="loadSequenceExampleBtn" class="btn btn-secondary right" type="button">Load example</button>
-                <button id="parseSequenceBtn" class="btn btn-primary right" type="button">Parse</button>
             </div>
         </div>
     </div>
@@ -190,6 +189,13 @@
         <div id="profilesTableContainer">
             <p style="color:var(--muted);">Loading base editor profiles&hellip;</p>
         </div>
+
+        <p style="color:var(--muted); font-size:12px; margin-top:12px;">
+            <strong>*</strong> Marks an assumed variant based on the SpCas9
+            version (e.g. SpCas9-NG, SpRY). The editing window is a direct
+            copy from the SpCas9 profile and may differ; functionality of
+            these variants is not certain.
+        </p>
 
         <p style="color:var(--muted); font-size:12px; margin-top:12px;">
             Constraints for uploads: TSV with the columns

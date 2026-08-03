@@ -358,7 +358,7 @@ body {
 
 /* Action row inside an input panel. In spreadsheet mode it sits on top
    (Template button, upload-limits info, Run button). In sequence mode it
-   sits at the bottom (bracket-format hint, Parse button, shared Run
+   sits at the bottom (bracket-format hint, Load example button, shared Run
    button). */
 .input-meta-row {
     display: flex;

@@ -175,7 +175,7 @@ def test_upload_extra_columns_dropped(cfg_and_db):
     assert table["ok"] is True
     row_keys = set(table["rows"][0].keys())
     assert "extra" not in row_keys
-    assert row_keys == {"name", "editing", "general", "high", "pam", "cas", "source"}
+    assert row_keys == {"name", "editing", "general", "high", "pam", "cas", "origin", "source"}
 
 
 def test_max_upload_mb_is_one_by_default(cfg_and_db):
@@ -224,12 +224,12 @@ def test_upload_rejects_name_collision_with_default(cfg_and_db):
 
 
 def test_base_editor_table_combined_source(cfg_and_db):
-    """source=combined returns default + custom profiles with a source tag."""
+    """source=combined returns default + custom profiles with an origin tag."""
     client = _client(cfg_and_db)
     # Initial state: no custom profiles uploaded; combined == default.
     res = client.get("/base-editor-table?source=combined").json()
     assert res["ok"] is True
-    assert all(row["source"] == "default" for row in res["rows"])
+    assert all(row["origin"] == "default" for row in res["rows"])
     default_names = [row["name"] for row in res["rows"]]
 
     # Upload custom profiles; combined now contains both.
@@ -239,12 +239,101 @@ def test_base_editor_table_combined_source(cfg_and_db):
     )
     res = client.get("/base-editor-table?source=combined").json()
     assert res["ok"] is True
-    sources = {row["name"]: row["source"] for row in res["rows"]}
+    origins = {row["name"]: row["origin"] for row in res["rows"]}
     # Custom profiles are listed first.
-    assert sources["CustomABE1"] == "custom"
-    assert sources["CustomCBE1"] == "custom"
-    assert sources["ABE8e"] == "default"
+    assert origins["CustomABE1"] == "custom"
+    assert origins["CustomCBE1"] == "custom"
+    assert origins["ABE8e"] == "default"
     assert len(res["rows"]) == len(default_names) + 2
+
+
+def test_base_editor_table_parses_markdown_link(tmp_path, cfg_and_db):
+    """Default profiles with a ``[text](url)`` source cell must surface a
+    parsed ``{text, url}`` payload on every row."""
+    from pathlib import Path
+    from beguided.web.config import get_config
+
+    cfg = get_config()
+    presets = Path(cfg.base_editor_profiles_file)
+    presets.write_text(
+        "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
+        "high_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+        "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\t"
+        "[Richter et al, 2020](https://doi.org/10.1038/s41587-020-0453-z)\n"
+    )
+
+    client = _client(cfg_and_db)
+    res = client.get("/base-editor-table?source=default").json()
+    assert res["ok"] is True
+    rows = {row["name"]: row for row in res["rows"]}
+    assert rows["ABE8e"]["source"] == {
+        "text": "Richter et al, 2020",
+        "url": "https://doi.org/10.1038/s41587-020-0453-z",
+    }
+    assert rows["ABE8e"]["origin"] == "default"
+
+
+def test_base_editor_table_plain_text_source(tmp_path, cfg_and_db):
+    """A source cell with no ``(...)`` part is returned as plain text with
+    ``url=None`` so the frontend renders it as plain text."""
+    from pathlib import Path
+    from beguided.web.config import get_config
+
+    cfg = get_config()
+    presets = Path(cfg.base_editor_profiles_file)
+    presets.write_text(
+        "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
+        "high_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+        "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\n"
+    )
+
+    client = _client(cfg_and_db)
+    res = client.get("/base-editor-table?source=default").json()
+    assert res["ok"] is True
+    assert res["rows"][0]["source"] == {"text": "Nature2022", "url": None}
+
+
+def test_base_editor_table_rejects_non_http_url(tmp_path, cfg_and_db):
+    """Non-http(s) URLs (e.g. ``javascript:...``) must collapse to a plain
+    text cell; the entire raw cell is kept as ``text`` so nothing is lost."""
+    from pathlib import Path
+    from beguided.web.config import get_config
+
+    cfg = get_config()
+    presets = Path(cfg.base_editor_profiles_file)
+    presets.write_text(
+        "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
+        "high_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+        "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\t"
+        "[click](javascript:alert(1))\n"
+    )
+
+    client = _client(cfg_and_db)
+    res = client.get("/base-editor-table?source=default").json()
+    assert res["ok"] is True
+    src = res["rows"][0]["source"]
+    assert src["url"] is None
+    assert "javascript:alert(1)" in src["text"]
+
+
+def test_base_editor_table_custom_profiles_have_empty_source(cfg_and_db):
+    """Custom uploads drop the ``source`` column, so the rendered row must
+    carry an empty ``{text, url}`` payload."""
+    client = _client(cfg_and_db)
+    client.post(
+        "/base-editor-profiles/upload",
+        files={
+            "file": (
+                "p.tsv",
+                io.BytesIO(SAMPLE_PROFILES.encode()),
+                "text/tab-separated-values",
+            )
+        },
+    )
+    res = client.get("/base-editor-table?source=custom").json()
+    assert res["ok"] is True
+    assert res["rows"][0]["source"] == {"text": "", "url": None}
+    assert res["rows"][0]["origin"] == "custom"
 
 
 def test_status_initial_loaded_false(cfg_and_db):
