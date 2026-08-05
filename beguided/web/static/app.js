@@ -70,7 +70,14 @@ let customEditorKey = "custom";
 let customEditorLabel = "Custom (uploaded)";
 let customProfilesLoaded = false;
 let lastProfilesTableSource = null;
-const CUSTOM_PROFILES_LS_KEY = "beguidedCustomProfiles";
+// localStorage key for the user's last successfully uploaded custom
+// profiles spreadsheet. The value is the file's bytes encoded as
+// base64 so binary XLSX payloads survive intact. Bumped from
+// ``beguidedCustomProfiles`` (legacy TSV text cache) to ``.v2`` when
+// the upload format changed from TSV to XLSX; ``LEGACY_PROFILES_LS_KEY``
+// is read once on hydrate to clean up any leftover TSV entry.
+const CUSTOM_PROFILES_LS_KEY = "beguidedCustomProfiles.v2";
+const LEGACY_PROFILES_LS_KEY = "beguidedCustomProfiles";
 // Editor name -> editing type ("ABE" / "CBE" / ...) lookup, populated from
 // /base-editor-table?source=combined. Used by the Summary bar chart to color
 // per-editor bars by editing type.
@@ -1379,9 +1386,34 @@ function readCustomProfilesFromLocalStorage() {
     }
 }
 
-function writeCustomProfilesToLocalStorage(text) {
+// Encode an ArrayBuffer of arbitrary profile bytes (XLSX is binary) as
+// a base64 string so localStorage can carry it. UTF-8 round-trip via
+// String.fromCharCode / atob would corrupt non-ASCII bytes, which a
+// base64 detour avoids.
+function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(
+            null, bytes.subarray(i, i + chunk)
+        );
+    }
+    return btoa(binary);
+}
+
+function base64ToArrayBuffer(b64) {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
+function writeCustomProfilesToLocalStorage(b64) {
     try {
-        localStorage.setItem(CUSTOM_PROFILES_LS_KEY, text);
+        localStorage.setItem(CUSTOM_PROFILES_LS_KEY, b64);
         return true;
     } catch (_) {
         return false;
@@ -1396,14 +1428,23 @@ function clearCustomProfilesFromLocalStorage() {
 }
 
 async function hydrateCustomProfilesFromLocalStorage() {
-    const text = readCustomProfilesFromLocalStorage();
-    if (!text) return;
+    // One-shot migration: drop the legacy TSV-text cache so we don't
+    // keep re-uploading a payload the server no longer accepts.
     try {
+        localStorage.removeItem(LEGACY_PROFILES_LS_KEY);
+    } catch (_) {
+    }
+    const b64 = readCustomProfilesFromLocalStorage();
+    if (!b64) return;
+    try {
+        const buf = base64ToArrayBuffer(b64);
         const form = new FormData();
         form.append(
             "file",
-            new Blob([text], { type: "text/tab-separated-values" }),
-            "custom_profiles.tsv"
+            new Blob([buf], {
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            }),
+            "custom_profiles.xlsx"
         );
         const res = await fetch("/base-editor-profiles/upload", {
             method: "POST",
@@ -1491,7 +1532,7 @@ if (profilesUpload) {
     profilesUpload.addEventListener("change", async () => {
         const file = profilesUpload.files[0];
         if (!file) return;
-        const fileText = await file.text();
+        const fileBuffer = await file.arrayBuffer();
         const form = new FormData();
         form.append("file", file);
 
@@ -1520,7 +1561,7 @@ if (profilesUpload) {
             return;
         }
 
-        writeCustomProfilesToLocalStorage(fileText);
+        writeCustomProfilesToLocalStorage(arrayBufferToBase64(fileBuffer));
 
         hideProfilesAlert();
         showProfilesAlert(

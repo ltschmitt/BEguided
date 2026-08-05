@@ -1,10 +1,18 @@
-"""Tests for the custom base editor profiles upload + selection flow."""
+"""Tests for the custom base editor profiles upload + selection flow.
+
+The web upload accepts XLSX (preferred, matches the downloaded template)
+and TSV for backwards compatibility. The server normalises both to TSV
+in memory before storing, so all tests below use an XLSX fixture to
+exercise the new code path while still asserting the on-disk format
+the pipeline reads stays TSV.
+"""
 
 from __future__ import annotations
 
 import base64
 import io
 
+import pandas as pd
 import pytest
 
 
@@ -21,6 +29,26 @@ SAMPLE_PROFILES = (
     + "CustomABE1\tABE\t2\t13\t3\t8\tNGG\n"
     + "CustomCBE1\tCBE\t2\t10\t6\t6\tNGG\n"
 )
+SAMPLE_PROFILES_DF = pd.DataFrame(
+    [
+        {"name": "CustomABE1", "editing": "ABE",
+         "general_edit_start": 2, "general_edit_end": 13,
+         "high_edit_start": 3, "high_edit_end": 8, "pam": "NGG"},
+        {"name": "CustomCBE1", "editing": "CBE",
+         "general_edit_start": 2, "general_edit_end": 10,
+         "high_edit_start": 6, "high_edit_end": 6, "pam": "NGG"},
+    ]
+)
+
+
+def _xlsx_bytes(df: pd.DataFrame) -> bytes:
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False, engine="openpyxl")
+    return buf.getvalue()
+
+
+def _csv_bytes(df: pd.DataFrame) -> bytes:
+    return df.to_csv(index=False).encode("utf-8")
 
 
 @pytest.fixture
@@ -73,6 +101,32 @@ def _targets_tsv_b64(rows=("chr1\t50\tT\tC\n",)) -> str:
     return base64.b64encode(content).decode("ascii")
 
 
+def _post_profiles(client, name, payload, mime, df=None, suffix=None):
+    """Upload helper: pass either raw ``payload`` bytes or a DataFrame."""
+    if df is not None and suffix is not None:
+        if suffix == ".xlsx":
+            body = _xlsx_bytes(df)
+        elif suffix == ".csv":
+            body = _csv_bytes(df)
+        else:
+            body = df.to_csv(sep="\t", index=False).encode("utf-8")
+        return client.post(
+            "/base-editor-profiles/upload",
+            files={"file": (name, io.BytesIO(body), mime)},
+        )
+    return client.post(
+        "/base-editor-profiles/upload",
+        files={"file": (name, io.BytesIO(payload), mime)},
+    )
+
+
+XLSX_MIME = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+TSV_MIME = "text/tab-separated-values"
+CSV_MIME = "text/csv"
+
+
 def _wait_for_status(client, job_id, timeout=10.0):
     import time
 
@@ -85,11 +139,41 @@ def _wait_for_status(client, job_id, timeout=10.0):
     raise AssertionError("job did not finish in time")
 
 
-def test_upload_valid_profiles(cfg_and_db):
+# ---------------------------------------------------------------------------
+# Download endpoint — XLSX template
+# ---------------------------------------------------------------------------
+
+def test_download_serves_xlsx_template(cfg_and_db):
+    """The /base-editor-profiles/download endpoint serves an XLSX
+    template (matching the new preferred upload format). It must contain
+    a placeholder ``example`` row and a real ``ABE8e`` example, plus the
+    required schema columns plus the optional ``cas`` column. The
+    ``source`` column is intentionally omitted."""
+    cfg, _ = cfg_and_db
     client = _client(cfg_and_db)
-    res = client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("profiles.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    res = client.get("/base-editor-profiles/download")
+    assert res.status_code == 200
+    assert "spreadsheetml.sheet" in res.headers["content-type"]
+    assert res.headers["content-disposition"].endswith("template.xlsx")
+    df = pd.read_excel(io.BytesIO(res.content), engine="openpyxl")
+    assert list(df.columns) == [
+        "name", "editing", "general_edit_start", "general_edit_end",
+        "high_edit_start", "high_edit_end", "pam", "cas",
+    ]
+    assert "source" not in df.columns
+    assert set(df["name"]) == {"example", "ABE8e"}
+
+
+# ---------------------------------------------------------------------------
+# Upload — happy path XLSX
+# ---------------------------------------------------------------------------
+
+def test_upload_valid_xlsx(cfg_and_db):
+    client = _client(cfg_and_db)
+    res = _post_profiles(
+        client, "profiles.xlsx",
+        payload=None, mime=XLSX_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".xlsx",
     )
     assert res.status_code == 200, res.text
     body = res.json()
@@ -100,12 +184,93 @@ def test_upload_valid_profiles(cfg_and_db):
     assert body["label"] == "Custom (uploaded)"
 
 
-def test_upload_missing_required_columns(cfg_and_db):
+def test_upload_valid_tsv_still_accepted(cfg_and_db):
+    """Backward compatibility: plain TSV uploads keep working."""
     client = _client(cfg_and_db)
-    bad = "name\tediting\nABE8e\tABE\n"
     res = client.post(
         "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(bad.encode()), "text/tab-separated-values")},
+        files={
+            "file": (
+                "profiles.tsv",
+                io.BytesIO(SAMPLE_PROFILES.encode()),
+                TSV_MIME,
+            )
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["names"] == ["CustomABE1", "CustomCBE1"]
+
+
+def test_upload_valid_csv_accepted(cfg_and_db):
+    """CSV uploads are accepted defensively (mirrors /upload for targets)."""
+    client = _client(cfg_and_db)
+    res = _post_profiles(
+        client, "profiles.csv",
+        payload=None, mime=CSV_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".csv",
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["names"] == ["CustomABE1", "CustomCBE1"]
+
+
+def test_upload_xls_rejected_with_clear_message(cfg_and_db):
+    """Legacy .xls files cannot be parsed by openpyxl and lack xlrd in
+    the dependency set; the route must reject with a re-save hint."""
+    client = _client(cfg_and_db)
+    body = SAMPLE_PROFILES.encode()  # pretend TSV bytes
+    res = client.post(
+        "/base-editor-profiles/upload",
+        files={"file": ("profiles.xls", io.BytesIO(body), "application/vnd.ms-excel")},
+    )
+    assert res.status_code == 400
+    assert ".xlsx" in res.json()["error"]
+
+
+def test_upload_empty_file_rejected(cfg_and_db):
+    client = _client(cfg_and_db)
+    res = client.post(
+        "/base-editor-profiles/upload",
+        files={"file": ("profiles.xlsx", io.BytesIO(b""), XLSX_MIME)},
+    )
+    assert res.status_code == 400
+    assert "empty" in res.json()["error"].lower()
+
+
+def test_upload_unknown_extension_rejected(cfg_and_db):
+    client = _client(cfg_and_db)
+    body = SAMPLE_PROFILES.encode()
+    res = client.post(
+        "/base-editor-profiles/upload",
+        files={"file": ("profiles.xlsx.bin", io.BytesIO(body), "application/octet-stream")},
+    )
+    assert res.status_code == 400
+    assert "Unsupported file type" in res.json()["error"]
+
+
+def test_upload_extension_mismatch_rejected(cfg_and_db):
+    """An XLSX-magic-byte payload posted as ``.tsv`` must be rejected with
+    a clear magic-byte mismatch message — same protection as /upload."""
+    client = _client(cfg_and_db)
+    xlsx = _xlsx_bytes(SAMPLE_PROFILES_DF)
+    res = client.post(
+        "/base-editor-profiles/upload",
+        files={"file": ("p.tsv", io.BytesIO(xlsx), TSV_MIME)},
+    )
+    assert res.status_code == 400
+    assert "do not match" in res.json()["error"]
+
+
+# ---------------------------------------------------------------------------
+# Upload — validation rules (originally TSV; now exercise them via XLSX)
+# ---------------------------------------------------------------------------
+
+def test_upload_missing_required_columns(cfg_and_db):
+    client = _client(cfg_and_db)
+    bad = pd.DataFrame([
+        {"name": "ABE8e", "editing": "ABE"},
+    ])
+    res = _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME, df=bad, suffix=".xlsx",
     )
     assert res.status_code == 400
     assert "Missing required columns" in res.json()["error"]
@@ -113,10 +278,16 @@ def test_upload_missing_required_columns(cfg_and_db):
 
 def test_upload_duplicate_names_rejected(cfg_and_db):
     client = _client(cfg_and_db)
-    bad = HEADER + "Dup1\tABE\t2\t13\t3\t8\tNGG\n" + "Dup1\tCBE\t2\t10\t6\t6\tNGG\n"
-    res = client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(bad.encode()), "text/tab-separated-values")},
+    bad = pd.DataFrame([
+        {"name": "Dup1", "editing": "ABE",
+         "general_edit_start": 2, "general_edit_end": 13,
+         "high_edit_start": 3, "high_edit_end": 8, "pam": "NGG"},
+        {"name": "Dup1", "editing": "CBE",
+         "general_edit_start": 2, "general_edit_end": 10,
+         "high_edit_start": 6, "high_edit_end": 6, "pam": "NGG"},
+    ])
+    res = _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME, df=bad, suffix=".xlsx",
     )
     assert res.status_code == 400
     assert "Invalid profiles" in res.json()["error"]
@@ -124,12 +295,14 @@ def test_upload_duplicate_names_rejected(cfg_and_db):
 
 def test_upload_too_many_profiles(cfg_and_db):
     client = _client(cfg_and_db)
-    bad = HEADER + "".join(
-        f"BE{i}\tABE\t2\t13\t3\t8\tNGG\n" for i in range(11)
-    )
-    res = client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(bad.encode()), "text/tab-separated-values")},
+    bad = pd.DataFrame([
+        {"name": f"BE{i}", "editing": "ABE",
+         "general_edit_start": 2, "general_edit_end": 13,
+         "high_edit_start": 3, "high_edit_end": 8, "pam": "NGG"}
+        for i in range(11)
+    ])
+    res = _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME, df=bad, suffix=".xlsx",
     )
     assert res.status_code == 400
     assert "Too many profiles" in res.json()["error"]
@@ -137,10 +310,13 @@ def test_upload_too_many_profiles(cfg_and_db):
 
 def test_upload_pam_too_long(cfg_and_db):
     client = _client(cfg_and_db)
-    bad = HEADER + "Custom1\tABE\t2\t13\t3\t8\tNNNNNNN\n"
-    res = client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(bad.encode()), "text/tab-separated-values")},
+    bad = pd.DataFrame([{
+        "name": "Custom1", "editing": "ABE",
+        "general_edit_start": 2, "general_edit_end": 13,
+        "high_edit_start": 3, "high_edit_end": 8, "pam": "NNNNNNN",
+    }])
+    res = _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME, df=bad, suffix=".xlsx",
     )
     assert res.status_code == 400
     assert "PAM too long" in res.json()["error"]
@@ -148,10 +324,13 @@ def test_upload_pam_too_long(cfg_and_db):
 
 def test_upload_pam_exactly_six_bases_accepted(cfg_and_db):
     client = _client(cfg_and_db)
-    ok = HEADER + "Custom1\tABE\t2\t13\t3\t8\tNNNNNN\n"
-    res = client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(ok.encode()), "text/tab-separated-values")},
+    ok = pd.DataFrame([{
+        "name": "Custom1", "editing": "ABE",
+        "general_edit_start": 2, "general_edit_end": 13,
+        "high_edit_start": 3, "high_edit_end": 8, "pam": "NNNNNN",
+    }])
+    res = _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME, df=ok, suffix=".xlsx",
     )
     assert res.status_code == 200, res.text
     assert res.json()["ok"] is True
@@ -159,14 +338,14 @@ def test_upload_pam_exactly_six_bases_accepted(cfg_and_db):
 
 def test_upload_extra_columns_dropped(cfg_and_db):
     client = _client(cfg_and_db)
-    body = (
-        "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
-        "high_edit_start\thigh_edit_end\tpam\tcas\tsource\textra\n"
-        "Custom1\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\tdropped\n"
-    )
-    res = client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(body.encode()), "text/tab-separated-values")},
+    df = pd.DataFrame([{
+        "name": "Custom1", "editing": "ABE",
+        "general_edit_start": 2, "general_edit_end": 13,
+        "high_edit_start": 3, "high_edit_end": 8, "pam": "NGG",
+        "cas": "SpCas9", "source": "Nature2022", "extra": "dropped",
+    }])
+    res = _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME, df=df, suffix=".xlsx",
     )
     assert res.status_code == 200, res.text
     assert res.json()["ok"] is True
@@ -183,45 +362,27 @@ def test_max_upload_mb_is_one_by_default(cfg_and_db):
     assert cfg.max_profile_upload_mb == 1
 
 
-def test_download_serves_profiles_template(cfg_and_db):
-    """The /base-editor-profiles/download endpoint serves a template TSV
-    containing a placeholder ``example`` row plus a real example row
-    (ABE8e). The required schema columns are present, plus the optional
-    ``cas`` column; the ``source`` column is intentionally omitted."""
-    cfg, _ = cfg_and_db
-    client = _client(cfg_and_db)
-    res = client.get("/base-editor-profiles/download")
-    assert res.status_code == 200
-    assert res.headers["content-type"].startswith("text/tab-separated-values")
-    assert "template" in res.headers["content-disposition"].lower()
-    # Required header columns + the optional ``cas`` column.
-    header_line = res.text.splitlines()[0]
-    for col in (
-        "name", "editing", "general_edit_start", "general_edit_end",
-        "high_edit_start", "high_edit_end", "pam", "cas",
-    ):
-        assert col in header_line
-    # The ``source`` column is intentionally not in the template.
-    assert "source" not in header_line
-    # Body rows: one ``example`` placeholder and one ABE8e example.
-    assert "example" in res.text
-    assert "ABE8e" in res.text
-
-
 def test_upload_rejects_name_collision_with_default(cfg_and_db):
     """Uploading a custom profile whose name already exists in the default
     profiles file must be rejected with a clear collision error."""
     client = _client(cfg_and_db)
     # cfg_and_db's default file already contains ABE8e
-    colliding = HEADER + "ABE8e\tABE\t2\t13\t3\t8\tNGG\n"
-    res = client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(colliding.encode()), "text/tab-separated-values")},
+    df = pd.DataFrame([{
+        "name": "ABE8e", "editing": "ABE",
+        "general_edit_start": 2, "general_edit_end": 13,
+        "high_edit_start": 3, "high_edit_end": 8, "pam": "NGG",
+    }])
+    res = _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME, df=df, suffix=".xlsx",
     )
     assert res.status_code == 400
     assert "Name collision" in res.json()["error"]
     assert "ABE8e" in res.json()["error"]
 
+
+# ---------------------------------------------------------------------------
+# Base-editor table endpoint
+# ---------------------------------------------------------------------------
 
 def test_base_editor_table_combined_source(cfg_and_db):
     """source=combined returns default + custom profiles with an origin tag."""
@@ -233,9 +394,9 @@ def test_base_editor_table_combined_source(cfg_and_db):
     default_names = [row["name"] for row in res["rows"]]
 
     # Upload custom profiles; combined now contains both.
-    client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".xlsx",
     )
     res = client.get("/base-editor-table?source=combined").json()
     assert res["ok"] is True
@@ -320,21 +481,19 @@ def test_base_editor_table_custom_profiles_have_empty_source(cfg_and_db):
     """Custom uploads drop the ``source`` column, so the rendered row must
     carry an empty ``{text, url}`` payload."""
     client = _client(cfg_and_db)
-    client.post(
-        "/base-editor-profiles/upload",
-        files={
-            "file": (
-                "p.tsv",
-                io.BytesIO(SAMPLE_PROFILES.encode()),
-                "text/tab-separated-values",
-            )
-        },
+    _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".xlsx",
     )
     res = client.get("/base-editor-table?source=custom").json()
     assert res["ok"] is True
     assert res["rows"][0]["source"] == {"text": "", "url": None}
     assert res["rows"][0]["origin"] == "custom"
 
+
+# ---------------------------------------------------------------------------
+# Status endpoint
+# ---------------------------------------------------------------------------
 
 def test_status_initial_loaded_false(cfg_and_db):
     client = _client(cfg_and_db)
@@ -348,9 +507,9 @@ def test_status_initial_loaded_false(cfg_and_db):
 
 def test_status_reflects_upload(cfg_and_db):
     client = _client(cfg_and_db)
-    client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".xlsx",
     )
     res = client.get("/base-editor-profiles/status")
     body = res.json()
@@ -358,11 +517,15 @@ def test_status_reflects_upload(cfg_and_db):
     assert body["names"] == ["CustomABE1", "CustomCBE1"]
 
 
+# ---------------------------------------------------------------------------
+# /check and /run with custom profiles
+# ---------------------------------------------------------------------------
+
 def test_check_uses_custom_profiles(cfg_and_db):
     client = _client(cfg_and_db)
-    client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".xlsx",
     )
     res = client.post(
         "/check",
@@ -412,9 +575,9 @@ def test_run_payload_with_custom_profiles(cfg_and_db, monkeypatch):
     sched_mod.execute_job = fake_execute_job
 
     client = _client(cfg_and_db)
-    client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".xlsx",
     )
 
     res = client.post(
@@ -452,9 +615,9 @@ def test_run_default_after_upload_does_not_use_custom(cfg_and_db, monkeypatch):
     sched_mod.execute_job = fake_execute_job
 
     client = _client(cfg_and_db)
-    client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".xlsx",
     )
 
     res = client.post(
@@ -481,16 +644,37 @@ def test_run_custom_without_upload_rejected(cfg_and_db):
     assert "No custom profiles" in res.json()["error"]
 
 
+# ---------------------------------------------------------------------------
+# Store-level invariants
+# ---------------------------------------------------------------------------
+
+def test_store_holds_normalised_tsv_after_xlsx_upload(cfg_and_db):
+    """Regardless of upload format, ``get_store().get_bytes()`` returns
+    canonical TSV bytes so downstream readers (workdir writer, scheduler
+    audit, /base-editor-table) keep working unchanged."""
+    from beguided.web.profiles_store import get_store
+
+    client = _client(cfg_and_db)
+    _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".xlsx",
+    )
+    stored = get_store().get_bytes()
+    assert stored is not None
+    df = pd.read_csv(io.BytesIO(stored), sep="\t")
+    assert sorted(df["name"].tolist()) == ["CustomABE1", "CustomCBE1"]
+
+
 def test_store_lives_in_memory_only(cfg_and_db, tmp_path):
     from beguided.web.profiles_store import get_store
 
     client = _client(cfg_and_db)
-    client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".xlsx",
     )
     assert get_store().is_loaded() is True
-    assert get_store().get_bytes() == SAMPLE_PROFILES.encode()
+    assert get_store().get_bytes() is not None
 
     profile_paths = [p for p in tmp_path.rglob("*profiles*")]
     assert profile_paths == [], f"upload wrote unexpected files: {profile_paths}"
@@ -500,15 +684,19 @@ def test_store_lives_in_memory_only(cfg_and_db, tmp_path):
     assert client.get("/base-editor-profiles/status").json()["loaded"] is False
 
 
-def test_reupload_same_tsv_is_idempotent(cfg_and_db):
+# ---------------------------------------------------------------------------
+# Re-upload behaviour
+# ---------------------------------------------------------------------------
+
+def test_reupload_same_xlsx_is_idempotent(cfg_and_db):
     """The browser-side localStorage cache re-POSTs the same bytes on every
     page load. The server must accept the re-upload without complaint and
     end up holding the same profiles."""
     client = _client(cfg_and_db)
     for _ in range(2):
-        res = client.post(
-            "/base-editor-profiles/upload",
-            files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+        res = _post_profiles(
+            client, "p.xlsx", None, XLSX_MIME,
+            df=SAMPLE_PROFILES_DF, suffix=".xlsx",
         )
         assert res.status_code == 200, res.text
         assert res.json()["ok"] is True
@@ -519,24 +707,30 @@ def test_reupload_same_tsv_is_idempotent(cfg_and_db):
     assert status["names"] == ["CustomABE1", "CustomCBE1"]
 
 
-def test_reupload_different_tsv_replaces(cfg_and_db):
+def test_reupload_different_xlsx_replaces(cfg_and_db):
     """A new upload supersedes whatever was previously stored. The
     localStorage cache mirrors this: every successful upload overwrites the
     stored bytes, so the next page load re-POSTs the latest file only."""
     client = _client(cfg_and_db)
-    first = HEADER + "FirstBE\tABE\t2\t13\t3\t8\tNGG\n"
-    second = HEADER + "SecondBE\tCBE\t2\t10\t6\t6\tNGG\n"
+    first = pd.DataFrame([{
+        "name": "FirstBE", "editing": "ABE",
+        "general_edit_start": 2, "general_edit_end": 13,
+        "high_edit_start": 3, "high_edit_end": 8, "pam": "NGG",
+    }])
+    second = pd.DataFrame([{
+        "name": "SecondBE", "editing": "CBE",
+        "general_edit_start": 2, "general_edit_end": 10,
+        "high_edit_start": 6, "high_edit_end": 6, "pam": "NGG",
+    }])
 
-    res = client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(first.encode()), "text/tab-separated-values")},
+    res = _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME, df=first, suffix=".xlsx",
     )
     assert res.status_code == 200
     assert res.json()["names"] == ["FirstBE"]
 
-    res = client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(second.encode()), "text/tab-separated-values")},
+    res = _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME, df=second, suffix=".xlsx",
     )
     assert res.status_code == 200
     assert res.json()["names"] == ["SecondBE"]
@@ -550,22 +744,22 @@ def test_reupload_different_tsv_replaces(cfg_and_db):
 
 
 def test_invalid_reupload_does_not_clear_existing(cfg_and_db):
-    """If the browser's localStorage holds a stale TSV that fails server
-    validation, the existing server-side store must remain intact. The JS
-    hydrate path drops the local entry on validation failure, so this
-    guarantees a failed bootstrap never erases another user's upload on
-    the same server."""
+    """If the browser's localStorage holds a stale payload that fails
+    server validation, the existing server-side store must remain
+    intact. The JS hydrate path drops the local entry on validation
+    failure, so this guarantees a failed bootstrap never erases another
+    user's upload on the same server."""
     client = _client(cfg_and_db)
-    res = client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".xlsx",
     )
-    assert res.status_code == 200
 
-    bad = "name\tediting\nNoPam\tABE\n"
-    res = client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(bad.encode()), "text/tab-separated-values")},
+    bad = pd.DataFrame([
+        {"name": "NoPam", "editing": "ABE"},
+    ])
+    res = _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME, df=bad, suffix=".xlsx",
     )
     assert res.status_code == 400
 
@@ -575,11 +769,8 @@ def test_invalid_reupload_does_not_clear_existing(cfg_and_db):
 
 
 def test_build_config_writes_custom_profiles_to_workdir(cfg_and_db, tmp_path):
-    import base64 as _b64
-
     cfg, _ = cfg_and_db
     from beguided.web.tasks import _build_config
-    import pandas as pd
 
     work_dir = tmp_path / "custom_workdir"
     work_dir.mkdir()
@@ -590,7 +781,15 @@ def test_build_config_writes_custom_profiles_to_workdir(cfg_and_db, tmp_path):
         "target_base": ["T"],
         "desired_base": ["C"],
     })
-    custom_b64 = _b64.b64encode(SAMPLE_PROFILES.encode()).decode("ascii")
+    # Use the TSV-form bytes the store hands out (the canonical wire format
+    # for the scheduler/workdir writer).
+    from beguided.web.profiles_store import get_store
+    get_store().clear()
+    _post_profiles(
+        client_tmp := _client(cfg_and_db), "p.xlsx", None, XLSX_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".xlsx",
+    )
+    custom_b64 = base64.b64encode(get_store().get_bytes()).decode("ascii")
     config = _build_config(
         targets,
         base_editor_names=["CustomABE1", "CustomCBE1"],
@@ -608,6 +807,10 @@ def test_build_config_writes_custom_profiles_to_workdir(cfg_and_db, tmp_path):
     assert written.exists()
     assert "CustomABE1" in written.read_text()
 
+
+# ---------------------------------------------------------------------------
+# /check — comma-separated editor names
+# ---------------------------------------------------------------------------
 
 def test_check_accepts_comma_separated_editor_names(cfg_and_db):
     """Multi-select UI sends comma-separated individual editor names."""
@@ -731,9 +934,9 @@ def test_check_mixed_custom_and_default_names(cfg_and_db):
     get_store().clear()
 
     client = _client(cfg_and_db)
-    client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".xlsx",
     )
     # Default fixture has ABE8e (ABE); SAMPLE_PROFILES has CustomABE1 + CustomCBE1.
     # Sending a mix should succeed and match both editing directions.
@@ -779,9 +982,9 @@ def test_run_mixed_custom_and_default_includes_merged_profiles_b64(
     sched_mod.execute_job = fake_execute_job
 
     client = _client(cfg_and_db)
-    client.post(
-        "/base-editor-profiles/upload",
-        files={"file": ("p.tsv", io.BytesIO(SAMPLE_PROFILES.encode()), "text/tab-separated-values")},
+    _post_profiles(
+        client, "p.xlsx", None, XLSX_MIME,
+        df=SAMPLE_PROFILES_DF, suffix=".xlsx",
     )
     res = client.post(
         "/run",

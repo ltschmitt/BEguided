@@ -15,7 +15,7 @@ def test_validate_uploaded_profiles_accepts_minimal_columns():
         "high_edit_start\thigh_edit_end\tpam\n"
         "ABE8e\tABE\t2\t13\t3\t8\tNGG\n"
     )
-    df = validate_uploaded_profiles(body.encode(), 1024 * 1024)
+    df = validate_uploaded_profiles(body.encode(), ".tsv", 1024 * 1024)
     assert list(df.columns) == [
         "name",
         "editing",
@@ -37,7 +37,7 @@ def test_validate_uploaded_profiles_drops_extra_columns():
         "high_edit_start\thigh_edit_end\tpam\tcas\tsource\textra\n"
         "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\tdropme\n"
     )
-    df = validate_uploaded_profiles(body.encode(), 1024 * 1024)
+    df = validate_uploaded_profiles(body.encode(), ".tsv", 1024 * 1024)
     assert "cas" not in df.columns
     assert "source" not in df.columns
     assert "extra" not in df.columns
@@ -51,7 +51,7 @@ def test_validate_uploaded_profiles_size_limit():
 
     body = b"x" * 2048
     with pytest.raises(ProfilesUploadError) as exc:
-        validate_uploaded_profiles(body, 1024)
+        validate_uploaded_profiles(body, ".tsv", 1024)
     assert "too large" in str(exc.value).lower()
 
 
@@ -63,7 +63,7 @@ def test_validate_uploaded_profiles_missing_columns():
 
     body = "name\tediting\nABE8e\tABE\n"
     with pytest.raises(ProfilesUploadError) as exc:
-        validate_uploaded_profiles(body.encode(), 1024 * 1024)
+        validate_uploaded_profiles(body.encode(), ".tsv", 1024 * 1024)
     assert "Missing required columns" in str(exc.value)
 
 
@@ -82,7 +82,7 @@ def test_validate_uploaded_profiles_row_limit():
         f"BE{i}\tABE\t2\t13\t3\t8\tNGG\n" for i in range(MAX_PROFILE_ROWS + 1)
     )
     with pytest.raises(ProfilesUploadError) as exc:
-        validate_uploaded_profiles(body.encode(), 1024 * 1024)
+        validate_uploaded_profiles(body.encode(), ".tsv", 1024 * 1024)
     assert "Too many profiles" in str(exc.value)
 
 
@@ -99,11 +99,11 @@ def test_validate_uploaded_profiles_pam_length_limit():
     )
     too_long = header + f"ABE8e\tABE\t2\t13\t3\t8\t{'N' * (MAX_PROFILE_PAM_LEN + 1)}\n"
     with pytest.raises(ProfilesUploadError) as exc:
-        validate_uploaded_profiles(too_long.encode(), 1024 * 1024)
+        validate_uploaded_profiles(too_long.encode(), ".tsv", 1024 * 1024)
     assert "PAM too long" in str(exc.value)
 
     exactly_max = header + f"ABE8e\tABE\t2\t13\t3\t8\t{'N' * MAX_PROFILE_PAM_LEN}\n"
-    df = validate_uploaded_profiles(exactly_max.encode(), 1024 * 1024)
+    df = validate_uploaded_profiles(exactly_max.encode(), ".tsv", 1024 * 1024)
     assert len(df) == 1
 
 

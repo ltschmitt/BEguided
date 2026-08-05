@@ -1,10 +1,18 @@
-"""In-memory store and validator for user-uploaded base editor profiles TSV.
+"""In-memory store and validator for user-uploaded base editor profiles.
 
-The web app lets users upload a custom base editor profiles TSV that
-replaces the operator-configured file for the lifetime of the server.
-Uploads are validated against a fixed schema and rejected if they fail
-any check. The store itself is a thread-safe singleton; the scheduler
-is single-worker but uploads come from the async event loop.
+The web app lets users upload a custom base editor profiles spreadsheet
+that replaces the operator-configured file for the lifetime of the
+server. Uploads are validated against a fixed schema and rejected if
+they fail any check. The store itself is a thread-safe singleton; the
+scheduler is single-worker but uploads come from the async event loop.
+
+Both XLSX (``application/vnd.openxmlformats-officedocument.spreadsheetml.sheet``)
+and TSV are accepted. CSV is also accepted defensively. The downstream
+pipeline only knows how to read TSV, so the store normalises whatever
+format was uploaded back to TSV bytes; the route hands the parser a
+DataFrame directly and stores its TSV serialisation. This keeps the
+disk format invariant (always TSV) and the audit label in the
+scheduler (``tsv_b64``) honest.
 """
 
 from __future__ import annotations
@@ -30,31 +38,118 @@ REQUIRED_PROFILE_COLUMNS = (
 MAX_PROFILE_ROWS = 10
 MAX_PROFILE_PAM_LEN = 6
 
+# Extensions accepted by ``validate_uploaded_profiles``. ``.xls`` is listed
+# for completeness; we cannot actually parse it without the optional
+# ``xlrd`` dependency, and uploads in that format are rejected with a
+# clear "re-save as .xlsx" hint at the route layer.
+SUPPORTED_PROFILE_SUFFIXES = (".xlsx", ".xls", ".tsv", ".csv")
+
+# Magic-byte prefixes used to reject uploads whose extension lies about
+# their contents (mirrors ``_sniff_upload_kind`` in ``app.py`` for the
+# targets route).
+_XLSX_MAGIC = b"PK\x03\x04"
+_XLS_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
 
 class ProfilesUploadError(ValueError):
-    """Raised when an uploaded profiles TSV fails validation."""
+    """Raised when an uploaded profiles spreadsheet fails validation."""
 
     def __init__(self, message: str, status_code: int = 400) -> None:
         super().__init__(message)
         self.status_code = status_code
 
 
+def _sniff_profile_bytes(content: bytes, suffix: str) -> str:
+    """Return the inferred profile kind (``"xlsx"``/``"xls"``/``"tsv"``/``"csv"``/``"binary"``).
+
+    Anything that contains a NUL byte in the first 1 KiB is treated as
+    binary unless the extension is an Office format whose magic matches.
+    """
+    head = content[:1024]
+    if not head:
+        return "binary"
+    sfx = suffix.lower()
+    if sfx in (".xlsx", ".xls"):
+        if sfx == ".xlsx" and head.startswith(_XLSX_MAGIC):
+            return "xlsx"
+        if sfx == ".xls" and head.startswith(_XLS_MAGIC):
+            return "xls"
+        return "binary"
+    try:
+        head_text = head.decode("utf-8")
+    except UnicodeDecodeError:
+        return "binary"
+    if "\x00" in head_text:
+        return "binary"
+    if sfx == ".csv":
+        return "csv" if "," in head_text else "tsv"
+    if "\t" in head_text:
+        return "tsv"
+    if "," in head_text:
+        return "csv"
+    return "tsv"
+
+
+def _read_profile_dataframe(content: bytes, suffix: str) -> pd.DataFrame:
+    """Parse a profile spreadsheet payload into a DataFrame.
+
+    The reader is chosen from ``suffix`` first, then validated against
+    the magic bytes via ``_sniff_profile_bytes``. ``.xls`` is rejected
+    explicitly because parsing it requires the optional ``xlrd`` package
+    and the user is much better served by re-saving the workbook as
+    ``.xlsx`` (which is what the template is).
+    """
+    sfx = suffix.lower()
+    if sfx not in SUPPORTED_PROFILE_SUFFIXES:
+        raise ProfilesUploadError(
+            f"Unsupported file type: '{sfx or '<no extension>'}'. "
+            f"Allowed: {', '.join(SUPPORTED_PROFILE_SUFFIXES)}."
+        )
+
+    kind = _sniff_profile_bytes(content, sfx)
+    if kind == "binary":
+        raise ProfilesUploadError(
+            f"Uploaded file contents do not match the {sfx} extension. "
+            "Allowed: .xlsx, .tsv, .csv."
+        )
+
+    try:
+        if kind == "xlsx":
+            return pd.read_excel(io.BytesIO(content), engine="openpyxl")
+        if kind == "xls":
+            raise ProfilesUploadError(
+                "Legacy .xls format is not supported. Please re-save the "
+                "workbook as .xlsx and upload that file."
+            )
+        if kind == "csv":
+            return pd.read_csv(io.BytesIO(content))
+        return pd.read_csv(io.BytesIO(content), sep="\t")
+    except ProfilesUploadError:
+        raise
+    except Exception as exc:
+        raise ProfilesUploadError(f"Failed to parse file: {exc}")
+
+
 def validate_uploaded_profiles(
     content: bytes,
+    suffix: str,
     max_bytes: int,
     default_profiles_file: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Validate an uploaded profiles TSV and return the parsed DataFrame.
+    """Validate an uploaded profiles spreadsheet and return its DataFrame.
 
     Checks (in order): file size, parse-ability, required columns, row
     count, PAM length, name collisions with the default profiles file.
     Extra columns are dropped; only the required columns are returned.
 
     Args:
-        content: Raw TSV bytes from the upload.
+        content: Raw bytes from the upload (any of ``.xlsx``/``.tsv``/``.csv``).
+        suffix: Lower-cased filename suffix (e.g. ``".xlsx"``) used to pick
+            the parser and to flag mismatches between the extension and
+            the magic bytes.
         max_bytes: Maximum file size in bytes.
         default_profiles_file: Optional path to the operator-configured
-            default profiles TSV. When provided, any uploaded name that
+            default profiles file. When provided, any uploaded name that
             already exists in this file triggers a collision error.
 
     Raises:
@@ -67,10 +162,7 @@ def validate_uploaded_profiles(
             f"File too large: {size_mb:.2f} MB (max {max_mb:g} MB)"
         )
 
-    try:
-        df = pd.read_csv(io.BytesIO(content), sep="\t")
-    except Exception as exc:
-        raise ProfilesUploadError(f"Failed to parse TSV: {exc}")
+    df = _read_profile_dataframe(content, suffix)
 
     missing = set(REQUIRED_PROFILE_COLUMNS) - set(df.columns)
     if missing:
@@ -120,15 +212,45 @@ def validate_uploaded_profiles(
     return df[list(REQUIRED_PROFILE_COLUMNS)].copy()
 
 
+def _dataframe_to_tsv_bytes(df: pd.DataFrame) -> bytes:
+    """Serialise a validated profiles DataFrame back to TSV bytes.
+
+    The store keeps the canonical TSV representation so that
+    ``get_bytes()`` always returns the same format, regardless of what
+    the user uploaded. This also means ``load_base_editor_profiles`` and
+    the workdir writer in ``tasks.py`` keep reading TSV with no change.
+    """
+    return df.to_csv(sep="\t", index=False).encode("utf-8")
+
+
 class CustomProfilesStore:
-    """Singleton holding one uploaded base editor profiles TSV in memory."""
+    """Singleton holding one uploaded base editor profiles spreadsheet in memory.
+
+    Whatever format the user uploads (XLSX or TSV), the bytes returned by
+    :meth:`get_bytes` are always TSV. Use :meth:`set_dataframe` from the
+    upload route once ``validate_uploaded_profiles`` has returned a clean
+    DataFrame.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._bytes: Optional[bytes] = None
         self._names: List[str] = []
 
+    def set_dataframe(self, df: pd.DataFrame) -> None:
+        """Store the validated DataFrame as canonical TSV bytes."""
+        tsv_bytes = _dataframe_to_tsv_bytes(df)
+        with self._lock:
+            self._bytes = tsv_bytes
+            self._names = sorted(df["name"].astype(str).tolist())
+
     def set(self, content: bytes) -> None:
+        """Backwards-compatible entry point used by tests.
+
+        Treats ``content`` as TSV bytes (the format the store has always
+        held). New callers should prefer :meth:`set_dataframe` after
+        validating an arbitrary spreadsheet format.
+        """
         with self._lock:
             self._bytes = content
             try:

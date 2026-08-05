@@ -161,7 +161,7 @@
             <em>High-activity</em> = the narrower window where editing is most
             efficient. The full profile table lives on the
             <em>Base Editors</em> tab, where you can also upload a custom
-            profiles TSV.
+            profiles spreadsheet.
         </p>
     </div>
 </div>
@@ -171,15 +171,15 @@
         <h2 style="margin-top:0;">Base editor profiles</h2>
         <p style="color:var(--muted);">
             The default and custom profiles currently available are shown below.
-            Uploading a custom TSV adds its profiles to the multi-select in the
+            Uploading a custom XLSX adds its profiles to the multi-select in the
             top bar (under a dedicated <em>Custom</em> group). Custom profile
             names must not collide with default ones. The custom base editor
             upload is limited to 10 profiles.
         </p>
 
         <div class="be-upload-row">
-            <label for="profilesUpload">Upload custom profiles (TSV)</label>
-            <input type="file" id="profilesUpload" accept=".tsv" />
+            <label for="profilesUpload">Upload custom profiles (XLSX, TSV)</label>
+            <input type="file" id="profilesUpload" accept=".xlsx,.xls,.tsv,.csv" />
             <a id="downloadProfiles" class="btn btn-secondary" href="/base-editor-profiles/download" download>Download profiles template</a>
         </div>
 
@@ -198,7 +198,7 @@
         </p>
 
         <p style="color:var(--muted); font-size:12px; margin-top:12px;">
-            Constraints for uploads: TSV with the columns
+            Constraints for uploads: XLSX (or TSV) with the columns
             <code>name</code>, <code>editing</code>,
             <code>general_edit_start</code>, <code>general_edit_end</code>,
             <code>high_edit_start</code>, <code>high_edit_end</code>,

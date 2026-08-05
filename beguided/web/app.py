@@ -34,6 +34,7 @@ from beguided.editing.presets import (
 from beguided.web import genome_cache, gtf_cache
 from beguided.web.profiles_store import (
     ProfilesUploadError,
+    SUPPORTED_PROFILE_SUFFIXES,
     get_store as get_profiles_store,
     validate_uploaded_profiles,
 )
@@ -630,12 +631,25 @@ def create_app() -> FastAPI:
 
     @app.post("/base-editor-profiles/upload")
     async def upload_profiles(file: UploadFile = File(...)) -> JSONResponse:
-        """Validate and store a custom base editor profiles TSV in memory."""
+        """Validate and store a custom base editor profiles spreadsheet.
+
+        Accepts ``.xlsx`` (preferred, matches the downloaded template)
+        and ``.tsv`` for backward compatibility. ``.csv`` is also
+        accepted defensively. The store normalises everything to TSV
+        bytes so the downstream pipeline keeps reading TSV.
+        """
         content = await file.read()
+        suffix = Path(file.filename or "").suffix.lower()
+        if not content:
+            return JSONResponse(
+                {"ok": False, "error": "Uploaded file is empty."},
+                status_code=400,
+            )
         cfg = get_config()
         try:
-            validate_uploaded_profiles(
+            df = validate_uploaded_profiles(
                 content,
+                suffix,
                 cfg.max_profile_upload_mb * 1024 * 1024,
                 default_profiles_file=cfg.base_editor_profiles_file,
             )
@@ -646,7 +660,9 @@ def create_app() -> FastAPI:
             )
 
         try:
-            load_base_editor_profiles(io.BytesIO(content))
+            load_base_editor_profiles(io.BytesIO(
+                df.to_csv(sep="\t", index=False).encode("utf-8")
+            ))
         except (ValueError, KeyError) as exc:
             return JSONResponse(
                 {"ok": False, "error": f"Invalid profiles: {exc}"},
@@ -654,7 +670,7 @@ def create_app() -> FastAPI:
             )
 
         store = get_profiles_store()
-        store.set(content)
+        store.set_dataframe(df)
         names = store.names()
         return JSONResponse({
             "ok": True,
@@ -666,26 +682,50 @@ def create_app() -> FastAPI:
 
     @app.get("/base-editor-profiles/download")
     def download_profiles() -> Response:
-        """Serve a base editor profiles TSV template.
+        """Serve a base editor profiles XLSX template.
 
         The template contains one placeholder row (``example``) and one
         real example row (ABE8e) so users can see the expected schema.
         Columns: name, editing, general_edit_start, general_edit_end,
         high_edit_start, high_edit_end, pam, cas. The ``cas`` column is
-        optional on upload; everything else is required.
+        optional on upload; everything else is required. Users can still
+        upload a plain TSV (or CSV) — the server accepts both — but the
+        XLSX template is the recommended starting point.
         """
-        template = (
-            "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
-            "high_edit_start\thigh_edit_end\tpam\tcas\n"
-            "example\tABE\t2\t13\t3\t8\tNGG\tSpCas9\n"
-            "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\n"
+        df = pd.DataFrame(
+            [
+                {
+                    "name": "example",
+                    "editing": "ABE",
+                    "general_edit_start": 2,
+                    "general_edit_end": 13,
+                    "high_edit_start": 3,
+                    "high_edit_end": 8,
+                    "pam": "NGG",
+                    "cas": "SpCas9",
+                },
+                {
+                    "name": "ABE8e",
+                    "editing": "ABE",
+                    "general_edit_start": 2,
+                    "general_edit_end": 13,
+                    "high_edit_start": 3,
+                    "high_edit_end": 8,
+                    "pam": "NGG",
+                    "cas": "SpCas9",
+                },
+            ]
         )
+        buf = io.BytesIO()
+        df.to_excel(buf, index=False, engine="openpyxl")
         return Response(
-            template,
-            media_type="text/tab-separated-values",
+            buf.getvalue(),
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
             headers={
                 "Content-Disposition":
-                    "attachment; filename=base_editor_profiles_template.tsv"
+                    "attachment; filename=base_editor_profiles_template.xlsx"
             },
         )
 

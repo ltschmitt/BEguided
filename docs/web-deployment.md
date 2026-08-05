@@ -118,7 +118,7 @@ Behaviour:
 | Revoke tokens | Hashed SHA-256 in `jobs.db`; raw token shown to user once |
 | Scheduler cooldown map | In-memory, TTL-pruned after 4× `cooldown_seconds` |
 | Proxy / web logs | Operator-defined (`legal.log_retention_days`); salted IP |
-| Uploaded custom base editor profiles | Server: in-memory only, lost on restart. Browser: cached in `localStorage` (`beguidedCustomProfiles`) and re-POSTed on every page load so the same browser rehydrates the server copy automatically. Switching browsers or computers starts fresh; clearing site data wipes the local copy. |
+| Uploaded custom base editor profiles | Server: in-memory only, lost on restart. Browser: cached in `localStorage` (`beguidedCustomProfiles.v2`) and re-POSTed on every page load so the same browser rehydrates the server copy automatically. Switching browsers or computers starts fresh; clearing site data wipes the local copy. Uploads accept XLSX (recommended, matches the downloaded template) and TSV; the server normalises everything to TSV in memory so the pipeline never sees XLSX bytes. |
 
 The retention sweeper runs every 15 min by default.
 
