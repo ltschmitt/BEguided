@@ -14,11 +14,25 @@
             {% block content %}{% endblock %}
         </main>
         <footer class="site-footer" role="contentinfo">
-            <nav aria-label="Legal">
-                <a href="/impressum">Imprint</a>
-                <a href="/datenschutz">Privacy</a>
-                <a href="/agb">Terms of Use</a>
-            </nav>
+            <div class="site-footer-top">
+                <nav aria-label="Legal">
+                    <a href="/impressum">Imprint</a>
+                    <a href="/datenschutz">Privacy</a>
+                    <a href="/agb">Terms of Use</a>
+                </nav>
+                <nav aria-label="Partner institutions" class="site-footer-partners">
+                    <a href="https://tu-dresden.de/" target="_blank" rel="noopener noreferrer">
+                        <img src="/static/logo_tu_dresden.svg"
+                             alt="TU Dresden"
+                             class="site-footer-partner-logo">
+                    </a>
+                    <a href="https://www.buchholzlab.org/" target="_blank" rel="noopener noreferrer">
+                        <img src="/static/logo_buchholz_lab.svg"
+                             alt="Buchholz Lab"
+                             class="site-footer-partner-logo">
+                    </a>
+                </nav>
+            </div>
             <p class="site-footer-meta">
                 BEguided is a research tool. Do not upload personally
                 identifying human genomic data.
