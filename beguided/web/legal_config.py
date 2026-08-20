@@ -50,6 +50,28 @@ class LegalConfig:
     log_retention_days: int = 0
     last_updated: str = ""
 
+    # Higher-level institution reference (template uses
+    # "Technische Universität Dresden" throughout the imprint).
+    hosting_legal_name: str = ""
+    hosting_legal_postal: List[str] = field(default_factory=list)
+    hosting_legal_email: str = ""
+    # Head of institution for "Technical implementation" (template maps
+    # this to vertretungsberechtigter when empty).
+    head_of_institution: str = ""
+    # Public URL of the service (replaces the template's
+    # <Please enter your URL here> placeholder).
+    website_url: str = ""
+    # Data Protection Officer phone/fax (template defaults below).
+    dpo_phone: str = ""
+    dpo_fax: str = ""
+    # Competent supervisory authority head/address/email/phone/web
+    # (template defaults below for the Saxon DPA).
+    competent_dpa_head: str = ""
+    competent_dpa_address: List[str] = field(default_factory=list)
+    competent_dpa_email: str = ""
+    competent_dpa_phone: str = ""
+    competent_dpa_web: str = ""
+
 
 # Fields the loader accepts. Anything else in the YAML is ignored so the
 # file can carry comments or future fields without breaking older builds.
@@ -65,10 +87,22 @@ _KNOWN_SCALAR_FIELDS = (
     "competent_dpa",
     "log_retention_days",
     "last_updated",
+    "hosting_legal_name",
+    "hosting_legal_email",
+    "head_of_institution",
+    "website_url",
+    "dpo_phone",
+    "dpo_fax",
+    "competent_dpa_head",
+    "competent_dpa_email",
+    "competent_dpa_phone",
+    "competent_dpa_web",
 )
 _KNOWN_LIST_FIELDS = (
     "address_lines",
     "dpo_address",
+    "hosting_legal_postal",
+    "competent_dpa_address",
 )
 
 
