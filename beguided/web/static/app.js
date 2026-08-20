@@ -654,7 +654,10 @@ tabButtons.forEach(btn => {
 
 function switchTab(tabId) {
     tabButtons.forEach(b => {
-        b.classList.toggle("active", b.dataset.tab === tabId);
+        const isActive = b.dataset.tab === tabId;
+        b.classList.toggle("active", isActive);
+        b.setAttribute("aria-selected", isActive ? "true" : "false");
+        b.tabIndex = isActive ? 0 : -1;
     });
     tabPanels.forEach(p => {
         p.classList.toggle("active", p.id === tabId);
@@ -668,7 +671,10 @@ subtabButtons.forEach(btn => {
 
 function switchSubTab(subtabId) {
     subtabButtons.forEach(b => {
-        b.classList.toggle("active", b.dataset.subtab === subtabId);
+        const isActive = b.dataset.subtab === subtabId;
+        b.classList.toggle("active", isActive);
+        b.setAttribute("aria-selected", isActive ? "true" : "false");
+        b.tabIndex = isActive ? 0 : -1;
     });
     subtabPanels.forEach(p => {
         p.classList.toggle("active", p.id === subtabId);
@@ -681,6 +687,10 @@ function setMode(mode) {
     currentMode = mode;
     modeSpreadsheetBtn.classList.toggle("active", mode === "spreadsheet");
     modeSequenceBtn.classList.toggle("active", mode === "sequence");
+    modeSpreadsheetBtn.setAttribute("aria-selected", mode === "spreadsheet" ? "true" : "false");
+    modeSequenceBtn.setAttribute("aria-selected", mode === "sequence" ? "true" : "false");
+    modeSpreadsheetBtn.tabIndex = mode === "spreadsheet" ? 0 : -1;
+    modeSequenceBtn.tabIndex = mode === "sequence" ? 0 : -1;
     spreadsheetPanel.style.display = mode === "spreadsheet" ? "" : "none";
     sequencePanel.style.display = mode === "sequence" ? "" : "none";
 
@@ -1063,7 +1073,7 @@ function renderTable(rows, columns, displayColumns = null, groupKeyFn = null, ce
         const tip = headerTooltips ? headerTooltips[columns[i]] : null;
         const tipAttr = tip ? ` title="${escapeHtml(tip)}"` : "";
         const tipIcon = tip ? ` <span class="th-info" aria-hidden="true">\u24D8</span>` : "";
-        html += `<th data-col="${dataCol}"${tipAttr}>${escapeHtml(c)}${tipIcon}</th>`;
+        html += `<th scope="col" data-col="${dataCol}"${tipAttr}>${escapeHtml(c)}${tipIcon}</th>`;
     });
     html += `</tr></thead><tbody>`;
     let prevKey = null;
@@ -1135,9 +1145,9 @@ function formatDnaSequenceCell(row, column, value) {
     const parts = [];
     for (let i = 0; i < seq.length; i++) {
         if (i === editIdx) {
-            parts.push(`<span class="guide-edit-base">${safeSeq[i]}</span>`);
+            parts.push(`<span class="guide-edit-base" aria-label="edited base ${safeSeq[i]} at position ${i + 1}">${safeSeq[i]}</span>`);
         } else if (bystanderIdxs.has(i)) {
-            parts.push(`<span class="guide-bystander-base">${safeSeq[i]}</span>`);
+            parts.push(`<span class="guide-bystander-base" aria-label="bystander base ${safeSeq[i]} at position ${i + 1}">${safeSeq[i]}</span>`);
         } else {
             parts.push(safeSeq[i]);
         }
@@ -1207,7 +1217,7 @@ function renderSequencePreview(rows) {
     };
     const cols = Object.keys(labels);
     let html = `<table class="data-table"><thead><tr>`;
-    cols.forEach(c => { html += `<th>${escapeHtml(labels[c])}</th>`; });
+    cols.forEach(c => { html += `<th scope="col">${escapeHtml(labels[c])}</th>`; });
     html += `</tr></thead><tbody>`;
     rows.forEach(row => {
         html += `<tr>`;
@@ -1350,7 +1360,7 @@ function renderBaseEditorTable(rows) {
     };
     let html = `<table class="data-table"><thead><tr>`;
     cols.forEach(c => {
-        html += `<th>${escapeHtml(labels[c])}</th>`;
+        html += `<th scope="col">${escapeHtml(labels[c])}</th>`;
     });
     html += `</tr></thead><tbody>`;
     rows.forEach(row => {
@@ -1611,6 +1621,9 @@ async function pollStatus(jobId) {
                 setStatus(data.status);
                 if (eventSource) { eventSource.close(); eventSource = null; }
                 runBtn.disabled = false;
+                if (document.activeElement === cancelBtn) {
+                    runBtn.focus();
+                }
                 cancelBtn.style.display = "none";
 
                 if (data.status === "complete") {
@@ -1679,11 +1692,12 @@ async function fetchResults(jobId) {
     renderResultsTable();
 
     // Auto-switch to results tab + Guides sub-tab
-    tabButtons.forEach(b => b.classList.remove("active"));
-    tabPanels.forEach(p => p.classList.remove("active"));
-    document.querySelector('[data-tab="resultsTab"]').classList.add("active");
-    document.getElementById("resultsTab").classList.add("active");
+    switchTab("resultsTab");
     switchSubTab("guidesSubtab");
+    if (resultsGuideStatus && resultsGuideStatus.style.display !== "none") {
+        resultsGuideStatus.setAttribute("tabindex", "-1");
+        resultsGuideStatus.focus();
+    }
 }
 
 // Map the Guide score filter dropdown value to a numeric on-target score

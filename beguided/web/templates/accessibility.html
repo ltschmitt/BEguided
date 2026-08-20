@@ -1,0 +1,108 @@
+<!-- KEEP IN SYNC WITH legal.yaml: institution_name, address_lines,
+     contact_email, contact_phone. The accessibility statement is
+     fully static and intentionally NOT fed by legal.yaml so it
+     always renders the same content regardless of legal.yaml state. -->
+{% extends "base.html" %}
+
+{% block title %}Accessibility — BEguided{% endblock %}
+
+{% block content %}
+<h1 style="margin-top:0;">Accessibility</h1>
+<p class="legal-updated">Last reviewed: 2026-08-20</p>
+
+<section class="legal-section">
+    <p>
+        This accessibility statement applies to
+        <a href="https://beguided.buchholzlab.org">https://beguided.buchholzlab.org</a>.
+        This website is run by UCC, Medical Systems Biology, Faculty of
+        Medicine Carl Gustav Carus, TU Dresden.
+    </p>
+    <p>
+        UCC, Medical Systems Biology, Faculty of Medicine Carl Gustav Carus,
+        TU Dresden is committed to making its websites and mobile applications
+        accessible, in accordance with "Website Accessibility Act" BfWebG
+        (Barrierefreie-Websites-Gesetz) and the "Accessible IT Ordinance" BITV
+        2.0 (Barrierefreie-Informationstechnik-Verordnung), implementing EU
+        Directive 2016/2102.
+    </p>
+</section>
+
+<section class="legal-section">
+    <h2>Preparation of this accessibility statement</h2>
+    <p>
+        This statement was prepared on 2026-08-20 and last reviewed on
+        2026-08-20. The basis for issuing this accessibility statement is a
+        BITV self-assessment carried out by UCC, Medical Systems Biology,
+        Faculty of Medicine Carl Gustav Carus, TU Dresden.
+    </p>
+</section>
+
+<section class="legal-section">
+    <h2>Compliance status</h2>
+    <p>
+        Due to the following non-compliances and/or exemptions, this website
+        is partially compliant with the requirements of the BfWebG in
+        conjunction with BITV 2.0.
+    </p>
+</section>
+
+<section class="legal-section">
+    <h2>Non-accessible content</h2>
+    <ul>
+        <li>
+            The Summary chart on the Results tab carries an
+            <code>aria-label</code> but the underlying per-base-editor counts
+            are not exposed in a tabular form to assistive technologies.
+        </li>
+        <li>
+            The dynamic data tables on the Results tab do not include
+            <code>&lt;caption&gt;</code> elements. Section headings above each
+            table provide context, but the tables themselves are not
+            programmatically named.
+        </li>
+        <li>
+            The site is offered in light mode only. There is no automatic
+            adaptation to the user's <code>prefers-color-scheme</code> setting.
+        </li>
+    </ul>
+</section>
+
+<section class="legal-section">
+    <h2>Feedback and contact information</h2>
+    <p>
+        If you notice any shortcomings concerning accessible design, please
+        contact:
+    </p>
+    <address class="legal-address">
+        Ira Illgen<br>
+        Faculty of Medicine, TU Dresden<br>
+        UCC, Medical Systems Biology<br>
+        Fetscherstr. 74<br>
+        01307 Dresden
+    </address>
+    <p>
+        E-Mail: <a href="mailto:ira.illgen@tu-dresden.de">ira.illgen(at)tu-dresden.de</a><br>
+        Tel: +49 (0) 351 463 40274<br>
+        Fax: +49 (0) 351 463 40289
+    </p>
+</section>
+
+<section class="legal-section">
+    <h2>Enforcement procedure</h2>
+    <p>
+        If we do not process your feedback satisfactorily from your point of
+        view, you can contact the Enforcement Body of Saxony:
+    </p>
+    <address class="legal-address">
+        Office of the State Commissioner for the Inclusion of Persons with Disabilities<br>
+        Dr. Kristin Wappler<br>
+        Postal address: Archivstraße 1, 01097 Dresden
+    </address>
+    <p>
+        E-Mail: <a href="mailto:durchsetzungsstelle@sk.sachsen.de">durchsetzungsstelle@sk.sachsen.de</a><br>
+        Telephone: +49 351 564-10717<br>
+        Fax: +49 351 564-10999<br>
+        Website: <a href="https://www.durchsetzungsstelle.sachsen.de/" target="_blank" rel="noopener noreferrer">https://www.durchsetzungsstelle.sachsen.de/</a>
+    </p>
+</section>
+{% endblock %}

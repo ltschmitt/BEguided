@@ -1,4 +1,5 @@
 # pixi environments
+.env
 nogit/
 .pixi/*
 !.pixi/config.toml

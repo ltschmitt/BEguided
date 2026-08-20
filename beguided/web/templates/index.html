@@ -7,9 +7,9 @@
 <div class="top-bar">
     <div class="group">
         <label>Input mode</label>
-        <div class="mode-switch" role="tablist">
-            <button id="modeSequence" class="mode-switch-btn active" data-mode="sequence" type="button">Sequence</button>
-            <button id="modeSpreadsheet" class="mode-switch-btn" data-mode="spreadsheet" type="button">Spreadsheet</button>
+        <div class="mode-switch" role="tablist" aria-label="Input mode">
+            <button id="modeSequence" class="mode-switch-btn active" data-mode="sequence" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="sequencePanel">Sequence</button>
+            <button id="modeSpreadsheet" class="mode-switch-btn" data-mode="spreadsheet" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="spreadsheetPanel">Spreadsheet</button>
         </div>
     </div>
     <div class="group">
@@ -33,29 +33,29 @@
             </div>
         </div>
     </div>
-    <span id="statusBadge" class="badge right">idle</span>
+    <span id="statusBadge" class="badge right" aria-live="polite" aria-atomic="true">idle</span>
     <button id="cancelBtn" class="btn btn-danger" style="display:none;">Cancel</button>
 </div>
 
-<div id="spreadsheetPanel" class="input-panel" style="display:none;">
+<div id="spreadsheetPanel" class="input-panel" role="tabpanel" aria-labelledby="modeSpreadsheet" style="display:none;">
     <div class="input-meta-row input-title-row">
         <span id="limitsInfo" class="input-panel-title"></span>
         <div class="input-panel-statuses">
-            <span id="genomeStatus" class="badge" data-preload="{{ 'true' if preload_genome else 'false' }}">&hellip;</span>
-            <span id="gtfStatus" class="badge" data-preload="{{ 'true' if preload_gtf else 'false' }}">&hellip;</span>
+            <span id="genomeStatus" class="badge" data-preload="{{ 'true' if preload_genome else 'false' }}" aria-live="polite">&hellip;</span>
+            <span id="gtfStatus" class="badge" data-preload="{{ 'true' if preload_gtf else 'false' }}" aria-live="polite">&hellip;</span>
         </div>
     </div>
     <div class="input-meta-row input-actions-row">
         <label class="btn btn-secondary" for="fileInput">Choose file</label>
         <input type="file" id="fileInput" accept=".tsv,.csv,.xlsx,.xls"
-            aria-label="Choose target file (TSV, CSV, or Excel)" />
+            aria-label="Choose file" />
         <a href="/download/template" class="btn btn-secondary" download>Template</a>
         <button id="loadSpreadsheetExampleBtn" class="btn btn-secondary" type="button">Load example</button>
         <button id="runBtn" class="btn btn-primary right" disabled>Run</button>
     </div>
 </div>
 
-<div id="sequencePanel" class="input-panel">
+<div id="sequencePanel" class="input-panel" role="tabpanel" aria-labelledby="modeSequence">
     <div class="group" style="align-items:flex-start;">
         <label for="sequenceInput" style="margin-top:10px;">Sequences</label>
         <div style="flex:1; min-width:0;">
@@ -72,20 +72,20 @@
 </div>
 
 <div class="info-row">
-    <span id="compatibilityInfo"></span>
+    <span id="compatibilityInfo" aria-live="polite"></span>
 </div>
 
 <div id="toastContainer" style="position:fixed; top:16px; right:16px; z-index:1000; max-width:420px;"></div>
 
-<div class="tabs">
-    <button class="tab-button active" data-tab="guideTab">Guide</button>
-    <button class="tab-button" data-tab="baseEditorTab">Base Editors</button>
-    <button class="tab-button" data-tab="inputTab">Input</button>
-    <button class="tab-button" data-tab="logTab">Logging</button>
-    <button class="tab-button" data-tab="resultsTab">Results</button>
+<div class="tabs" role="tablist" aria-label="Workflow steps">
+    <button id="guideTabBtn" class="tab-button active" data-tab="guideTab" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="guideTab">Guide</button>
+    <button id="baseEditorTabBtn" class="tab-button" data-tab="baseEditorTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="baseEditorTab">Base Editors</button>
+    <button id="inputTabBtn" class="tab-button" data-tab="inputTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="inputTab">Input</button>
+    <button id="logTabBtn" class="tab-button" data-tab="logTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="logTab">Logging</button>
+    <button id="resultsTabBtn" class="tab-button" data-tab="resultsTab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="resultsTab">Results</button>
 </div>
 
-<div id="guideTab" class="tab-panel active">
+<div id="guideTab" class="tab-panel active" role="tabpanel" aria-labelledby="guideTabBtn">
     <div class="panel">
         <h2 style="margin-top:0;">What BEguided does</h2>
         <p>
@@ -166,7 +166,7 @@
     </div>
 </div>
 
-<div id="baseEditorTab" class="tab-panel">
+<div id="baseEditorTab" class="tab-panel" role="tabpanel" aria-labelledby="baseEditorTabBtn">
     <div class="panel">
         <h2 style="margin-top:0;">Base editor profiles</h2>
         <p style="color:var(--muted);">
@@ -183,7 +183,7 @@
             <a id="downloadProfiles" class="btn btn-secondary" href="/base-editor-profiles/download" download>Download profiles template</a>
         </div>
 
-        <div id="profilesAlert" class="alert info" style="display:none;"></div>
+        <div id="profilesAlert" class="alert info" role="alert" style="display:none;"></div>
         <div id="profilesSource" class="muted" style="margin: 8px 0;">Source: default</div>
 
         <div id="profilesTableContainer">
@@ -208,24 +208,24 @@
     </div>
 </div>
 
-<div id="inputTab" class="tab-panel">
-    <div id="checkAlert" class="alert info" style="display:none;"></div>
-    <div id="inputAlert" class="alert info" style="display:none;"></div>
+<div id="inputTab" class="tab-panel" role="tabpanel" aria-labelledby="inputTabBtn">
+    <div id="checkAlert" class="alert info" role="alert" style="display:none;"></div>
+    <div id="inputAlert" class="alert info" role="alert" style="display:none;"></div>
     <div class="panel" id="inputPanel">
         <p style="color: var(--muted);">Upload a targets file to preview input data.</p>
     </div>
 </div>
 
-<div id="logTab" class="tab-panel">
+<div id="logTab" class="tab-panel" role="tabpanel" aria-labelledby="logTabBtn">
     <div class="panel" style="padding:0;">
-        <pre id="logOutput" class="log"></pre>
+        <pre id="logOutput" class="log" aria-live="polite" aria-relevant="additions" aria-label="Pipeline log output"></pre>
     </div>
     <div style="margin-top:8px;">
         <button id="clearLogs" class="btn btn-secondary">Clear</button>
     </div>
 </div>
 
-<div id="resultsTab" class="tab-panel">
+<div id="resultsTab" class="tab-panel" role="tabpanel" aria-labelledby="resultsTabBtn">
     <div id="resultsGuideStatus" class="results-guide-status" style="display:none;"></div>
     <div class="results-toolbar" id="resultsToolbar" style="display:none;">
         <div class="results-toolbar-title">Filters</div>
@@ -270,13 +270,13 @@
             <label for="condenseToggle">Condense results</label>
             <input type="checkbox" id="condenseToggle" checked />
         </div>
-        <span id="filterSummary" class="muted">Showing 0 of 0</span>
+        <span id="filterSummary" class="muted" aria-live="polite">Showing 0 of 0</span>
     </div>
-    <div class="subtabs">
-        <button class="subtab-button active" data-subtab="guidesSubtab" type="button">Guides</button>
-        <button class="subtab-button" data-subtab="summarySubtab" type="button">Summary</button>
+    <div class="subtabs" role="tablist" aria-label="Results view">
+        <button id="guidesSubtabBtn" class="subtab-button active" data-subtab="guidesSubtab" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="guidesSubtab">Guides</button>
+        <button id="summarySubtabBtn" class="subtab-button" data-subtab="summarySubtab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="summarySubtab">Summary</button>
     </div>
-    <div id="guidesSubtab" class="subtab-panel active">
+    <div id="guidesSubtab" class="subtab-panel active" role="tabpanel" aria-labelledby="guidesSubtabBtn">
         <div class="results-table-scroll" id="resultsPanel">
             <p style="color: var(--muted); padding:16px;" id="resultsPlaceholder">Results will appear here after the pipeline completes.</p>
         </div>
@@ -285,7 +285,7 @@
             <a id="downloadResultsXlsx" class="btn btn-secondary" href="#" style="display:none; margin-left:8px;">Download XLSX</a>
         </div>
     </div>
-    <div id="summarySubtab" class="subtab-panel">
+    <div id="summarySubtab" class="subtab-panel" role="tabpanel" aria-labelledby="summarySubtabBtn">
         <div id="resultsSummary" class="results-summary" style="display:none;"></div>
         <p id="summaryPlaceholder" style="color: var(--muted); padding:16px;">Summary will appear here after the pipeline completes.</p>
     </div>

@@ -516,6 +516,16 @@ def create_app() -> FastAPI:
         """Research-only terms of use."""
         return _render_legal("agb.html")
 
+    @app.get("/accessibility", response_class=HTMLResponse)
+    def accessibility() -> HTMLResponse:
+        """Accessibility statement (BfWebG / BITV 2.0).
+
+        Static page — not fed by legal.yaml — so the statement always
+        renders the same content regardless of legal.yaml state. The
+        contact details are duplicated in the template intentionally.
+        """
+        return HTMLResponse(content=_render_template("accessibility.html"))
+
     @app.post("/admin/purge-all")
     async def admin_purge_all(request: Request) -> JSONResponse:
         """Manually purge every job from the DB.
