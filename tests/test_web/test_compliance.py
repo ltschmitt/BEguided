@@ -252,6 +252,8 @@ def test_legal_routes_interpolate_config(tmp_path):
         "contact_phone: '+49 351 111-0000'\n"
         "website_url: 'https://acme.example'\n"
         "head_of_institution: 'Prof. Dr. Test Person'\n"
+        "content_responsible: 'Prof. Dr. Test Person'\n"
+        "technical_implementer: 'Test Implementer (mailto:impl@acme.example)'\n"
         "hosting_legal_name: 'ACME University'\n"
         "institution_department: 'Faculty of Test'\n"
         "legal_notice_host: 'TU Dresden'\n"
@@ -313,7 +315,9 @@ def test_legal_routes_interpolate_config(tmp_path):
     assert "contact@acme.example" in body
     assert "+49 351 111-0000" in body
     assert "Faculty of Test" in body
-    assert "Head: Prof. Dr. Test Person" in body
+    assert "responsible for content per " in body.lower()
+    assert "Prof. Dr. Test Person" in body
+    assert '<a href="mailto:impl@acme.example">impl@acme.example</a>' in body
     assert "TU Dresden" in body
     assert "2026-07-23" in body
 

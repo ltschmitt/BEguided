@@ -90,6 +90,11 @@ class LegalConfig:
     contact_phone: str = ""
     website_url: str = ""
     head_of_institution: str = ""
+    # Person responsible for the content of the service (imprint, per
+    # § 18 MStV); usually the PI / head of the institute.
+    content_responsible: str = ""
+    # Person who technically implemented the web service (imprint).
+    technical_implementer: str = ""
     hosting_legal_name: str = ""
     institution_department: str = ""
     # Lead phrase: "The Legal Notice of <legal_notice_host> applies with
@@ -123,6 +128,8 @@ _KNOWN_SCALAR_FIELDS = (
     "contact_phone",
     "website_url",
     "head_of_institution",
+    "content_responsible",
+    "technical_implementer",
     "hosting_legal_name",
     "institution_department",
     "legal_notice_host",

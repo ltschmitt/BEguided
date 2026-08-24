@@ -163,12 +163,24 @@ def _genome_chromosome_keys() -> list[str]:
 _LINKIFY_RE = re.compile(r"(?:mailto:|https?://)[^\s<]+")
 
 
+def _nl2br(text: str) -> str:
+    """HTML-escape a possibly multi-line value and render its line breaks
+    as ``<br>`` (e.g. the two-line institution name)."""
+    return html.escape(text, quote=True).replace("\n", "<br>")
+
+
 def _linkify(text: str) -> str:
     """HTML-escape a line of legal-page text and turn mailto:/http(s)://
-    tokens into hyperlinks."""
+    tokens into hyperlinks. Unbalanced trailing parentheses and sentence
+    punctuation (e.g. in "see (mailto:a@b).") are not part of the link.
+    """
 
     def _replace(match: re.Match[str]) -> str:
         target = match.group(0)
+        while target and target[-1] in ".,;:!?":
+            target = target[:-1]
+        while target.endswith(")") and target.count("(") < target.count(")"):
+            target = target[:-1]
         label = target[len("mailto:"):] if target.startswith("mailto:") else target
         return f'<a href="{target}">{label}</a>'
 
@@ -180,6 +192,7 @@ def _render_template(name, **kwargs) -> str:
     base_dir = Path(__file__).resolve().parent
     env = Environment(loader=FileSystemLoader(str(base_dir / "templates")))
     env.filters["linkify"] = _linkify
+    env.filters["nl2br"] = _nl2br
     template = env.get_template(name)
     return template.render(**kwargs)
 

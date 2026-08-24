@@ -57,9 +57,18 @@ head_of_institution: ""
 # institute is a department).
 hosting_legal_name: ""
 
-# Department / subdivision within the institution (imprint "Technical
-# implementation").
+# Department / subdivision within the institution (imprint hosting
+# sentence).
 institution_department: ""
+
+# Person responsible for the content of the service (imprint, per
+# § 18 MStV); usually the PI / head of the institute. May reference
+# other values in this file.
+content_responsible: ""
+
+# Person who technically implemented the web service (imprint). Tokens
+# starting with mailto:/http(s):// become hyperlinks.
+technical_implementer: ""
 
 # Imprint lead phrase: "The Legal Notice of <host> applies with the
 # following amendments:". When the URL is set, the name is a hyperlink.
@@ -80,7 +89,7 @@ log_retention_days: 7
 # Full-paragraph blocks. Each is ONE value for the whole paragraph.
 # ---------------------------------------------------------------------
 
-# Privacy Policy §1 "Controller": name, address, contact.
+# Data Protection Declaration §1 "Controller": name, address, contact.
 # Example demonstrating reuse of the base facts:
 #   controller_block:
 #     - "{{ institution_name }}"
@@ -88,10 +97,10 @@ log_retention_days: 7
 #     - "Email: mailto:{{ contact_email }}"
 controller_block: []
 
-# Privacy Policy §2 "Data Protection Officer".
+# Data Protection Declaration §2 "Data Protection Officer".
 dpo_block: []
 
-# Privacy Policy §7: competent supervisory authority
+# Data Protection Declaration §7: competent supervisory authority
 # (Landesdatenschutzbeauftragte[r]), including contact details.
 dpa_block: []
 
