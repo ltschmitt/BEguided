@@ -18,20 +18,20 @@
 
 <section class="legal-section">
     <h2>1. Controller</h2>
+    {% if legal.controller_block %}
     <address class="legal-address">
-        <strong>{{ legal.institution_name }}</strong><br>
-        {% for line in legal.address_lines %}{{ line }}<br>{% endfor %}
-        {% if legal.contact_email %}Email: <a href="mailto:{{ legal.contact_email }}">{{ legal.contact_email }}</a>{% endif %}
+        {% for line in legal.controller_block %}{{ line | linkify }}<br>{% endfor %}
     </address>
+    {% endif %}
 </section>
 
 <section class="legal-section">
     <h2>2. Data Protection Officer</h2>
+    {% if legal.dpo_block %}
     <address class="legal-address">
-        {{ legal.dpo_name }}<br>
-        {% for line in legal.dpo_address %}{{ line }}<br>{% endfor %}
-        {% if legal.dpo_email %}Email: <a href="mailto:{{ legal.dpo_email }}">{{ legal.dpo_email }}</a>{% endif %}
+        {% for line in legal.dpo_block %}{{ line | linkify }}<br>{% endfor %}
     </address>
+    {% endif %}
 </section>
 
 <section class="legal-section">
@@ -54,8 +54,14 @@
         </li>
         <li>
             <strong>Custom base editor profiles:</strong> any custom XLSX or
-            TSV you upload is held in memory only and discarded on server
-            restart.
+            TSV you upload is held in server memory only. It is not written
+            to disk or to the job database and is discarded when the server
+            restarts. In addition, the service stores a copy of your most
+            recently uploaded profile in your browser's local storage
+            (<code>localStorage</code>) so that it is pre-loaded when you next
+            visit the page. This local copy stays on your device, is not
+            accessible to us, and can be deleted at any time by clearing the
+            site data for this domain in your browser's settings.
         </li>
     </ul>
 </section>
@@ -123,6 +129,13 @@
         {% if legal.contact_email %}<a href="mailto:{{ legal.contact_email }}">{{ legal.contact_email }}</a>{% else %}the controller{% endif %}
         and quoting your job ID.
     </p>
+    <p>
+        Custom base editor profiles are not retained on the server beyond
+        the lifetime of the server process (see section 3). The copy your
+        browser keeps in <code>localStorage</code> is retained only on your
+        device, under your control; deleting it from your browser ends its
+        storage there.
+    </p>
 </section>
 
 <section class="legal-section">
@@ -140,22 +153,23 @@
         time (Art. 77 GDPR). The supervisory authority for data protection
         is:
     </p>
+    {% if legal.dpa_block %}
     <address class="legal-address">
-        {% if legal.competent_dpa %}{{ legal.competent_dpa }}<br>{% endif %}
-        {% if legal.competent_dpa_head %}{{ legal.competent_dpa_head }}<br>{% endif %}
-        {% for line in legal.competent_dpa_address %}{{ line }}<br>{% endfor %}
-        {% if legal.competent_dpa_email %}Email: <a href="mailto:{{ legal.competent_dpa_email }}">{{ legal.competent_dpa_email }}</a><br>{% endif %}
-        {% if legal.competent_dpa_phone %}Phone: {{ legal.competent_dpa_phone }}<br>{% endif %}
-        {% if legal.competent_dpa_web %}Website: <a href="{{ legal.competent_dpa_web }}" target="_blank" rel="noopener noreferrer">{{ legal.competent_dpa_web }}</a>{% endif %}
+        {% for line in legal.dpa_block %}{{ line | linkify }}<br>{% endfor %}
     </address>
+    {% endif %}
 </section>
 
 <section class="legal-section">
     <h2>8. Cookies and similar technologies</h2>
     <p>
-        The service does not set cookies and does not use tracking
-        technologies. The first-party storage associated with the UI is
-        limited to the in-memory state of your browser tab.
+    The service does not set cookies and does not use tracking
+    technologies. The only first-party browser storage used is the
+    <code>localStorage</code> entry described in section 3, which is
+    created only when you upload a custom base editor profile. It
+    survives closing the browser, is not shared with any third party,
+    and can be removed at any time by clearing the site data for this
+    domain in your browser's settings.
     </p>
 </section>
 

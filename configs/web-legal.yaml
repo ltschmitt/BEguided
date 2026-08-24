@@ -7,11 +7,31 @@
 #
 # Every field is optional. If the file is absent at startup the server
 # logs a WARNING and serves the legal pages with empty values. If the
-# file is present but malformed (invalid YAML, wrong top-level type)
-# the server fails fast.
+# file is present but malformed (invalid YAML, wrong top-level type,
+# unknown variable reference) the server fails fast.
 #
-# Required German legal disclosures (TMG/DDG §5, GDPR Art. 13/14) are
-# documented in compliance_safety.md.
+# Variable reuse: every value may contain Jinja expressions that
+# reference the other values in this file, so a fact is defined once
+# and placed in many paragraphs. References are resolved to a fixed
+# point, so definition order does not matter. A reference to a
+# variable that is not defined anywhere in this file aborts startup.
+#
+# Block fields (controller_block, dpo_block, dpa_block,
+# access_contact_block, enforcement_body_block) define a full
+# multi-line paragraph as a single value. They accept a list of lines
+# or a multi-line string; either way the value is rendered as one Jinja
+# template (so loops over other list fields, e.g. address_lines, work)
+# and split into lines. Each rendered line is HTML-escaped and tokens
+# starting with mailto:, http:// or https:// become hyperlinks —
+# mailto links are shown without the "mailto:" prefix.
+#
+# Required German legal disclosures (TMG/DDG §5, GDPR Art. 13/14,
+# BfWebG/BITV 2.0) are documented in compliance_safety.md.
+
+# ---------------------------------------------------------------------
+# Base facts — define each once; referenced by the templates and by
+# the block paragraphs below.
+# ---------------------------------------------------------------------
 
 # Full legal name of the controller (e.g. university, institute, faculty).
 institution_name: ""
@@ -19,88 +39,65 @@ institution_name: ""
 # Postal address as a list of lines. Rendered as <br>-separated lines.
 address_lines: []
 
-# Person authorised to represent the institution (e.g. rector, dean, PI).
-vertretungsberechtigter: ""
-
 # Public contact email (must be reachable; required by §5 TMG/DDG).
 contact_email: ""
 
 # Public contact phone (optional but recommended).
 contact_phone: ""
 
-# Hosting provider disclosure (§5 TMG/DDG requires the hosting provider).
-hosting_provider: ""
+# Public URL of this site, as shown on the accessibility statement.
+website_url: ""
 
-# Person responsible for content under § 18 MStV (usually the PI).
-content_responsible_mstv: ""
+# Head of the institution / department responsible for the service
+# (imprint "Technical implementation").
+head_of_institution: ""
 
-# Data Protection Officer (Datenschutzbeauftragter).
-dpo_name: ""
-dpo_email: ""
-dpo_address: []
+# Higher-level institution that technically hosts the service
+# (imprint "Technical implementation"; e.g. the university when the
+# institute is a department).
+hosting_legal_name: ""
 
-# Competent supervisory authority (Landesdatenschutzbeauftragte[r]).
-# Rendered as a multi-line address block in the privacy policy under
-# "You have the right to appeal to the supervisory authority at any time
-# (Art. 77 GDPR)". Every field is optional and individually guarded in
-# the template; leave unused ones empty.
-#
-# Example for Saxony:
-#   competent_dpa: "Saxon Data Protection and Transparency Officer"
-#   competent_dpa_head: "Dr. Juliane Hundert"
-#   competent_dpa_address:
-#     - "Postfach 11 01 32"
-#     - "01330 Dresden"
-#   competent_dpa_email: "post@sdtb.sachsen.de"
-#   competent_dpa_phone: "+49 (0) 351 85471 101"
-#   competent_dpa_web: "https://www.datenschutz.sachsen.de"
-competent_dpa: ""
-competent_dpa_head: ""
-competent_dpa_address: []
-competent_dpa_email: ""
-competent_dpa_phone: ""
-competent_dpa_web: ""
+# Department / subdivision within the institution (imprint "Technical
+# implementation").
+institution_department: ""
 
-# How long reverse-proxy / web-server logs are kept (separate from the
-# 24h job-database retention enforced by the app itself).
-log_retention_days: 7
-
-# Free-form date string shown on every legal page (e.g. "2026-07-23").
-last_updated: ""
-
-# --- Imprint: lead phrase ---------------------------------------------
-# Renders as: "The Legal Notice of <legal_notice_host> applies with the
-# following amendments:". When `legal_notice_host_url` is set, the host
-# name is wrapped in an <a href="…"> link. When either field is empty
-# the template renders nothing — there is no fallback.
-# Example for a TU Dresden institute:
-#   legal_notice_host: "TU Dresden"
-#   legal_notice_host_url: "https://tu-dresden.de/impressum"
+# Imprint lead phrase: "The Legal Notice of <host> applies with the
+# following amendments:". When the URL is set, the name is a hyperlink.
+# Leave both empty when the notice is not referenced from another one.
 legal_notice_host: ""
 legal_notice_host_url: ""
 
-# --- Imprint: Responsibilities — content contact ----------------------
-# Full name of the person to contact for content questions. Rendered as
-# the first line of the address block under "If you have any questions
-# regarding content, please contact:".
-content_contact_name: ""
+# Free-form date strings shown on the legal pages.
+last_updated: ""
+accessibility_prepared: ""
+accessibility_reviewed: ""
 
-# --- Imprint: Responsibilities — technical implementation -------------
-# Higher-level institution name (typically "Technische Universität
-# Dresden" for TU Dresden institutes).
-hosting_legal_name: ""
+# How long reverse-proxy / web-server logs are kept (separate from the
+# job-database retention enforced by the app itself).
+log_retention_days: 7
 
-# Department / subdivision within the institution (e.g. "Faculty of
-# Medicine Carl Gustav Carus"). Rendered as the second line of the
-# technical-implementation address block.
-institution_department: ""
+# ---------------------------------------------------------------------
+# Full-paragraph blocks. Each is ONE value for the whole paragraph.
+# ---------------------------------------------------------------------
 
-# Postal address lines for the technical-implementation address block.
-hosting_legal_postal: []
+# Privacy Policy §1 "Controller": name, address, contact.
+# Example demonstrating reuse of the base facts:
+#   controller_block:
+#     - "{{ institution_name }}"
+#     - "{% for line in address_lines %}{{ line }}\n{% endfor %}"
+#     - "Email: mailto:{{ contact_email }}"
+controller_block: []
 
-# Head of the department / institution responsible for the service.
-# Rendered as "Head: <head_of_institution>".
-head_of_institution: ""
+# Privacy Policy §2 "Data Protection Officer".
+dpo_block: []
 
-# Contact email for the technical-implementation address block.
-hosting_legal_email: ""
+# Privacy Policy §7: competent supervisory authority
+# (Landesdatenschutzbeauftragte[r]), including contact details.
+dpa_block: []
+
+# Accessibility statement: "Feedback and contact information" block.
+access_contact_block: []
+
+# Accessibility statement: "Enforcement procedure" block (the
+# state's enforcement body for IT accessibility, incl. contact).
+enforcement_body_block: []

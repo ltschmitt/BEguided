@@ -19,8 +19,7 @@
 
     <h4>If you have any questions regarding content, please contact:</h4>
     <address class="legal-address">
-        {% if legal.content_contact_name %}{{ legal.content_contact_name }}<br>{% endif %}
-        {% if legal.institution_name %}<strong>{{ legal.institution_name }}</strong><br>{% endif %}
+        {% if legal.institution_name %}{{ legal.institution_name }}<br>{% endif %}
         {% for line in legal.address_lines %}{{ line }}<br>{% endfor %}
         {% if legal.contact_email %}Email: <a href="mailto:{{ legal.contact_email }}">{{ legal.contact_email }}</a><br>{% endif %}
         {% if legal.contact_phone %}Phone: {{ legal.contact_phone }}{% endif %}
@@ -30,9 +29,9 @@
     <address class="legal-address">
         {% if legal.hosting_legal_name %}{{ legal.hosting_legal_name }}<br>{% endif %}
         {% if legal.institution_department %}{{ legal.institution_department }}<br>{% endif %}
-        {% for line in legal.hosting_legal_postal %}{{ line }}<br>{% endfor %}
+        {% for line in legal.address_lines %}{{ line | linkify }}<br>{% endfor %}
         {% if legal.head_of_institution %}Head: {{ legal.head_of_institution }}<br>{% endif %}
-        {% if legal.hosting_legal_email %}Email: <a href="mailto:{{ legal.hosting_legal_email }}">{{ legal.hosting_legal_email }}</a>{% endif %}
+        {% if legal.contact_email %}Email: <a href="mailto:{{ legal.contact_email }}">{{ legal.contact_email }}</a>{% endif %}
     </address>
 </section>
 

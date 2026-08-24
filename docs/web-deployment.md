@@ -102,24 +102,34 @@ Mandatory for any German-public web presence. The audit + remediation history li
 
 ### Legal YAML
 
-The operator's institutional / DPO / DPA content lives in a gitignored YAML file. The committed template at `configs/web-legal.yaml` is empty (every field blank); it is **not loaded by default**. The operator creates their own file at any path and points the app at it.
+The operator's institutional / DPO / DPA content lives in a gitignored YAML file. The committed template at `configs/web-legal.yaml` is a schema reference with every field blank; it is **not loaded by default**. The operator creates their own file at any path and points the app at it.
+
+The schema is block-based: each legal paragraph (controller, DPO, supervisory authority, accessibility contacts) is **one** list-valued field holding the full multi-line paragraph. Every value may also contain Jinja expressions that reference the other values in the file, so a fact (e.g. the institution name) is defined once and reused everywhere.
 
 ```yaml
-# /etc/beguided/web-legal.yaml (example operator file)
-institution_name: "..."
-address_lines: ["..."]
-vertretungsberechtigter: "..."
-contact_email: "..."
-contact_phone: "..."
-hosting_provider: "..."
-content_responsible_mstv: "..."
-dpo_name: "..."
-dpo_email: "..."
-dpo_address: ["..."]
-competent_dpa: "..."
-log_retention_days: 7
+# /etc/beguided/legal.yaml (example operator file, abridged)
+institution_name: "UCC, Institute of X, TU Dresden"
+address_lines:
+  - "Fetscherstr. 74"
+  - "01307 Dresden"
+contact_email: "contact@tu-dresden.de"
 last_updated: "2026-07-23"
+
+controller_block:
+  - "{{ institution_name }}"
+  - "{% for line in address_lines %}{{ line }}\n{% endfor %}"
+  - "Email: mailto:{{ contact_email }}"
+
+dpo_block:
+  - "TU Dresden Data Protection Officer"
+  - "Email: mailto:informationssicherheit@tu-dresden.de"
+
+dpa_block:
+  - "Saxon Data Protection and Transparency Officer"
+  - "Postfach 11 01 32, 01330 Dresden"
 ```
+
+Block lines are HTML-escaped for output; tokens starting with `mailto:`, `http://` or `https://` are turned into hyperlinks (mailto links display without the `mailto:` prefix). A reference to a variable that is not defined anywhere in the file aborts startup.
 
 Tell the app where to find it (any of):
 

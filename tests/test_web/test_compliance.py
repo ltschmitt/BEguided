@@ -217,12 +217,12 @@ def test_proxy_headers_set_real_client_ip(tmp_path, monkeypatch):
 
 
 def test_legal_routes_render_with_empty_config(cfg_and_client):
-    """All three legal pages must render with HTTP 200 even when
-    ``legal.yaml`` is missing or empty (the default for local dev and
-    CI). No ``TODO_LEGAL`` tripwires should remain in the templates.
+    """All legal pages must render with HTTP 200 even when ``legal.yaml``
+    is missing or empty (the default for local dev and CI). No
+    ``TODO_LEGAL`` tripwires should remain in the templates.
     """
     _, _, client = cfg_and_client
-    for path in ("/impressum", "/datenschutz", "/agb"):
+    for path in ("/impressum", "/datenschutz", "/agb", "/accessibility"):
         res = client.get(path)
         assert res.status_code == 200, f"{path} returned {res.status_code}"
         assert "text/html" in res.headers.get("content-type", "")
@@ -236,32 +236,45 @@ def test_legal_routes_render_with_empty_config(cfg_and_client):
 
 def test_legal_routes_interpolate_config(tmp_path):
     """When ``legal.yaml`` is present, its values are interpolated into
-    the rendered HTML. This test creates an in-memory YAML file and
-    confirms a known field appears in the rendered page.
+    the rendered HTML — including the block paragraphs and the
+    Jinja-referenced base facts.
     """
     import importlib
 
     from beguided.web import app as app_mod
-    from beguided.web import config as cfg_mod
     from beguided.web.config import WebConfig, set_config
-    from beguided.web.legal_config import LegalConfig
 
     legal_path = tmp_path / "legal.yaml"
     legal_path.write_text(
         "institution_name: 'ACME University'\n"
+        "address_lines: ['1 Test Street', '12345 Testville']\n"
         "contact_email: 'contact@acme.example'\n"
-        "content_contact_name: 'Dr. Test Person'\n"
+        "contact_phone: '+49 351 111-0000'\n"
+        "website_url: 'https://acme.example'\n"
+        "head_of_institution: 'Prof. Dr. Test Person'\n"
+        "hosting_legal_name: 'ACME University'\n"
+        "institution_department: 'Faculty of Test'\n"
         "legal_notice_host: 'TU Dresden'\n"
         "legal_notice_host_url: 'https://tu-dresden.de/impressum'\n"
-        "institution_department: 'Faculty of Medicine Carl Gustav Carus'\n"
-        "vertretungsberechtigter: 'Prof. Dr. Test Person'\n"
-        "competent_dpa: 'Test DPA Authority'\n"
-        "competent_dpa_head: 'Jane Doe'\n"
-        "competent_dpa_address: ['Postfach 11 11', '01111 Dresden']\n"
-        "competent_dpa_email: 'dpa@acme.example'\n"
-        "competent_dpa_phone: '+49 351 111-2222'\n"
-        "competent_dpa_web: 'https://dpa.acme.example'\n"
         "last_updated: '2026-07-23'\n"
+        "accessibility_prepared: '2026-07-01'\n"
+        "accessibility_reviewed: '2026-07-23'\n"
+        "controller_block:\n"
+        "  - '{{ institution_name }}'\n"
+        "  - \"{% for line in address_lines %}{{ line }}\\n{% endfor %}\"\n"
+        "  - 'Email: mailto:{{ contact_email }}'\n"
+        "dpo_block:\n"
+        "  - 'DPO ACME'\n"
+        "  - 'mailto:dpo@acme.example'\n"
+        "dpa_block:\n"
+        "  - 'Test DPA Authority'\n"
+        "  - 'Jane Doe'\n"
+        "  - 'https://dpa.acme.example'\n"
+        "access_contact_block:\n"
+        "  - 'Contact Person'\n"
+        "  - 'mailto:access@acme.example'\n"
+        "enforcement_body_block:\n"
+        "  - 'Test Enforcement Body'\n"
     )
 
     presets = tmp_path / "presets.tsv"
@@ -286,26 +299,54 @@ def test_legal_routes_interpolate_config(tmp_path):
     from fastapi.testclient import TestClient
     from beguided.web.app import create_app
 
-    # Reload legal_config module so its module-level singleton resets,
-    # then create the app (which calls load_legal_config).
+    # Reload app module so its module-level legal-config singleton
+    # resets, then create the app (which calls load_legal_config).
     importlib.reload(app_mod)
     client = TestClient(create_app())
 
+    # Imprint: base facts + lead phrase.
     res = client.get("/impressum")
     assert res.status_code == 200
     body = res.text
     assert "ACME University" in body
+    assert "1 Test Street" in body
     assert "contact@acme.example" in body
-    assert "Dr. Test Person" in body
+    assert "+49 351 111-0000" in body
+    assert "Faculty of Test" in body
+    assert "Head: Prof. Dr. Test Person" in body
     assert "TU Dresden" in body
     assert "2026-07-23" in body
 
+    # Privacy: block paragraphs; institution name appears via the
+    # Jinja reference inside controller_block (reuse of a base fact).
     res = client.get("/datenschutz")
     assert res.status_code == 200
-    assert "Test DPA Authority" in res.text
-    assert "Jane Doe" in res.text
-    assert "dpa@acme.example" in res.text
+    body = res.text
+    assert "ACME University" in body
+    assert "1 Test Street" in body
+    assert '<a href="mailto:contact@acme.example">contact@acme.example</a>' in body
+    assert "DPO ACME" in body
+    assert '<a href="mailto:dpo@acme.example">dpo@acme.example</a>' in body
+    assert "Test DPA Authority" in body
+    assert "Jane Doe" in body
+    assert "https://dpa.acme.example" in body
+
+    # Terms of Use still interpolate the base facts.
+    res = client.get("/agb")
+    assert res.status_code == 200
     assert "ACME University" in res.text
+
+    # Accessibility statement is fed by legal.yaml too.
+    res = client.get("/accessibility")
+    assert res.status_code == 200
+    body = res.text
+    assert "ACME University" in body
+    assert 'href="https://acme.example"' in body
+    assert "2026-07-23" in body
+    assert "2026-07-01" in body
+    assert "Contact Person" in body
+    assert '<a href="mailto:access@acme.example">access@acme.example</a>' in body
+    assert "Test Enforcement Body" in body
 
 
 def test_load_legal_config_missing_returns_empty(tmp_path):
@@ -315,7 +356,7 @@ def test_load_legal_config_missing_returns_empty(tmp_path):
     assert cfg.institution_name == ""
     assert cfg.address_lines == []
     assert cfg.contact_email == ""
-    assert cfg.dpo_name == ""
+    assert cfg.dpo_block == []
     assert cfg.log_retention_days == 0
 
 
@@ -333,7 +374,7 @@ def test_load_legal_config_directory_returns_empty(tmp_path, caplog):
     assert cfg.institution_name == ""
     assert cfg.address_lines == []
     assert cfg.contact_email == ""
-    assert cfg.dpo_name == ""
+    assert cfg.dpo_block == []
     assert cfg.log_retention_days == 0
     assert any("not found or is not a file" in rec.message for rec in caplog.records)
 
@@ -397,6 +438,121 @@ def test_load_legal_config_string_field_must_be_string(tmp_path):
     p.write_text("contact_email:\n  - a\n  - b\n")
     with pytest.raises(ValueError, match="contact_email"):
         load_legal_config(p)
+
+
+def test_load_legal_config_block_from_multiline_string(tmp_path):
+    """A block field given as a multi-line string must normalize to the
+    same lines as a list of strings."""
+    from beguided.web.legal_config import load_legal_config
+
+    p = tmp_path / "block_string.yaml"
+    p.write_text(
+        "dpo_block: |\n"
+        "  Line one\n"
+        "  \n"
+        "    Line two\n"
+    )
+    cfg = load_legal_config(p)
+    assert cfg.dpo_block == ["Line one", "Line two"]
+
+    p2 = tmp_path / "block_list.yaml"
+    p2.write_text("dpo_block: ['Line one', '', 'Line two']\n")
+    cfg = load_legal_config(p2)
+    assert cfg.dpo_block == ["Line one", "Line two"]
+
+
+def test_load_legal_config_jinja_reuse_forward_reference(tmp_path):
+    """A block may reference a variable that is defined later in the
+    file (resolution iterates to a fixed point)."""
+    from beguided.web.legal_config import load_legal_config
+
+    p = tmp_path / "forward.yaml"
+    p.write_text(
+        "controller_block:\n"
+        "  - '{{ institution_name }}'\n"
+        "institution_name: 'ACME University'\n"
+    )
+    cfg = load_legal_config(p)
+    assert cfg.controller_block == ["ACME University"]
+
+
+def test_load_legal_config_jinja_loop_over_list_field(tmp_path):
+    """A block can loop over another list field to reuse its lines."""
+    from beguided.web.legal_config import load_legal_config
+
+    p = tmp_path / "loop.yaml"
+    p.write_text(
+        "controller_block:\n"
+        "  - '{{ institution_name }}'\n"
+        "  - \"{% for line in address_lines %}{{ line }}\\n{% endfor %}\"\n"
+        "institution_name: 'ACME University'\n"
+        "address_lines: ['Street 1', '12345 Town']\n"
+    )
+    cfg = load_legal_config(p)
+    assert cfg.controller_block == [
+        "ACME University",
+        "Street 1",
+        "12345 Town",
+    ]
+
+
+def test_load_legal_config_undefined_variable_raises(tmp_path):
+    """Referencing a variable that is not defined anywhere in the file
+    must fail startup (a typo must not render a blank paragraph)."""
+    import pytest
+
+    from beguided.web.legal_config import load_legal_config
+
+    p = tmp_path / "undefined.yaml"
+    p.write_text("controller_block:\n  - '{{ instution_name }}'\n")
+    with pytest.raises(ValueError, match="instution_name"):
+        load_legal_config(p)
+
+
+def test_load_legal_config_legacy_fields_warn(tmp_path, caplog):
+    """Legacy per-facet fields (dpo_name, competent_dpa_*, ...) are no
+    longer part of the block schema; a file still using them must log a
+    warning naming the fields so the operator notices."""
+    import logging
+
+    from beguided.web.legal_config import load_legal_config
+
+    p = tmp_path / "legacy.yaml"
+    p.write_text(
+        "institution_name: 'ACME University'\n"
+        "dpo_name: 'old dpo field'\n"
+        "competent_dpa: 'old dpa field'\n"
+        "hosting_legal_postal: ['old postal']\n"
+    )
+    with caplog.at_level(logging.WARNING, logger="beguided.web.legal_config"):
+        cfg = load_legal_config(p)
+    assert cfg.institution_name == "ACME University"
+    assert cfg.dpo_block == []
+    messages = " ".join(rec.getMessage() for rec in caplog.records)
+    assert "dpo_name" in messages
+    assert "competent_dpa" in messages
+    assert "hosting_legal_postal" in messages
+
+
+def test_linkify_escapes_html_and_links_tokens():
+    """Block lines are operator data but still untrusted input: the
+    line must be HTML-escaped, and only mailto:/http(s):// tokens are
+    turned into links (mailto labels drop the scheme prefix)."""
+    from beguided.web.app import _linkify
+
+    assert (
+        _linkify("<script>alert(1)</script>")
+        == "&lt;script&gt;alert(1)&lt;/script&gt;"
+    )
+    assert (
+        _linkify("Email: mailto:dpa@example.de")
+        == 'Email: <a href="mailto:dpa@example.de">dpa@example.de</a>'
+    )
+    assert (
+        _linkify("Web: https://example.de/a?b=1&c=2")
+        == 'Web: <a href="https://example.de/a?b=1&amp;c=2">'
+        "https://example.de/a?b=1&amp;c=2</a>"
+    )
 
 
 def test_legal_routes_linked_from_base_template():

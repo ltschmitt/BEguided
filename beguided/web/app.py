@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import html
 import io
 import logging
 import re
@@ -154,10 +155,31 @@ def _genome_chromosome_keys() -> list[str]:
     return list(genome.keys())
 
 
+# Tokens inside legal-config text lines that become hyperlinks when
+# rendered on the legal pages. The text is escaped first, so the only
+# characters substituted here are scheme prefixes; the visible label of
+# a mailto link drops the "mailto:" prefix (the address stays clean),
+# while URLs are shown in full.
+_LINKIFY_RE = re.compile(r"(?:mailto:|https?://)[^\s<]+")
+
+
+def _linkify(text: str) -> str:
+    """HTML-escape a line of legal-page text and turn mailto:/http(s)://
+    tokens into hyperlinks."""
+
+    def _replace(match: re.Match[str]) -> str:
+        target = match.group(0)
+        label = target[len("mailto:"):] if target.startswith("mailto:") else target
+        return f'<a href="{target}">{label}</a>'
+
+    return _LINKIFY_RE.sub(_replace, html.escape(text, quote=True))
+
+
 def _render_template(name, **kwargs) -> str:
     """Render a Jinja2 template to HTML string."""
     base_dir = Path(__file__).resolve().parent
     env = Environment(loader=FileSystemLoader(str(base_dir / "templates")))
+    env.filters["linkify"] = _linkify
     template = env.get_template(name)
     return template.render(**kwargs)
 
@@ -518,13 +540,9 @@ def create_app() -> FastAPI:
 
     @app.get("/accessibility", response_class=HTMLResponse)
     def accessibility() -> HTMLResponse:
-        """Accessibility statement (BfWebG / BITV 2.0).
-
-        Static page — not fed by legal.yaml — so the statement always
-        renders the same content regardless of legal.yaml state. The
-        contact details are duplicated in the template intentionally.
-        """
-        return HTMLResponse(content=_render_template("accessibility.html"))
+        """Accessibility statement (BfWebG / BITV 2.0), rendered from
+        legal.yaml like the other legal pages."""
+        return _render_legal("accessibility.html")
 
     @app.post("/admin/purge-all")
     async def admin_purge_all(request: Request) -> JSONResponse:
