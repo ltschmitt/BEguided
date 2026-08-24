@@ -86,6 +86,7 @@ class LegalConfig:
     # Base facts — single source of truth, referenced elsewhere.
     institution_name: str = ""
     address_lines: List[str] = field(default_factory=list)
+    contact_name: str = ""
     contact_email: str = ""
     contact_phone: str = ""
     website_url: str = ""
@@ -95,6 +96,7 @@ class LegalConfig:
     content_responsible: str = ""
     # Person who technically implemented the web service (imprint).
     technical_implementer: str = ""
+    technical_implementer_email: str = ""
     hosting_legal_name: str = ""
     institution_department: str = ""
     # Lead phrase: "The Legal Notice of <legal_notice_host> applies with
@@ -124,12 +126,14 @@ class LegalConfig:
 # breaking older builds.
 _KNOWN_SCALAR_FIELDS = (
     "institution_name",
+    "contact_name",
     "contact_email",
     "contact_phone",
     "website_url",
     "head_of_institution",
     "content_responsible",
     "technical_implementer",
+    "technical_implementer_email",
     "hosting_legal_name",
     "institution_department",
     "legal_notice_host",

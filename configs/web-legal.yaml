@@ -39,6 +39,10 @@ institution_name: ""
 # Postal address as a list of lines. Rendered as <br>-separated lines.
 address_lines: []
 
+# Public contact person name (shown in the privacy policy contact block
+# and in the accessibility "Feedback and contact" block).
+contact_name: ""
+
 # Public contact email (must be reachable; required by §5 TMG/DDG).
 contact_email: ""
 
@@ -65,6 +69,11 @@ content_responsible: ""
 # Person who technically implemented the web service (imprint). Tokens
 # starting with mailto:/http(s):// become hyperlinks.
 technical_implementer: ""
+
+# Email of the person who technically implemented the web service
+# (imprint). When set, rendered next to `technical_implementer` as a
+# mailto hyperlink.
+technical_implementer_email: ""
 
 # Imprint lead phrase: "The Legal Notice of <host> applies with the
 # following amendments:". When the URL is set, the name is a hyperlink.
