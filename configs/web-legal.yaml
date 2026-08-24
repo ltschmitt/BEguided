@@ -40,8 +40,26 @@ dpo_email: ""
 dpo_address: []
 
 # Competent supervisory authority (Landesdatenschutzbeauftragte[r]).
-# Example: "Landesbeauftragte für den Datenschutz und die Informationsfreiheit Baden-Württemberg".
+# Rendered as a multi-line address block in the privacy policy under
+# "You have the right to appeal to the supervisory authority at any time
+# (Art. 77 GDPR)". Every field is optional and individually guarded in
+# the template; leave unused ones empty.
+#
+# Example for Saxony:
+#   competent_dpa: "Saxon Data Protection and Transparency Officer"
+#   competent_dpa_head: "Dr. Juliane Hundert"
+#   competent_dpa_address:
+#     - "Postfach 11 01 32"
+#     - "01330 Dresden"
+#   competent_dpa_email: "post@sdtb.sachsen.de"
+#   competent_dpa_phone: "+49 (0) 351 85471 101"
+#   competent_dpa_web: "https://www.datenschutz.sachsen.de"
 competent_dpa: ""
+competent_dpa_head: ""
+competent_dpa_address: []
+competent_dpa_email: ""
+competent_dpa_phone: ""
+competent_dpa_web: ""
 
 # How long reverse-proxy / web-server logs are kept (separate from the
 # 24h job-database retention enforced by the app itself).
@@ -49,3 +67,40 @@ log_retention_days: 7
 
 # Free-form date string shown on every legal page (e.g. "2026-07-23").
 last_updated: ""
+
+# --- Imprint: lead phrase ---------------------------------------------
+# Renders as: "The Legal Notice of <legal_notice_host> applies with the
+# following amendments:". When `legal_notice_host_url` is set, the host
+# name is wrapped in an <a href="…"> link. When either field is empty
+# the template renders nothing — there is no fallback.
+# Example for a TU Dresden institute:
+#   legal_notice_host: "TU Dresden"
+#   legal_notice_host_url: "https://tu-dresden.de/impressum"
+legal_notice_host: ""
+legal_notice_host_url: ""
+
+# --- Imprint: Responsibilities — content contact ----------------------
+# Full name of the person to contact for content questions. Rendered as
+# the first line of the address block under "If you have any questions
+# regarding content, please contact:".
+content_contact_name: ""
+
+# --- Imprint: Responsibilities — technical implementation -------------
+# Higher-level institution name (typically "Technische Universität
+# Dresden" for TU Dresden institutes).
+hosting_legal_name: ""
+
+# Department / subdivision within the institution (e.g. "Faculty of
+# Medicine Carl Gustav Carus"). Rendered as the second line of the
+# technical-implementation address block.
+institution_department: ""
+
+# Postal address lines for the technical-implementation address block.
+hosting_legal_postal: []
+
+# Head of the department / institution responsible for the service.
+# Rendered as "Head: <head_of_institution>".
+head_of_institution: ""
+
+# Contact email for the technical-implementation address block.
+hosting_legal_email: ""

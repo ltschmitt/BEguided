@@ -250,8 +250,17 @@ def test_legal_routes_interpolate_config(tmp_path):
     legal_path.write_text(
         "institution_name: 'ACME University'\n"
         "contact_email: 'contact@acme.example'\n"
+        "content_contact_name: 'Dr. Test Person'\n"
+        "legal_notice_host: 'TU Dresden'\n"
+        "legal_notice_host_url: 'https://tu-dresden.de/impressum'\n"
+        "institution_department: 'Faculty of Medicine Carl Gustav Carus'\n"
         "vertretungsberechtigter: 'Prof. Dr. Test Person'\n"
         "competent_dpa: 'Test DPA Authority'\n"
+        "competent_dpa_head: 'Jane Doe'\n"
+        "competent_dpa_address: ['Postfach 11 11', '01111 Dresden']\n"
+        "competent_dpa_email: 'dpa@acme.example'\n"
+        "competent_dpa_phone: '+49 351 111-2222'\n"
+        "competent_dpa_web: 'https://dpa.acme.example'\n"
         "last_updated: '2026-07-23'\n"
     )
 
@@ -287,12 +296,15 @@ def test_legal_routes_interpolate_config(tmp_path):
     body = res.text
     assert "ACME University" in body
     assert "contact@acme.example" in body
-    assert "Prof. Dr. Test Person" in body
+    assert "Dr. Test Person" in body
+    assert "TU Dresden" in body
     assert "2026-07-23" in body
 
     res = client.get("/datenschutz")
     assert res.status_code == 200
     assert "Test DPA Authority" in res.text
+    assert "Jane Doe" in res.text
+    assert "dpa@acme.example" in res.text
     assert "ACME University" in res.text
 
 

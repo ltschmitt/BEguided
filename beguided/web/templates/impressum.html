@@ -2,42 +2,38 @@
 
 {% block title %}Imprint — BEguided{% endblock %}
 
+{% block header %}{% include "legal_header.html" %}{% endblock %}
+
 {% block content %}
 <h1 style="margin-top:0;">Imprint</h1>
 {% if legal.last_updated %}<p class="legal-updated">Last updated: {{ legal.last_updated }}</p>{% endif %}
 
+<p>
+    The Legal Notice of
+    {% if legal.legal_notice_host_url %}<a href="{{ legal.legal_notice_host_url }}" rel="noopener noreferrer">{% endif %}{{ legal.legal_notice_host }}{% if legal.legal_notice_host_url %}</a>{% endif %}
+    applies with the following amendments:
+</p>
+
 <section class="legal-section">
-    <h2>Provider (§ 5 DDG / TMG)</h2>
+    <h2>Responsibilities</h2>
+
+    <h4>If you have any questions regarding content, please contact:</h4>
     <address class="legal-address">
-        <strong>{{ legal.institution_name }}</strong><br>
+        {% if legal.content_contact_name %}{{ legal.content_contact_name }}<br>{% endif %}
+        {% if legal.institution_name %}<strong>{{ legal.institution_name }}</strong><br>{% endif %}
         {% for line in legal.address_lines %}{{ line }}<br>{% endfor %}
-    </address>
-</section>
-
-<section class="legal-section">
-    <h2>Authorised representative</h2>
-    <p>{{ legal.vertretungsberechtigter }}</p>
-</section>
-
-<section class="legal-section">
-    <h2>Contact</h2>
-    <p>
         {% if legal.contact_email %}Email: <a href="mailto:{{ legal.contact_email }}">{{ legal.contact_email }}</a><br>{% endif %}
         {% if legal.contact_phone %}Phone: {{ legal.contact_phone }}{% endif %}
-    </p>
-</section>
+    </address>
 
-<section class="legal-section">
-    <h2>Responsible for content (§ 18 MStV)</h2>
-    <p>{{ legal.content_responsible_mstv }}</p>
-</section>
-
-<section class="legal-section">
-    <h2>Hosting</h2>
-    <p>
-        This service is hosted on a virtual machine operated by
-        {{ legal.hosting_provider }}.
-    </p>
+    <h4>Technical implementation:</h4>
+    <address class="legal-address">
+        {% if legal.hosting_legal_name %}{{ legal.hosting_legal_name }}<br>{% endif %}
+        {% if legal.institution_department %}{{ legal.institution_department }}<br>{% endif %}
+        {% for line in legal.hosting_legal_postal %}{{ line }}<br>{% endfor %}
+        {% if legal.head_of_institution %}Head: {{ legal.head_of_institution }}<br>{% endif %}
+        {% if legal.hosting_legal_email %}Email: <a href="mailto:{{ legal.hosting_legal_email }}">{{ legal.hosting_legal_email }}</a>{% endif %}
+    </address>
 </section>
 
 <section class="legal-section">

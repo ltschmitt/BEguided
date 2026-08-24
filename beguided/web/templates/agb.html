@@ -2,6 +2,8 @@
 
 {% block title %}Terms of Use — BEguided{% endblock %}
 
+{% block header %}{% include "legal_header.html" %}{% endblock %}
+
 {% block content %}
 <h1 style="margin-top:0;">Terms of Use</h1>
 {% if legal.last_updated %}<p class="legal-updated">Last updated: {{ legal.last_updated }}</p>{% endif %}

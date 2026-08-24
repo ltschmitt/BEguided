@@ -71,6 +71,18 @@ class LegalConfig:
     competent_dpa_email: str = ""
     competent_dpa_phone: str = ""
     competent_dpa_web: str = ""
+    # Lead phrase: "The Legal Notice of <legal_notice_host> applies with
+    # the following amendments:". When `legal_notice_host_url` is set,
+    # the host name is rendered as a hyperlink to that URL; otherwise
+    # it is plain text. No fallback when either field is empty.
+    legal_notice_host: str = ""
+    legal_notice_host_url: str = ""
+    # Name of the person to contact for content questions (rendered in
+    # the Responsibilities section of the imprint).
+    content_contact_name: str = ""
+    # Department / institution subdivision (rendered under Technical
+    # implementation).
+    institution_department: str = ""
 
 
 # Fields the loader accepts. Anything else in the YAML is ignored so the
@@ -97,6 +109,10 @@ _KNOWN_SCALAR_FIELDS = (
     "competent_dpa_email",
     "competent_dpa_phone",
     "competent_dpa_web",
+    "legal_notice_host",
+    "legal_notice_host_url",
+    "content_contact_name",
+    "institution_department",
 )
 _KNOWN_LIST_FIELDS = (
     "address_lines",

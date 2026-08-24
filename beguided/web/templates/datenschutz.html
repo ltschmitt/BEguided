@@ -2,6 +2,8 @@
 
 {% block title %}Privacy Policy — BEguided{% endblock %}
 
+{% block header %}{% include "legal_header.html" %}{% endblock %}
+
 {% block content %}
 <h1 style="margin-top:0;">Privacy Policy</h1>
 {% if legal.last_updated %}<p class="legal-updated">Last updated: {{ legal.last_updated }}</p>{% endif %}
@@ -132,12 +134,20 @@
         <li>Right to restriction of processing (Art. 18 GDPR)</li>
         <li>Right to data portability (Art. 20 GDPR)</li>
         <li>Right to object (Art. 21 GDPR)</li>
-        <li>Right to lodge a complaint with a supervisory authority (Art. 77 GDPR)</li>
     </ul>
     <p>
-        The competent supervisory authority is:
-        <em>{{ legal.competent_dpa }}</em>.
+        You have the right to appeal to the supervisory authority at any
+        time (Art. 77 GDPR). The supervisory authority for data protection
+        is:
     </p>
+    <address class="legal-address">
+        {% if legal.competent_dpa %}{{ legal.competent_dpa }}<br>{% endif %}
+        {% if legal.competent_dpa_head %}{{ legal.competent_dpa_head }}<br>{% endif %}
+        {% for line in legal.competent_dpa_address %}{{ line }}<br>{% endfor %}
+        {% if legal.competent_dpa_email %}Email: <a href="mailto:{{ legal.competent_dpa_email }}">{{ legal.competent_dpa_email }}</a><br>{% endif %}
+        {% if legal.competent_dpa_phone %}Phone: {{ legal.competent_dpa_phone }}<br>{% endif %}
+        {% if legal.competent_dpa_web %}Website: <a href="{{ legal.competent_dpa_web }}" target="_blank" rel="noopener noreferrer">{{ legal.competent_dpa_web }}</a>{% endif %}
+    </address>
 </section>
 
 <section class="legal-section">
