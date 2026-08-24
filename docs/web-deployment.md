@@ -51,6 +51,37 @@ www.buchholz.org {
 
 The web app reads `X-Forwarded-For` / `X-Forwarded-Proto` to recover the real client IP and HTTPS scheme, but only when the upstream peer is on the `BEGUIDED_TRUSTED_PROXY_IPS` allow-list (default `127.0.0.1,::1`). Add Caddy's peer IP if it runs in a separate container.
 
+### Docker disk management
+
+Repeated `docker compose build` invocations can let the BuildKit cache (`/data/docker/overlay2/`) grow without bound — the cache from the previous build is kept until something explicitly evicts it. Cap it once on the host, then forget about it.
+
+Edit `/etc/docker/daemon.json` (create it if absent). If the file already exists, merge the `"buildkit"` key into the existing JSON rather than overwriting:
+
+```json
+{
+  "features": {
+    "buildkit": true
+  },
+  "buildkit": {
+    "gc-keep-storage": "10GB"
+  }
+}
+```
+
+Then restart the daemon:
+
+```bash
+sudo systemctl restart docker
+```
+
+BuildKit will now garbage-collect its own cache once it crosses the 10 GB ceiling, regardless of how often you rebuild. For an immediate one-shot cleanup:
+
+```bash
+docker builder prune -af
+```
+
+If the disk is already full from prior builds, run that once after restarting the daemon to reclaim the space.
+
 ## GDPR / German-public compliance
 
 Mandatory for any German-public web presence. The audit + remediation history lives in `nogit/compliance_safety.md` (private, gitignored). The operational summary:
@@ -132,3 +163,4 @@ The retention sweeper runs every 15 min by default.
 - [ ] `curl -I https://www.buchholz.org/beguided/` returns 200 with the expected headers
 - [ ] `curl -I -H "Host: evil.com" https://www.buchholz.org/beguided/` returns 400
 - [ ] `pixi run test` is green
+- [ ] `/etc/docker/daemon.json` on the host caps BuildKit cache (see [Docker disk management](#docker-disk-management))

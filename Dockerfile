@@ -19,6 +19,11 @@
 #   docker run --gpus all -p 8000:8000 beguided:web-cuda
 #
 # Off-target search via BEguidedOFF is optional — install it manually if needed.
+#
+# Package installs use uv (https://docs.astral.sh/uv/) pulled from its
+# official image — a single static binary, no wheel cache to clean up.
+# `UV_BREAK_SYSTEM_PACKAGES=1` lets uv install into the externally-managed
+# Python from `python:3.12-slim`; it's a no-op for the venv-based GPU targets.
 
 # ============================================================================
 # 1. CPU BASE — CLI-only, minimal image (no web server deps)
@@ -29,6 +34,10 @@ WORKDIR /app
 
 # Prevent interactive prompts (e.g. tzdata) during package installation
 ENV DEBIAN_FRONTEND=noninteractive
+ENV UV_BREAK_SYSTEM_PACKAGES=1
+
+# Install uv (single static binary) from the official image
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Install system build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -41,7 +50,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml README.md ./
 COPY beguided/ ./beguided/
 COPY configs/base_editor_profiles.tsv ./configs/
-RUN pip install --no-cache-dir -e "."
+RUN uv pip install --system --no-cache -e "."
 
 # Create directories for user-provided data
 RUN mkdir -p /app/genome /app/data
@@ -55,7 +64,7 @@ CMD ["--help"]
 # ============================================================================
 FROM base AS web
 
-RUN pip install --no-cache-dir -e ".[web]"
+RUN uv pip install --system --no-cache -e ".[web]"
 RUN mkdir -p /var/lib/beguided
 
 ENV PYTHONUNBUFFERED=1
@@ -80,6 +89,9 @@ WORKDIR /app
 # Prevent interactive prompts (e.g. tzdata) during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Install uv (single static binary) from the official image
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 # Install Python 3.12 and build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
@@ -95,12 +107,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Create an isolated virtual environment
 RUN python3.12 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy source and install BEguided (core only, includes torch)
 COPY pyproject.toml README.md ./
 COPY beguided/ ./beguided/
-RUN pip install --no-cache-dir -e "."
+RUN uv pip install --python /opt/venv/bin/python --no-cache -e "."
 
 # Create directories for user-provided data
 RUN mkdir -p /app/genome /app/data
@@ -121,7 +131,7 @@ FROM base-gpu AS cli-cuda
 # ============================================================================
 FROM base-gpu AS web-cuda
 
-RUN pip install --no-cache-dir -e ".[web]"
+RUN uv pip install --python /opt/venv/bin/python --no-cache -e ".[web]"
 RUN mkdir -p /var/lib/beguided
 
 ENV PYTHONUNBUFFERED=1
