@@ -14,7 +14,7 @@
     <p>
         {% if legal.website_url %}This accessibility statement applies to
         <a href="{{ legal.website_url }}">{{ legal.website_url }}</a>. {% endif %}
-        This website is run by {{ legal.institution_name | nl2br }}.
+        This website is run by {{ legal.institution_name }}.
     </p>
     <p>
         {{ legal.institution_name }} is committed to making its websites and mobile applications
@@ -33,7 +33,7 @@
         {{ legal.accessibility_reviewed }}{% endif %}.
         The basis for issuing this accessibility statement is a
         BITV self-assessment carried out by
-        {{ legal.institution_name | nl2br }}.
+        {{ legal.institution_name }}.
     </p>
 </section>
 

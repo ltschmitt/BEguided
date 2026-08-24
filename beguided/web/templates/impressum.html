@@ -32,14 +32,18 @@
         {% if legal.contact_phone %}Phone: {{ legal.contact_phone }}{% endif %}
     </address>
 
+    <h4>Technical implementation:</h4>
     {% if legal.hosting_legal_name or legal.technical_implementer %}
     <p>
+        {% if legal.technical_implementer %}
+        {{ legal.technical_implementer }}<br>
+        {% if legal.technical_implementer_email %}Email: <a href="mailto:{{ legal.technical_implementer_email }}">{{ legal.technical_implementer_email  }}</a><br>{% endif %}
+        {% endif %}<br>
+        {% if legal.institution_name %}{{ legal.institution_name | nl2br }}<br>{% endif %}
+
         {% if legal.hosting_legal_name %}This service is hosted on
-        infrastructure operated by {{ legal.hosting_legal_name }}
-        {% if legal.institution_department %}({{ legal.institution_department }}){% endif %}.
+        infrastructure operated by {{ legal.hosting_legal_name }}<br>
         {% endif %}
-        {% if legal.technical_implementer %}Technical implementation by
-        {{ legal.technical_implementer | linkify }}.{% endif %}
     </p>
     {% endif %}
 </section>

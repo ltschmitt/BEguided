@@ -57,10 +57,6 @@ head_of_institution: ""
 # institute is a department).
 hosting_legal_name: ""
 
-# Department / subdivision within the institution (imprint hosting
-# sentence).
-institution_department: ""
-
 # Person responsible for the content of the service (imprint, per
 # § 18 MStV); usually the PI / head of the institute. May reference
 # other values in this file.
