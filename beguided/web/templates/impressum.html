@@ -20,7 +20,7 @@
     {% if legal.content_responsible %}
     <p>
         Person responsible for content per §18 MStV:<br>
-        {{ legal.content_responsible }}
+        {{ legal.content_responsible }}<br>
         {% if legal.institution_name %}{{ legal.institution_name | nl2br }}{% endif %}
     </p>
     {% endif %}
