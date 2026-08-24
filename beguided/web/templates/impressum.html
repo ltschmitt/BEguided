@@ -19,13 +19,15 @@
 
     {% if legal.content_responsible %}
     <p>
-        Person responsible for content per §18 MStV:
+        Person responsible for content per §18 MStV:<br>
         {{ legal.content_responsible }}
+        {% if legal.institution_name %}{{ legal.institution_name | nl2br }}{% endif %}
     </p>
     {% endif %}
 
     <h4>If you have any questions regarding content, please contact:</h4>
     <address class="legal-address">
+        {{ legal.contact_name }}<br>
         {% if legal.institution_name %}{{ legal.institution_name | nl2br }}{% endif %}
         {% for line in legal.address_lines %}{{ line }}<br>{% endfor %}
         {% if legal.contact_email %}Email: <a href="mailto:{{ legal.contact_email }}">{{ legal.contact_email }}</a><br>{% endif %}
@@ -37,10 +39,9 @@
     <p>
         {% if legal.technical_implementer %}
         {{ legal.technical_implementer }}<br>
-        {% if legal.technical_implementer_email %}Email: <a href="mailto:{{ legal.technical_implementer_email }}">{{ legal.technical_implementer_email  }}</a><br>{% endif %}
         {% if legal.institution_name %}{{ legal.institution_name | nl2br }}{% endif %}
-        {% for line in legal.address_lines %}{{ line }}<br>{% endfor %}
-        {% endif %}
+        {% if legal.technical_implementer_email %}Email: <a href="mailto:{{ legal.technical_implementer_email }}">{{ legal.technical_implementer_email  }}</a><br>{% endif %}
+        {% endif %}<br>
 
         {% if legal.hosting_legal_name %}This service is hosted on
         infrastructure operated by {{ legal.hosting_legal_name }}<br>
