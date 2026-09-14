@@ -51,6 +51,7 @@ def _build_config(
     gc_content_filter: Optional[str] = None,
     filter_homopolymers: Optional[bool] = None,
     trinuc_edit_score_min: Optional[float] = None,
+    keep_targets_without_guides: bool = False,
 ) -> dict:
     """Build a pipeline config dict from web UI parameters.
 
@@ -91,6 +92,11 @@ def _build_config(
             trinucleotide context score (0..1) to keep an ABE guide. CBE
             rows are always kept (NaN). When ``None`` the operator-configured
             default (``cfg.trinuc_edit_score_min``) is used.
+        keep_targets_without_guides: When True the final results retain one
+            placeholder row per input target that produced no guide, so the
+            web UI can always show a row per target even when no guide RNA
+            could be designed (or every guide was filtered out). Off by
+            default; the web server always sets this.
 
     Returns:
         dict: Compatible with run_pipeline().
@@ -138,6 +144,7 @@ def _build_config(
         "gc_content_filter": gc_content_filter,
         "filter_homopolymers": bool(filter_homopolymers),
         "trinuc_edit_score_min": trinuc_edit_score_min,
+        "keep_targets_without_guides": bool(keep_targets_without_guides),
         "search_offtargets": search_offtargets,
         "passthrough_extras": passthrough_extras,
         "skip_bystander": skip_bystander,
@@ -251,6 +258,7 @@ def execute_job(
     guide_score_threshold: float = 0.5,
     cancel_event: Optional[threading.Event] = None,
     passthrough_extras: bool = False,
+    keep_targets_without_guides: bool = False,
     mode: str = "spreadsheet",
     custom_genome_b64: Optional[str] = None,
     use_custom_profiles: bool = False,
@@ -443,6 +451,7 @@ def execute_job(
             use_custom_profiles=use_custom_profiles,
             custom_profiles_b64=custom_profiles_b64,
             merged_profiles_b64=merged_profiles_b64,
+            keep_targets_without_guides=keep_targets_without_guides,
         )
         final_output = Path(work_dir) / "beguided_results.tsv"
 

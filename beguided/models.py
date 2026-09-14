@@ -57,6 +57,21 @@ class EditingOutcome:
     aa_bystander: str
 
 
+# Marker strings placed in ``guide_rna_sequence`` for targets that end up in
+# the results without a usable guide. Two of them are produced by the pipeline
+# for the ``keep_targets_without_guides`` config option (added at the very
+# last pipeline step); the third is produced by the web UI's dynamic result
+# filters when a filter removes every guide of a target. The trailing
+# ``**`` prefix matches the pipeline's existing "invalid guide" convention
+# (see ``run_pipeline`` step-1 logging).
+NO_GUIDE_FOUND = "**No guide possible**"
+BASE_CHANGE_INCOMPATIBLE = "**Base change incompatible**"
+GUIDES_REMOVED_BY_FILTER = "**Guides removed by filter**"
+PLACEHOLDER_MARKERS = frozenset(
+    {NO_GUIDE_FOUND, BASE_CHANGE_INCOMPATIBLE, GUIDES_REMOVED_BY_FILTER}
+)
+
+
 CORE_COLUMN_ORDER = [
     "chromosome",
     "position",

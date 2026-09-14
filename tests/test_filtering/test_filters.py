@@ -434,3 +434,90 @@ class TestLoadFilterCriteriaTrinucKey:
         with pytest.raises(ValueError):
             load_filter_criteria(trinuc_edit_score_min=-0.1)
 
+
+class TestFillMissingTargets:
+    """Tests for the ``fill_missing_targets`` option of filter_guides."""
+
+    def test_off_by_default_no_placeholders(self, synthetic_bystander_output):
+        result = filter_guides(synthetic_bystander_output, {"mode": "no_bystanders"})
+        assert len(result) == 3
+        assert "**Guides removed by filter**" not in set(result["guide_rna_sequence"])
+
+    def test_adds_guides_removed_by_filter_rows(self, synthetic_bystander_output):
+        result = filter_guides(
+            synthetic_bystander_output,
+            {"mode": "no_bystanders"},
+            fill_missing_targets=True,
+        )
+        # 3 surviving guides + 2 placeholder rows (one per removed target).
+        assert len(result) == 5
+        placeholders = result[result["guide_rna_sequence"] == "**Guides removed by filter**"]
+        assert len(placeholders) == 2
+        assert set(zip(placeholders["chromosome"], placeholders["position"])) == {
+            ("chr1", 100),
+            ("chr2", 300),
+        }
+        # Identity/base columns preserved on the placeholder rows.
+        assert set(placeholders["target_base"]) == {"A"}
+        assert set(placeholders["desired_base"]) == {"G"}
+
+    def test_preserves_pipeline_marker(self):
+        """Rows the pipeline already flagged ("**No guide possible**") keep
+        that marker; filter_guides re-adds them when a filter would drop them."""
+        df = pd.DataFrame(
+            {
+                "chromosome": ["chr1", "chr1"],
+                "position": [10, 20],
+                "target_base": ["A", "A"],
+                "desired_base": ["G", "G"],
+                "guide_rna_sequence": [
+                    "**No guide possible**",
+                    "AAAAAAAAAAAAAAAAAAAA",
+                ],
+                "bystander_effect": [None, "silent"],
+                "bystander_positions": ["", ""],
+                "guide_score": [None, 0.9],
+            }
+        )
+        result = filter_guides(df, {"mode": "all"}, fill_missing_targets=True)
+        assert len(result) == 2
+        markers = set(result["guide_rna_sequence"])
+        assert "**No guide possible**" in markers
+        assert "AAAAAAAAAAAAAAAAAAAA" in markers
+
+    def test_empty_result_still_emits_rows(self):
+        df = pd.DataFrame(
+            {
+                "chromosome": ["chr1"],
+                "position": [10],
+                "target_base": ["A"],
+                "desired_base": ["G"],
+                "guide_rna_sequence": ["AAAAAAAAAAAAAAAAAAAA"],
+                "guide_score": [0.1],
+            }
+        )
+        result = filter_guides(
+            df, {"mode": "all", "guide_score_threshold": 0.5},
+            fill_missing_targets=True,
+        )
+        assert len(result) == 1
+        assert result.iloc[0]["guide_rna_sequence"] == "**Guides removed by filter**"
+        assert result.iloc[0]["chromosome"] == "chr1"
+        assert result.iloc[0]["position"] == 10
+
+    def test_fill_off_still_drops_everything(self):
+        df = pd.DataFrame(
+            {
+                "chromosome": ["chr1"],
+                "position": [10],
+                "target_base": ["A"],
+                "desired_base": ["G"],
+                "guide_rna_sequence": ["AAAAAAAAAAAAAAAAAAAA"],
+                "guide_score": [0.1],
+            }
+        )
+        result = filter_guides(
+            df, {"mode": "all", "guide_score_threshold": 0.5}
+        )
+        assert len(result) == 0
+

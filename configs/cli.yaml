@@ -45,6 +45,16 @@ keep_intermediates: true
 # Default: true
 passthrough_extras: true
 
+# Keep one row per input target in the final beguided_results.tsv even when no
+# guide RNA could be designed (no valid PAM / all guides filtered out) or the
+# target's mutation type does not match the selected base editors.
+# Placeholder rows keep the input identity + bases columns; their
+# guide_rna_sequence is "**No guide possible**" or "**Base change incompatible**"
+# and every other result field is empty. Rows are only added in the very last
+# step, never during processing. The web server always enables this.
+# Default: false
+keep_targets_without_guides: false
+
 # =============================================================================
 # GUIDEFINDER
 # =============================================================================

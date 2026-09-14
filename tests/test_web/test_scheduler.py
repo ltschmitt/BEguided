@@ -54,6 +54,7 @@ class StubRunner:
         guide_score_threshold=0.5,
         cancel_event=None,
         passthrough_extras=False,
+        keep_targets_without_guides=False,
         mode="spreadsheet",
         custom_genome_b64=None,
         use_custom_profiles=False,

@@ -1005,3 +1005,166 @@ class TestPipelineTrinucEditScore:
         )
         with pytest.raises(PipelineError):
             run_pipeline(config, start_step=1, end_step=1)
+
+
+class TestKeepTargetsWithoutGuides:
+    """The ``keep_targets_without_guides`` flag keeps one placeholder row per
+    input target in the final results table, even when no guide could be
+    designed or the mutation type does not match the selected editors.
+    Placeholder rows are only added in the very last step."""
+
+    def _build_config(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv, targets_content,
+        keep_targets_without_guides=True,
+    ):
+        presets_path = tmp_path / "presets.tsv"
+        presets_path.write_text(valid_preset_tsv)
+        targets_path = tmp_path / "targets.tsv"
+        targets_path.write_text(targets_content)
+        config = {
+            "input": {
+                "targets": str(targets_path),
+                "genome": sample_fasta_file,
+                "base_editor_profiles": str(presets_path),
+                "gff_file": str(tmp_path / "nonexistent.gtf"),
+            },
+            "output_prefix": str(tmp_path / "out"),
+            # Only ABE editors so a C>T target is incompatible by design.
+            "use_base_editors": "ABE8e",
+            "keep_bystanders": "all",
+            "search_offtargets": False,
+            "skip_bystander": True,
+            "keep_targets_without_guides": keep_targets_without_guides,
+        }
+        return config
+
+    def _run(self, config):
+        from beguided.pipeline import run_pipeline
+        import pandas as pd
+
+        run_pipeline(config, start_step=1, end_step=5)
+        return pd.read_csv(
+            Path(config["output_prefix"]) / "beguided_results.tsv", sep="\t"
+        )
+
+    def test_off_by_default_no_placeholders(self, tmp_path, sample_fasta_file, valid_preset_tsv):
+        """Default (flag off) keeps the historic behaviour: the incompatible
+        target is simply dropped, no placeholder row appears."""
+        from beguided.models import (
+            BASE_CHANGE_INCOMPATIBLE,
+            NO_GUIDE_FOUND,
+        )
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\n"
+            "chr1\t5\tA\tG\n"
+            "chr1\t100\tC\tT\n",
+            keep_targets_without_guides=False,
+        )
+        final = self._run(config)
+        assert (final["guide_rna_sequence"] != NO_GUIDE_FOUND).all()
+        assert (final["guide_rna_sequence"] != BASE_CHANGE_INCOMPATIBLE).all()
+        assert 100 not in set(final["position"])
+
+    def test_flag_on_adds_no_guide_and_incompatible_rows(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """With the flag on, a target with a real guide is kept, a compatible
+        target with no PAM gets "**No guide possible**", and an incompatible
+        mutation type gets "**Base change incompatible**"."""
+        from beguided.models import BASE_CHANGE_INCOMPATIBLE, NO_GUIDE_FOUND
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\n"
+            "chr1\t5\tA\tG\n"      # real guide
+            "chr1\t20\tA\tG\n"     # compatible, no valid PAM
+            "chr1\t100\tC\tT\n",   # mutation type not supported by ABE
+        )
+        final = self._run(config)
+        by_pos = final.groupby("position")
+
+        # chr1:5 -> at least one real guide.
+        pos5 = by_pos.get_group(5)
+        assert (pos5["guide_rna_sequence"] != NO_GUIDE_FOUND).any()
+        assert (pos5["guide_rna_sequence"] != BASE_CHANGE_INCOMPATIBLE).any()
+
+        # chr1:20 -> exactly one "**No guide possible**" placeholder.
+        pos20 = by_pos.get_group(20)
+        assert len(pos20) == 1
+        assert (pos20["guide_rna_sequence"] == NO_GUIDE_FOUND).all()
+
+        # chr1:100 -> exactly one "**Base change incompatible**" placeholder.
+        pos100 = by_pos.get_group(100)
+        assert len(pos100) == 1
+        assert (pos100["guide_rna_sequence"] == BASE_CHANGE_INCOMPATIBLE).all()
+
+    def test_flag_on_all_incompatible_no_error(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """Every input target incompatible -> one placeholder row per target
+        instead of the historic "No targets remain" PipelineError."""
+        from beguided.models import BASE_CHANGE_INCOMPATIBLE
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\n"
+            "chr1\t100\tC\tT\n"
+            "chr2\t40\tG\tA\n",
+        )
+        final = self._run(config)
+        assert len(final) == 2
+        assert (final["guide_rna_sequence"] == BASE_CHANGE_INCOMPATIBLE).all()
+        assert set(final["position"]) == {40, 100}
+
+    def test_flag_on_all_compatible_no_pam_no_error(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """Compatible targets with no valid PAM yield "**No guide possible**"
+        rows instead of the historic "No valid guides" PipelineError."""
+        from beguided.models import NO_GUIDE_FOUND
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\n"
+            "chr1\t100\tA\tG\n",
+        )
+        final = self._run(config)
+        assert len(final) == 1
+        assert (final["guide_rna_sequence"] == NO_GUIDE_FOUND).all()
+        assert set(final["position"]) == {100}
+
+    def test_flag_off_all_compatible_no_pam_still_raises(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """Flag off keeps the historic behaviour: compatible targets with no
+        valid PAM raise PipelineError instead of a placeholder-only output."""
+        from beguided.pipeline import PipelineError, run_pipeline
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\n"
+            "chr1\t100\tA\tG\n",
+            keep_targets_without_guides=False,
+        )
+        with pytest.raises(PipelineError, match="No valid guides"):
+            run_pipeline(config, start_step=1, end_step=5)
+
+    def test_flag_on_incompatible_with_passthrough_extras(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """Extra passthrough columns from the input are carried onto the
+        placeholder rows (CLI passthrough_extras default on)."""
+        from beguided.models import BASE_CHANGE_INCOMPATIBLE
+
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\tgene\n"
+            "chr1\t5\tA\tG\tKRAS\n"
+            "chr1\t100\tC\tT\tTP53\n",
+        )
+        final = self._run(config)
+        ph = final[final["guide_rna_sequence"] == BASE_CHANGE_INCOMPATIBLE]
+        assert len(ph) == 1
+        assert ph.iloc[0]["gene"] == "TP53"

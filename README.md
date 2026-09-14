@@ -102,6 +102,8 @@ beguided --config my_run.yaml
 
 See [`docs/cli-usage.md`](docs/cli-usage.md) for the full config reference, [`docs/input-output.md`](docs/input-output.md) for file formats, and [`docs/pipeline-steps.md`](docs/pipeline-steps.md) for what each of the six steps does.
 
+Need target lists from sources other than COSMIC? OncoDB, Cancer Hotspots, DORM, ClinVar, and cBioPortal are supported via the companion repo [`BEguided-datasets`](../BEguided-datasets), which holds the download/converter scripts, ready-made full-run and smoke configs, and a dataset version manifest. BEguided consumes the generated TSVs through the standard input contract — see [`docs/alternative-mutation-sources.md`](docs/alternative-mutation-sources.md) for the pointer.
+
 ## Quick start — web UI
 
 ```bash
@@ -139,6 +141,7 @@ The operator's real legal YAML is gitignored and pointed at via `BEGUIDED_LEGAL_
 | [Installation](docs/installation.md) | pip, pixi, docker; platform support; BEguidedOFF |
 | [CLI usage](docs/cli-usage.md) | Running the pipeline; config keys; web server |
 | [Input / output](docs/input-output.md) | Target file format, output TSV columns |
+| [Alternative mutation sources](docs/alternative-mutation-sources.md) | Pointer to the BEguided-datasets companion repo (converters, configs, manifest) |
 | [Pipeline steps](docs/pipeline-steps.md) | What each of the six steps does |
 | [Scoring](docs/scoring.md) | `guide_score`, `gc_content`, `trinuc_edit_score`, CCTOP |
 | [Web deployment](docs/web-deployment.md) | Caddy, Docker Compose, GDPR checklist, legal YAML |

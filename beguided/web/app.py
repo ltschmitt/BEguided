@@ -1061,6 +1061,7 @@ def create_app() -> FastAPI:
                     "search_offtargets": False,
                     "guide_score_threshold": 0.0,
                     "passthrough_extras": False,
+                    "keep_targets_without_guides": True,
                     "mode": mode,
                     "custom_genome_b64": custom_genome_b64 or None,
                     "use_custom_profiles": use_custom_profiles,
@@ -1239,7 +1240,7 @@ def create_app() -> FastAPI:
             "gc_content_filter": gc_content_filter,
             "filter_homopolymers": filter_homopolymers,
             "trinuc_edit_score_min": trinuc_edit_score_min,
-        })
+        }, fill_missing_targets=True)
         if condense:
             df = condense_df(df)
         suffix_parts = []

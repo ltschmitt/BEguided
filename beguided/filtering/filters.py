@@ -6,6 +6,11 @@ import logging
 import pandas as pd
 from pathlib import Path
 
+from beguided.models import (
+    GUIDES_REMOVED_BY_FILTER,
+    PLACEHOLDER_MARKERS,
+)
+
 
 logger = logging.getLogger("beguided.filtering")
 
@@ -224,7 +229,7 @@ def _apply_trinuc_score_filter(df, threshold):
     return df[mask]
 
 
-def filter_guides(input_df, criteria):
+def filter_guides(input_df, criteria, fill_missing_targets=False):
     """Filter guides based on criteria.
 
     Args:
@@ -232,6 +237,16 @@ def filter_guides(input_df, criteria):
         criteria: dict with 'mode' and optional 'guide_score_threshold' and
             optional 'skip_bystander' (when True, no bystander-based filter
             is applied regardless of ``mode``).
+        fill_missing_targets: When True, every target present in ``input_df``
+            that has no surviving row after filtering gets one placeholder row
+            appended (identity + bases columns copied from the input, other
+            result fields empty). The ``guide_rna_sequence`` marker is
+            preserved when the input row was already a placeholder (e.g.
+            ``**No guide possible**``) and set to
+            ``**Guides removed by filter**`` when the input row was a real
+            guide removed by the filters. Used by the web UI's dynamic
+            filters so a target whose guides are all removed still shows up.
+            Off by default (CLI pipeline step 3 behaviour is unchanged).
 
     Returns:
         Filtered DataFrame.
@@ -244,10 +259,9 @@ def filter_guides(input_df, criteria):
         if mode == "no_bystanders":
             if "bystander_effect" in df.columns:
                 df = df[df["bystander_effect"] == "no_bystanders"]
-            elif len(df) == 0:
-                return df
-            else:
+            elif "bystander_positions" in df.columns:
                 df = df[df["bystander_positions"].isna() | (df["bystander_positions"] == "")]
+            # No bystander metadata at all: nothing to filter on, rows pass.
 
         elif mode == "silent":
             if "bystander_effect" not in df.columns:
@@ -275,9 +289,91 @@ def filter_guides(input_df, criteria):
     # Apply trinucleotide edit-score filter if configured (ABE only; CBE rows kept)
     df = _apply_trinuc_score_filter(df, criteria.get("trinuc_edit_score_min"))
 
-    df = df[df["guide_rna_sequence"] != "**No guide possible**"]
+    # Remove the pipeline's internal "not a real guide" marker rows; these are
+    # re-added by the placeholder fill below (with their marker preserved) so
+    # the web UI still shows one row per target.
+    if "guide_rna_sequence" in df.columns:
+        df = df[df["guide_rna_sequence"] != "**No guide possible**"]
 
-    if len(df) == 0:
+    # Historic short-circuit: an empty frame with no matching data columns is
+    # returned as-is unless the placeholder fill is requested (the fill can
+    # still produce rows from a non-empty source frame).
+    if len(df) == 0 and not fill_missing_targets:
         return df
 
+    if fill_missing_targets:
+        df = _fill_missing_target_rows(df, input_df)
+
     return df
+
+
+# Columns that identify a target row. These are copied verbatim from the
+# source row when building a placeholder; every other result column is
+# emptied. The list covers both spreadsheet mode (chromosome/position,
+# target_base/desired_base) and sequence mode (sequence instead of
+# chromosome, desired_edit instead of the two separate base columns,
+# position absent).
+_PLACEHOLDER_IDENTITY_COLUMNS = (
+    "chromosome",
+    "sequence",
+    "position",
+    "target_base",
+    "desired_base",
+    "desired_edit",
+)
+
+
+def _fill_missing_target_rows(df, source_df):
+    """Append one placeholder row per target that lost all its guides.
+
+    ``source_df`` is the pre-filter frame and ``df`` the already-filtered
+    frame. For every distinct target key in ``source_df`` that has no
+    surviving row in ``df``, a placeholder row is appended:
+
+    * identity columns (chromosome/sequence, position, target/desired bases)
+      are copied from the first source row for that target;
+    * the ``guide_rna_sequence`` marker is preserved when the source row was
+      already a placeholder (e.g. ``**No guide possible**`` or
+      ``**Base change incompatible**``) and set to ``**Guides removed by
+      filter**`` when the source row was a real guide removed by the filters;
+    * every other result column is left empty/``None``.
+
+    The target key matches the frontend's ``targetKey`` helper: the
+    chromosome (or sequence in sequence mode) plus the 1-based position
+    (empty when the column is absent).
+    """
+    if "guide_rna_sequence" not in source_df.columns:
+        return df
+
+    def _target_key(row):
+        chrom = row.get("chromosome") or row.get("sequence")
+        pos = row.get("position")
+        return ("" if chrom is None else str(chrom), "" if pos is None else str(pos))
+
+    present = {_target_key(row) for _, row in df.iterrows()}
+    templates: dict = {}
+    for _, row in source_df.iterrows():
+        templates.setdefault(_target_key(row), row)
+
+    placeholder_rows = []
+    for key, template in templates.items():
+        if key in present:
+            continue
+        row = {}
+        for col in df.columns:
+            if col in _PLACEHOLDER_IDENTITY_COLUMNS and col in template.index:
+                row[col] = template[col]
+            else:
+                row[col] = None
+        source_seq = template.get("guide_rna_sequence")
+        if source_seq in PLACEHOLDER_MARKERS:
+            row["guide_rna_sequence"] = source_seq
+        else:
+            row["guide_rna_sequence"] = GUIDES_REMOVED_BY_FILTER
+        placeholder_rows.append(row)
+
+    if not placeholder_rows:
+        return df
+
+    new_rows = pd.DataFrame(placeholder_rows, columns=df.columns)
+    return pd.concat([df, new_rows], ignore_index=True)

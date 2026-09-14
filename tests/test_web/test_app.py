@@ -627,7 +627,9 @@ def test_download_results_applies_dynamic_filters(cfg_and_db):
     assert lines[0].startswith("chromosome")
     assert len(lines) == 1 + 3
 
-    # silent: keep bystander_effect in {silent, no_bystanders}.
+    # silent: keep bystander_effect in {silent, no_bystanders}. The "coding"
+    # chr1:80 target loses its only guide, so the fill keeps one placeholder
+    # row for it.
     res_silent = client.get(
         "/download/results",
         params={"job_id": submit["job_id"], "filter_mode": "silent"},
@@ -635,9 +637,10 @@ def test_download_results_applies_dynamic_filters(cfg_and_db):
     assert res_silent.status_code == 200
     rows = [l.split("\t") for l in res_silent.text.strip().split("\n")[1:]]
     positions = sorted(int(r[1]) for r in rows)
-    assert positions == [30, 50]
+    assert positions == [30, 50, 80]
+    assert "**Guides removed by filter**" in res_silent.text
 
-    # guide_score_threshold=0.5 -> drop the 0.2 row.
+    # guide_score_threshold=0.5 -> drop the 0.2 row (placeheld for chr1:80).
     res_score = client.get(
         "/download/results",
         params={"job_id": submit["job_id"], "guide_score_threshold": 0.5},
@@ -645,9 +648,10 @@ def test_download_results_applies_dynamic_filters(cfg_and_db):
     assert res_score.status_code == 200
     rows = [l.split("\t") for l in res_score.text.strip().split("\n")[1:]]
     positions = sorted(int(r[1]) for r in rows)
-    assert positions == [30, 50]
+    assert positions == [30, 50, 80]
 
-    # Combined: silent AND score >= 0.8 -> only the 0.9 silent row.
+    # Combined: silent AND score >= 0.8 -> only the 0.9 silent chr1:50 row is
+    # a real guide; chr2:30 and chr1:80 fall back to placeholder rows.
     res_combo = client.get(
         "/download/results",
         params={
@@ -658,8 +662,12 @@ def test_download_results_applies_dynamic_filters(cfg_and_db):
     )
     assert res_combo.status_code == 200
     rows = [l.split("\t") for l in res_combo.text.strip().split("\n")[1:]]
-    assert len(rows) == 1
-    assert rows[0][1] == "50"
+    assert len(rows) == 3
+    positions = sorted(int(r[1]) for r in rows)
+    assert positions == [30, 50, 80]
+    real = next(r for r in rows if int(r[1]) == 50)
+    assert "Guides removed" not in "\t".join(real)
+    assert "**No guide possible**" not in "\t".join(real)
 
     # Invalid filter_mode -> 400.
     bad = client.get(
@@ -713,7 +721,8 @@ def test_download_results_applies_trinuc_filter(cfg_and_db):
     lines = res_all.text.strip().split("\n")
     assert len(lines) == 1 + 3
 
-    # trinuc_edit_score_min=0.5 -> drop the 0.1 row, keep 0.9 and NaN.
+    # trinuc_edit_score_min=0.5 -> drop the 0.1 row; chr1:80 falls back to a
+    # placeholder, keeping 0.9 and NaN (CBE).
     res_filtered = client.get(
         "/download/results",
         params={"job_id": submit["job_id"], "trinuc_edit_score_min": 0.5},
@@ -721,7 +730,8 @@ def test_download_results_applies_trinuc_filter(cfg_and_db):
     assert res_filtered.status_code == 200
     rows = [l.split("\t") for l in res_filtered.text.strip().split("\n")[1:]]
     positions = sorted(int(r[1]) for r in rows)
-    assert positions == [30, 50]  # NaN (CBE) at 30 + 0.9 at 50
+    assert positions == [30, 50, 80]
+    assert "**Guides removed by filter**" in res_filtered.text
 
 
 def test_download_results_filename_reflects_filters(cfg_and_db):
@@ -823,7 +833,7 @@ def test_download_results_xlsx(cfg_and_db):
     assert "chromosome" in df.columns
     assert "guide_score" in df.columns
 
-    # silent filter applied -> 2 rows.
+    # silent filter applied -> 2 guides + 1 placeholder for the "coding" target.
     res_silent = client.get(
         "/download/results",
         params={
@@ -834,7 +844,8 @@ def test_download_results_xlsx(cfg_and_db):
     )
     assert res_silent.status_code == 200
     df_silent = pd.read_excel(io.BytesIO(res_silent.content), engine="openpyxl")
-    assert sorted(int(p) for p in df_silent["position"]) == [30, 50]
+    assert sorted(int(p) for p in df_silent["position"]) == [30, 50, 80]
+    assert (df_silent["guide_rna_sequence"] == "**Guides removed by filter**").sum() == 1
 
     # Filename reflects filters.
     filtered = client.get(
@@ -1019,10 +1030,15 @@ def test_download_results_condense_combines_with_filter_and_score(cfg_and_db):
     assert "silent_s0.5" in cd
 
     df = pd.read_csv(io.StringIO(res.text), sep="\t")
-    # After filter_mode=silent + score>=0.5 only the chr1:100 group remains,
-    # then condense merges ABE8e + ABE9e into a single row.
-    assert len(df) == 1
-    assert df.iloc[0]["base_editor"].split("\n") == ["ABE8e", "ABE9e"]
+    # After filter_mode=silent + score>=0.5 only the chr1:100 group remains
+    # as a real guide (condensed into a single row); the "coding" chr1:80
+    # target falls back to a "**Guides removed by filter**" placeholder row.
+    assert len(df) == 2
+    real = df[df["base_editor"].notna()].iloc[0]
+    assert real["base_editor"].split("\n") == ["ABE8e", "ABE9e"]
+    ph = df[df["guide_rna_sequence"] == "**Guides removed by filter**"].iloc[0]
+    assert ph["position"] == 80
+    assert pd.isna(ph["base_editor"])
 
 
 def test_download_results_condense_xlsx(cfg_and_db):
@@ -1048,4 +1064,52 @@ def test_download_results_condense_xlsx(cfg_and_db):
     df = pd.read_excel(io.BytesIO(res.content), engine="openpyxl")
     assert len(df) == 1
     assert df.iloc[0]["base_editor"].split("\n") == ["ABE8e", "ABE9e"]
+
+
+def test_download_results_preserves_pipeline_placeholder_markers(cfg_and_db):
+    """Pipeline-produced placeholder rows ("**No guide possible**" /
+    "**Base change incompatible**") survive the dynamic download filters with
+    their marker intact, so the web UI and the download agree on one row per
+    target with no guide."""
+    records = [
+        # Target that could not produce a guide (compatible, no PAM).
+        {"chromosome": "chr1", "position": 10, "target_base": "A",
+         "desired_base": "G", "guide_rna_sequence": "**No guide possible**"},
+        # Target whose mutation type does not fit the selected editors.
+        {"chromosome": "chr2", "position": 20, "target_base": "C",
+         "desired_base": "T", "guide_rna_sequence": "**Base change incompatible**"},
+        # A real guide for a third target.
+        {"chromosome": "chr3", "position": 30, "target_base": "A",
+         "desired_base": "G", "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
+         "bystander_effect": "silent", "bystander_positions": "",
+         "guide_score": 0.9},
+    ]
+    job_id, client = _submit_with_records(cfg_and_db, records)
+
+    # Unfiltered download: all three rows present, markers intact.
+    res = client.get(
+        "/download/results",
+        params={"job_id": job_id},
+    )
+    assert res.status_code == 200
+    df = pd.read_csv(io.StringIO(res.text), sep="\t")
+    assert len(df) == 3
+    assert set(df["guide_rna_sequence"]) == {
+        "**No guide possible**",
+        "**Base change incompatible**",
+        "AAAAAAAAAAAAAAAAAAAA",
+    }
+
+    # "silent" filter keeps the real guide, the no-guide placeholders survive.
+    res_silent = client.get(
+        "/download/results",
+        params={"job_id": job_id, "filter_mode": "silent"},
+    )
+    assert res_silent.status_code == 200
+    df_silent = pd.read_csv(io.StringIO(res_silent.text), sep="\t")
+    assert len(df_silent) == 3
+    markers = set(df_silent["guide_rna_sequence"])
+    assert "**No guide possible**" in markers
+    assert "**Base change incompatible**" in markers
+    assert "AAAAAAAAAAAAAAAAAAAA" in markers
 

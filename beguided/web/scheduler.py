@@ -412,6 +412,9 @@ class Scheduler:
                         passthrough_extras=job.payload.get(
                             "passthrough_extras", False
                         ),
+                        keep_targets_without_guides=job.payload.get(
+                            "keep_targets_without_guides", False
+                        ),
                         mode=job.payload.get("mode", "spreadsheet"),
                         custom_genome_b64=job.payload.get("custom_genome_b64"),
                         use_custom_profiles=job.payload.get("use_custom_profiles", False),

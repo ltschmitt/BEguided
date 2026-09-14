@@ -460,6 +460,19 @@ body {
     letter-spacing: 0.02em;
 }
 
+/* Rows for targets without a usable guide RNA ("**No guide possible**",
+   "**Base change incompatible**", "**Guides removed by filter**"). Muted so
+   placeholder rows recede behind real guides while staying distinguishable. */
+tr.no-guide td {
+    color: var(--muted);
+    font-style: italic;
+}
+
+tr.no-guide td code {
+    color: var(--muted);
+    font-style: italic;
+}
+
 .results-toolbar {
     display: flex;
     flex-wrap: wrap;

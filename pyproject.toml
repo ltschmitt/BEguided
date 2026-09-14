@@ -88,8 +88,17 @@ httpx = ">=0.27.0"
 
 # CUDA support for GPU-accelerated off-target search (Linux only)
 # Install with: pixi install --features cuda
+#
+# `pytorch-cuda` is the CUDA runtime meta-package; the actual `pytorch`
+# Python wheel (with CUDA bindings) must also be listed or `beguidedoff`
+# imports fail with `ModuleNotFoundError: No module named 'torch'`.
+# These packages are intentionally **not** in `[project.optional-dependencies]
+# gpu` to keep the Docker install slim (avoids pulling torch into the
+# container image); only the pixi `cuda` env adds them.
 [tool.pixi.feature.cuda.dependencies]
+pytorch = ">=2.5.1,<3"
 pytorch-cuda = ">=12.4,<13"
+numba = ">=0.65.1,<0.66"
 pysam = ">=0.24.0,<0.25"
 
 # Local editable BEguidedOFF (off-target search), sibling repo at ../BEguidedOFF

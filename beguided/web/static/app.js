@@ -1062,7 +1062,7 @@ function showAlert(el, kind, msg) {
     el.style.display = "block";
 }
 
-function renderTable(rows, columns, displayColumns = null, groupKeyFn = null, cellFormatter = null, headerTooltips = null) {
+function renderTable(rows, columns, displayColumns = null, groupKeyFn = null, cellFormatter = null, headerTooltips = null, rowClassFn = null) {
     if (!rows || rows.length === 0) {
         return `<p style="color:var(--muted);padding:16px;">No data to display.</p>`;
     }
@@ -1079,14 +1079,14 @@ function renderTable(rows, columns, displayColumns = null, groupKeyFn = null, ce
     let prevKey = null;
     let stripeToggle = false;
     rows.forEach(row => {
-        let cls = "";
+        let cls = rowClassFn ? (rowClassFn(row) || "") : "";
         if (groupKeyFn) {
             const key = groupKeyFn(row);
             if (key !== prevKey) {
                 stripeToggle = !stripeToggle;
                 prevKey = key;
             }
-            cls = stripeToggle ? "target-a" : "target-b";
+            cls = (cls ? cls + " " : "") + (stripeToggle ? "target-a" : "target-b");
         }
         html += cls ? `<tr class="${cls}">` : `<tr>`;
         columns.forEach(c => {
@@ -1681,12 +1681,14 @@ async function fetchResults(jobId) {
     resultsToolbar.style.display = "flex";
     if (resultsGuideStatus) {
         const foundTargets = new Set(
-            currentRecords.map(targetKey)
+            currentRecords.filter(r => !isNoGuideRow(r)).map(targetKey)
         ).size;
         resultsGuideStatus.innerHTML =
-            `Found guides for ` +
-            `<span class="results-guide-count">${foundTargets}/${matchedBaseEditorCount}</span> ` +
-            `targets with the selected base editors`;
+            foundTargets > 0
+                ? `Found guides for ` +
+                  `<span class="results-guide-count">${foundTargets}/${matchedBaseEditorCount}</span> ` +
+                  `targets with the selected base editors`
+                : `No guides found for the selected base editors`;
         resultsGuideStatus.style.display = "block";
     }
     renderResultsTable();
@@ -1842,6 +1844,71 @@ function filterRecords(records, mode, minScore, gcMode = "all", dropHomopolymers
     });
 }
 
+// Placeholder-row markers for targets that ended up without a guide. Mirror
+// beguided.models.PLACEHOLDER_MARKERS so the client can recognise pipeline
+// placeholders (added in the pipeline's very last step) and build its own
+// "**Guides removed by filter**" rows when the dynamic filters below remove
+// every guide of a target.
+const NO_GUIDE_FOUND = "**No guide possible**";
+const BASE_CHANGE_INCOMPATIBLE = "**Base change incompatible**";
+const GUIDES_REMOVED_BY_FILTER = "**Guides removed by filter**";
+const PLACEHOLDER_MARKERS = new Set([
+    NO_GUIDE_FOUND,
+    BASE_CHANGE_INCOMPATIBLE,
+    GUIDES_REMOVED_BY_FILTER,
+]);
+// Identity/base columns copied verbatim onto a placeholder row; every other
+// result column is emptied. Covers spreadsheet mode (chromosome/position,
+// target_base/desired_base) and sequence mode (sequence, desired_edit, no
+// position). Mirrors filters._PLACEHOLDER_IDENTITY_COLUMNS.
+const PLACEHOLDER_IDENTITY_COLUMNS = new Set([
+    "chromosome", "sequence", "position", "target_base", "desired_base", "desired_edit",
+]);
+
+function isNoGuideRow(row) {
+    const seq = row && row.guide_rna_sequence;
+    return seq !== undefined && seq !== null && PLACEHOLDER_MARKERS.has(String(seq));
+}
+
+// Build a placeholder row for a target whose guides were all removed by the
+// dynamic filters, sharing the server-side semantics: identity/base columns
+// come from the template row, result columns are emptied, and the marker is
+// preserved when the template row was already a placeholder.
+function makeNoGuideRow(template) {
+    const row = {};
+    for (const k of Object.keys(template)) {
+        row[k] = PLACEHOLDER_IDENTITY_COLUMNS.has(k) ? template[k] : null;
+    }
+    const sourceSeq = template.guide_rna_sequence;
+    row.guide_rna_sequence = PLACEHOLDER_MARKERS.has(String(sourceSeq))
+        ? sourceSeq
+        : GUIDES_REMOVED_BY_FILTER;
+    return row;
+}
+
+// After filtering, append one placeholder row per target (unique
+// ``targetKey``) that has no surviving row. Mirrors
+// ``beguided.filtering.filters._fill_missing_target_rows`` so the on-screen
+// table matches the downloaded file.
+function fillMissingTargets(filtered, preFilter) {
+    if (!preFilter || preFilter.length === 0) return filtered;
+    const present = new Set(filtered.map(targetKey));
+    // First row per target in the pre-filter set is the template for the
+    // placeholder (it carries the identity/base info even when the target's
+    // guides were all removed).
+    const firstIndex = new Map();
+    for (let i = 0; i < preFilter.length; i++) {
+        const key = targetKey(preFilter[i]);
+        if (!firstIndex.has(key)) firstIndex.set(key, i);
+    }
+    const out = filtered.slice();
+    for (const [key, idx] of firstIndex) {
+        if (present.has(key)) continue;
+        out.push(makeNoGuideRow(preFilter[idx]));
+    }
+    return out;
+}
+
 function renderResultsTable() {
     const wrap = resultsPanel.querySelector(".results-table-wrap");
     if (!wrap) {
@@ -1856,7 +1923,10 @@ function renderResultsTable() {
     // download endpoint will return. When the toggle is off this is a no-op
     // (condenseRecords passes records through unchanged).
     const condensed = condenseEnabled ? condenseRecords(currentRecords) : currentRecords;
-    const filtered = filterRecords(condensed, mode, score, gc, homopolymer, trinuc);
+    const baseFiltered = filterRecords(condensed, mode, score, gc, homopolymer, trinuc);
+    // Re-add one placeholder row per target whose guides were all removed by
+    // the active filters (mirrors the server-side download fill).
+    const filtered = fillMissingTargets(baseFiltered, currentRecords);
     // Summary is intentionally NOT affected by the condense toggle: compute a
     // separate filtered view from the uncondensed records so per-editor counts
     // always reflect one editor per row. Filters still apply.
@@ -1883,7 +1953,8 @@ function renderResultsTable() {
                 if (seqProps !== null) return seqProps;
                 return formatDnaSequenceCell(row, column, value);
             },
-            RESULTS_COLUMN_TOOLTIPS
+            RESULTS_COLUMN_TOOLTIPS,
+            (row) => isNoGuideRow(row) ? "no-guide" : null
         );
     }
 
@@ -1991,9 +2062,20 @@ function renderResultsSummary(filtered) {
         return;
     }
 
+    // Targets without a guide RNA are intentionally excluded from the
+    // per-editor summary; they are still visible in the Guides table.
+    const realRows = filtered.filter(r => !isNoGuideRow(r));
+    if (realRows.length === 0) {
+        destroySummaryChart();
+        resultsSummary.innerHTML = "";
+        resultsSummary.style.display = "none";
+        setSummaryPlaceholder(true, "No guides match the current filters.");
+        return;
+    }
+
     const perBaseEditor = new Map();
     const allTargets = new Set();
-    for (const row of filtered) {
+    for (const row of realRows) {
         const baseEditor = (row.base_editor ?? "").toString() || "(unknown)";
         const key = targetKey(row);
         if (!perBaseEditor.has(baseEditor)) perBaseEditor.set(baseEditor, new Set());

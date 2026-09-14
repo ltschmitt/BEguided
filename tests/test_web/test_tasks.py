@@ -489,3 +489,37 @@ class TestExecuteJobColumnDrops:
         assert rec["position"] == 17
         assert rec["genome_base"] == "A"
         assert rec["strand_used"] == "-"
+
+
+def test_build_config_keep_targets_without_guides(tmp_path):
+    """``keep_targets_without_guides`` is forwarded into the pipeline config
+    dict (the web server always enables it; the CLI default is off)."""
+    from beguided.web.tasks import _build_config
+
+    _minimal_web_config(tmp_path)
+    targets_df = pd.DataFrame(
+        {
+            "chromosome": ["chr1"],
+            "position": [50],
+            "target_base": ["T"],
+            "desired_base": ["C"],
+        }
+    )
+
+    work_on = tmp_path / "work_on"
+    work_off = tmp_path / "work_off"
+    work_on.mkdir()
+    work_off.mkdir()
+
+    on = _build_config(
+        targets_df, ["ABE8e"], "all", str(work_on),
+        search_offtargets=False, guide_score_threshold=0.0,
+        keep_targets_without_guides=True,
+    )
+    assert on["keep_targets_without_guides"] is True
+
+    off = _build_config(
+        targets_df, ["ABE8e"], "all", str(work_off),
+        search_offtargets=False, guide_score_threshold=0.0,
+    )
+    assert off["keep_targets_without_guides"] is False

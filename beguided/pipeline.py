@@ -21,7 +21,11 @@ from beguided.bystander.analysis import run_all as run_bystander
 from beguided.filtering.filters import load_filter_criteria, filter_guides
 from beguided.off_target.merger import aggregate_beguidedoff_results, merge_with_input
 from beguided.logging_config import get_logger
-from beguided.models import CORE_COLUMN_ORDER
+from beguided.models import (
+    BASE_CHANGE_INCOMPATIBLE,
+    CORE_COLUMN_ORDER,
+    NO_GUIDE_FOUND,
+)
 
 logger = get_logger("pipeline")
 
@@ -211,7 +215,107 @@ def _read_new_style_config(config):
     # would drop every guide on A-rich sequences).
     result["skip_bystander"] = bool(config.get("skip_bystander", False))
 
+    # --- keep_targets_without_guides ---
+    # When True, the final results table keeps one row per input target even
+    # if no guide could be designed (or every guide was filtered out). The
+    # placeholder rows carry the input identity columns plus a
+    # ``guide_rna_sequence`` marker (``**No guide possible**`` or
+    # ``**Base change incompatible**``); all other result fields are empty.
+    # Placement rows are added ONLY in the very last step so they never
+    # interfere with guidefinder, bystander analysis, filtering or off-target
+    # search. Off by default (CLI); the web server always enables it.
+    result["keep_targets_without_guides"] = bool(
+        config.get("keep_targets_without_guides", False)
+    )
+
     return result
+
+
+def _fill_targets_without_guides(df, cfg):
+    """Append one placeholder row per input target missing from ``df``.
+
+    Called in the very last pipeline step when ``keep_targets_without_guides``
+    is enabled. Targets are re-loaded from the original input file and split
+    by base-editor compatibility:
+
+    * targets whose mutation type is not supported by the selected editors
+      get ``BASE_CHANGE_INCOMPATIBLE`` as their ``guide_rna_sequence``;
+    * targets that were compatible but produced no surviving guide (no valid
+      PAM, or every guide was filtered out) get ``NO_GUIDE_FOUND``.
+
+    Every other result column is left empty/``None`` so downstream consumers
+    (incl. the web UI) can distinguish real guides from placeholder rows.
+    Any extra columns the original target carried are copied through when
+    they also exist in ``df`` (``passthrough_extras``-style metadata).
+
+    Args:
+        df: the final, already-column-ordered results DataFrame.
+        cfg: the normalised pipeline config dict (needs ``targets``,
+            ``base_editor_profiles_file`` and ``base_editor_arg``).
+
+    Returns:
+        The input ``df`` with placeholder rows appended (converted to the
+        same column set) and re-sorted by ``chromosome``/``position``.
+    """
+    if df.empty and "chromosome" not in df.columns:
+        return df
+
+    targets_df = pd.read_csv(cfg["targets"], sep="\t")
+    # Re-run the same step-1 compatibility split so placeholders can tell
+    # "mutation type not supported" apart from "no guide possible".
+    profiles = load_base_editor_profiles(cfg["base_editor_profiles_file"])
+    base_editor_names = _resolve_base_editor_names(profiles, cfg["base_editor_arg"])
+    compatible, incompatible = filter_compatible_targets(
+        targets_df, profiles, base_editor_names
+    )
+
+    # Keys already present in the final table (real guides or earlier
+    # placeholder rows).
+    present = set()
+    if "chromosome" in df.columns and "position" in df.columns:
+        present = set(
+            zip(
+                df["chromosome"].astype(str),
+                df["position"].astype(int),
+            )
+        )
+
+    placeholder_rows = []
+    for _, row in incompatible.iterrows():
+        placeholder_rows.append((row, BASE_CHANGE_INCOMPATIBLE))
+    for _, row in compatible.iterrows():
+        key = (str(row["chromosome"]), int(row["position"]))
+        if key not in present:
+            placeholder_rows.append((row, NO_GUIDE_FOUND))
+
+    if not placeholder_rows:
+        return df
+
+    def _placeholder(input_row, marker):
+        record = {}
+        for col in df.columns:
+            if col in ("chromosome", "position", "target_base", "desired_base"):
+                record[col] = input_row.get(col)
+            elif col in input_row.index:
+                record[col] = input_row[col]
+            else:
+                record[col] = None
+            if col == "guide_rna_sequence":
+                record[col] = marker
+        return record
+
+    new_rows = pd.DataFrame(
+        [_placeholder(row, marker) for row, marker in placeholder_rows],
+        columns=df.columns,
+    )
+    merged_df = pd.concat([df, new_rows], ignore_index=True)
+    if {"chromosome", "position"} <= set(merged_df.columns):
+        merged_df = merged_df.sort_values(
+            by=["chromosome", "position"],
+            ascending=[True, True],
+            kind="stable",
+        )
+    return merged_df
 
 
 def _prepare_beguidedoff_input(df, output_path):
@@ -424,9 +528,20 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
                 f"{' ...' if len(skipped_df) > 5 else ''}"
             )
         if len(targets_df) == 0:
-            raise PipelineError(
-                "No targets remain after filtering for base editor compatibility."
-            )
+            if cfg["keep_targets_without_guides"]:
+                # With the flag on we want a row per target in the final
+                # output even though every target was dropped for editor
+                # incompatibility. Continue with an empty frame: guidefinder
+                # returns no results, later steps see an empty table and the
+                # final step fills one placeholder row per original target.
+                logger.warning(
+                    "No compatible targets remain; final output will contain "
+                    "one '**Base change incompatible**' row per target."
+                )
+            else:
+                raise PipelineError(
+                    "No targets remain after filtering for base editor compatibility."
+                )
         logger.info(f"Processing {len(targets_df)} compatible targets")
 
         results = run_guidefinder(
@@ -477,7 +592,16 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
 
         total_result_rows = len(df)
         total_invalid_rows = invalid_mask.sum()
-        if total_invalid_rows == total_result_rows:
+        if cfg["keep_targets_without_guides"]:
+            if total_result_rows > 0 and total_invalid_rows == total_result_rows:
+                logger.warning(
+                    "No valid guides for any compatible target; final output "
+                    "will contain one '**No guide possible**' row per target."
+                )
+        elif total_invalid_rows == total_result_rows:
+            # Historic behaviour: raise when not a single real guide was
+            # produced (kept for the CLI default so an empty result set is
+            # surfaced as an error rather than a silent empty table).
             raise PipelineError(
                 "No valid guides found for the given base editors."
             )
@@ -688,12 +812,6 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
                 )
 
             merged = _apply_final_column_order(merged)
-            merged.to_csv(final_output, sep="\t", index=False)
-            size_mb = final_output.stat().st_size / (1024 * 1024)
-            logger.info(
-                f"Final output written: {final_output} "
-                f"({len(merged)} rows, {size_mb:.1f} MB)"
-            )
         else:
             logger.info("=" * 60)
             logger.info("Step 5/5: Finalising results (off-target screening disabled)")
@@ -711,12 +829,20 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
             merged = input_df.drop(columns=drop_cols, errors="ignore")
 
             merged = _apply_final_column_order(merged)
-            merged.to_csv(final_output, sep="\t", index=False)
-            size_mb = final_output.stat().st_size / (1024 * 1024)
-            logger.info(
-                f"Final output written: {final_output} "
-                f"({len(merged)} rows, {size_mb:.1f} MB)"
-            )
+
+        # keep_targets_without_guides: add one placeholder row per input target
+        # that has no row in the final table. Done here, at the very end, so it
+        # cannot interfere with any earlier processing step.
+        if cfg["keep_targets_without_guides"]:
+            merged = _fill_targets_without_guides(merged, cfg)
+            merged = _apply_final_column_order(merged)
+
+        merged.to_csv(final_output, sep="\t", index=False)
+        size_mb = final_output.stat().st_size / (1024 * 1024)
+        logger.info(
+            f"Final output written: {final_output} "
+            f"({len(merged)} rows, {size_mb:.1f} MB)"
+        )
 
     if not cfg["keep_intermediates"]:
         logger.info("keep_intermediates=false (cleanup not yet implemented)")
