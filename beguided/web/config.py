@@ -114,6 +114,19 @@ class WebConfig:
         default_factory=lambda: os.getenv("BEGUIDED_LEGAL_CONFIG", "").strip()
     )
 
+    # Anonymous web-usage statistics (see beguided/web/usage_stats.py).
+    # Enabled by default; the default path lives on the same persisted
+    # volume as jobs.db so it survives container rebuilds. The data
+    # contains no personal data, so it may be retained indefinitely.
+    usage_stats_path: str = field(
+        default_factory=lambda: os.getenv(
+            "BEGUIDED_USAGE_STATS_PATH", "/var/lib/beguided/usage_stats.csv"
+        )
+    )
+    usage_stats_enabled: bool = field(
+        default_factory=lambda: _env_bool("BEGUIDED_USAGE_STATS_ENABLED", True)
+    )
+
     @property
     def has_beguidedoff(self) -> bool:
         """Return True if BEguidedOFF appears to be installed/configured."""

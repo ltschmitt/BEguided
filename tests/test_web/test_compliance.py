@@ -118,6 +118,7 @@ def cfg_and_client(tmp_path, monkeypatch):
         trusted_proxy_ips=["127.0.0.1"],
         admin_token="test-admin-token",
         log_ip_salt="test-salt",
+        usage_stats_enabled=False,
     ))
     sch = Scheduler(db_path=str(db), queue_max=2, cooldown_seconds=0,
                     log_ip_salt="test-salt")
@@ -181,6 +182,7 @@ def test_proxy_headers_set_real_client_ip(tmp_path, monkeypatch):
         # the simulated upstream peer. Including it here exercises the
         # real middleware path the way Caddy will use it in production.
         trusted_proxy_ips=["127.0.0.1", "::1", "testclient"],
+        usage_stats_enabled=False,
     ))
     sch = Scheduler(db_path=str(db), queue_max=2, cooldown_seconds=0)
     install(sch)

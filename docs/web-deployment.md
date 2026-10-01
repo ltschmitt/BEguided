@@ -99,6 +99,7 @@ Mandatory for any German-public web presence. The audit + remediation history li
 | **Security response headers** | CSP, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, COOP, HSTS (HTTPS only) |
 | **Rate limiting** | Per-IP cooldown + queue size cap |
 | **Client IP logging** | Hashed with `BEGUIDED_LOG_IP_SALT` (salted SHA-256, first 16 hex chars) |
+| **Usage statistics** | Anonymous aggregate CSV (job counts, type, target counts); no IP, no user-agent, date granularity only — outside GDPR scope, retained indefinitely |
 
 ### Legal YAML
 
@@ -159,9 +160,82 @@ Behaviour:
 | Revoke tokens | Hashed SHA-256 in `jobs.db`; raw token shown to user once |
 | Scheduler cooldown map | In-memory, TTL-pruned after 4× `cooldown_seconds` |
 | Proxy / web logs | Operator-defined (`legal.log_retention_days`); salted IP |
+| Usage statistics CSV | Anonymous; retained indefinitely (outlives the 24h job purge) |
 | Uploaded custom base editor profiles | Server: in-memory only, lost on restart. Browser: cached in `localStorage` (`beguidedCustomProfiles.v2`) and re-POSTed on every page load so the same browser rehydrates the server copy automatically. Switching browsers or computers starts fresh; clearing site data wipes the local copy. Uploads accept XLSX (recommended, matches the downloaded template) and TSV; the server normalises everything to TSV in memory so the pipeline never sees XLSX bytes. |
 
 The retention sweeper runs every 15 min by default.
+
+## Usage statistics
+
+The web server can record a small, anonymous row for every finished job so
+the operator can answer long-term questions — is the service used at all,
+how often, and do people run one or two targets or full screens — without
+collecting anything that identifies a visitor. Only **web** jobs are
+recorded; the CLI pipeline is never counted.
+
+Recording is **on by default**. It never affects job processing: any write
+failure is logged and ignored.
+
+### What is recorded
+
+One row per finished job in a monthly CSV (`<stem>_YYYY-MM.csv`):
+
+| Column | Meaning |
+|---|---|
+| `date` | Server-local calendar day, `YYYY-MM-DD` |
+| `mode` | `spreadsheet` or `sequence` |
+| `n_targets` | Number of target rows / sequences submitted |
+| `n_base_editors` | How many base editors were searched with (just the count) |
+| `duration_s` | Wall-clock run time, one decimal |
+| `status` | `complete`, `error`, or `cancelled` |
+
+### What is deliberately *not* recorded
+
+No IP address, no user-agent, no job/session identifier, no sub-day
+timestamp, and no base-editor **names** (custom profile names are
+user-typed free text and are never written). The recorded data therefore
+contains no personal data under the GDPR (Recital 26): no legal basis, no
+consent, no cookie banner, and indefinite retention are all fine. **The
+one rule for future changes: never add an IP address, user-agent, or
+sub-day timestamp to this file, or it becomes personal data and needs DPO
+review.**
+
+### Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `BEGUIDED_USAGE_STATS_PATH` | `/var/lib/beguided/usage_stats.csv` | Base CSV path; written monthly as `<stem>_YYYY-MM.csv` |
+| `BEGUIDED_USAGE_STATS_ENABLED` | `true` | Set to `false` to disable recording |
+
+CLI equivalents: `--usage-stats-path` and `--no-usage-stats`.
+
+### Getting the CSV out of Docker
+
+The default path lives on the `beguided-jobs` volume (the same one as
+`jobs.db`), so it **survives `docker compose build` + `up -d`** and is
+only lost on `docker compose down -v`.
+
+```bash
+# Copy the monthly files to the host:
+docker compose cp web:/var/lib/beguided/usage_stats_2026-10.csv .
+# Or read them in place:
+docker compose exec web cat /var/lib/beguided/usage_stats_2026-10.csv
+```
+
+To keep the CSVs directly on the host, uncomment the `./usage_stats`
+bind mount in `docker-compose.yml` and set
+`BEGUIDED_USAGE_STATS_PATH=/var/lib/beguided/usage/usage_stats.csv`.
+
+### Summarizing
+
+```bash
+python scripts/summarize_usage.py
+python scripts/summarize_usage.py --glob '/var/lib/beguided/usage_stats_*.csv' --last 6
+```
+
+Prints per-month job counts, status/mode splits, target-count buckets
+(`1-2 / 3-10 / 11-50 / 51-100 / >100`), duration stats, and the average
+number of base editors per job.
 
 ## Pre-launch checklist
 

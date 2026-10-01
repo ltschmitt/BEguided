@@ -43,6 +43,7 @@ def cfg_and_db(tmp_path, monkeypatch):
         queue_max=3,
         cooldown_seconds=0,
         max_upload_mb=5,
+        usage_stats_enabled=False,
     ))
     sch = Scheduler(db_path=str(db), queue_max=3, cooldown_seconds=0)
     install(sch)

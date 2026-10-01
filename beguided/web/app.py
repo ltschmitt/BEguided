@@ -62,6 +62,7 @@ from beguided.web.safety import (
 )
 from beguided.web.legal_config import LegalConfig, load_legal_config
 from beguided.web.sse_logger import attach_sse_handler_to_beguided_logs, get_sse_handler
+from beguided.web.usage_stats import UsageStatsLogger
 
 logger = logging.getLogger("beguided.web.app")
 
@@ -496,12 +497,18 @@ def create_app() -> FastAPI:
                 cfg.gtf_path,
             )
         # Install and start the scheduler.
+        usage_stats = (
+            UsageStatsLogger(cfg.usage_stats_path, enabled=True)
+            if cfg.usage_stats_enabled
+            else None
+        )
         scheduler = Scheduler(
             db_path=cfg.db_path,
             queue_max=cfg.queue_max,
             cooldown_seconds=cfg.cooldown_seconds,
             job_retention_seconds=cfg.job_retention_hours * 3600,
             log_ip_salt=cfg.log_ip_salt,
+            usage_stats=usage_stats,
         )
         install_scheduler(scheduler)
         scheduler.start()
@@ -511,6 +518,10 @@ def create_app() -> FastAPI:
             int(cfg.cooldown_seconds),
             cfg.db_path,
             int(cfg.job_retention_hours),
+        )
+        logger.info(
+            "Usage statistics: %s",
+            cfg.usage_stats_path if cfg.usage_stats_enabled else "disabled",
         )
 
     @app.get("/", response_class=HTMLResponse)

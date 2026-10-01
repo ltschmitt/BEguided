@@ -316,6 +316,7 @@ Both back the `run_pipeline(..., genome=..., interval_trees=...)` kwargs in `beg
 - `BEGUIDED_QUEUE_MAX`, `BEGUIDED_COOLDOWN_SECONDS`, `BEGUIDED_MAX_UPLOAD_MB` — scheduler caps (env-only; CLI overrides also exist).
 - `BEGUIDED_TRUSTED_PROXY_IPS` / `BEGUIDED_JOB_RETENTION_HOURS` / `BEGUIDED_LOG_IP_SALT` / `BEGUIDED_ADMIN_TOKEN` — compliance knobs (see `compliance_safety.md`).
 - `BEGUIDED_LEGAL_CONFIG` / `--legal-config` — path to the operator's `web-legal.yaml` with institution / DPO / DPA. Default `/etc/beguided/legal.yaml`. See `configs/web-legal.yaml` (template, committed empty).
+- `BEGUIDED_USAGE_STATS_PATH` / `--usage-stats-path` and `BEGUIDED_USAGE_STATS_ENABLED` / `--no-usage-stats` — anonymous web-usage CSV (one row per finished job: date, mode, target count, base-editor count, duration, status; no IP/user-agent). Enabled by default; see `beguided/web/usage_stats.py` and `scripts/summarize_usage.py`.
 
 ### Sequence input mode
 

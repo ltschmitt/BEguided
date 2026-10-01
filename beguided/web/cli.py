@@ -157,6 +157,25 @@ def main():
             "Env: BEGUIDED_LEGAL_CONFIG."
         ),
     )
+    parser.add_argument(
+        "--usage-stats-path",
+        default=None,
+        help=(
+            "Base path for the anonymous usage-statistics CSV. Written "
+            "monthly as <stem>_YYYY-MM.csv. Default: "
+            "/var/lib/beguided/usage_stats.csv. Env: BEGUIDED_USAGE_STATS_PATH."
+        ),
+    )
+    parser.add_argument(
+        "--no-usage-stats",
+        dest="usage_stats_enabled",
+        action="store_false",
+        default=None,
+        help=(
+            "Disable anonymous usage-statistics recording. Default: "
+            "enabled. Env: BEGUIDED_USAGE_STATS_ENABLED."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -195,6 +214,10 @@ def main():
         kwargs["admin_token"] = args.admin_token
     if args.legal_config is not None:
         kwargs["legal_config_path"] = args.legal_config
+    if args.usage_stats_path is not None:
+        kwargs["usage_stats_path"] = args.usage_stats_path
+    if args.usage_stats_enabled is not None:
+        kwargs["usage_stats_enabled"] = args.usage_stats_enabled
     cfg = WebConfig(**kwargs)
     set_config(cfg)
 

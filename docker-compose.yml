@@ -44,6 +44,10 @@ services:
       # BEGUIDED_LEGAL_CONFIG + a bind mount.
       - ./legal.yaml:/etc/beguided/legal.yaml:ro
       - beguided-jobs:/var/lib/beguided
+      # Optional: keep the monthly usage-statistics CSVs directly on the
+      # host instead of copying them out of the container. Uncomment and
+      # set BEGUIDED_USAGE_STATS_PATH=/var/lib/beguided/usage/usage_stats.csv.
+      # - ./usage_stats:/var/lib/beguided/usage
     environment:
       PYTHONUNBUFFERED: "1"
       BEGUIDED_BASE_EDITOR_PROFILES_FILE: "${BEGUIDED_BASE_EDITOR_PROFILES_FILE:-/app/configs/base_editor_profiles.tsv}"
@@ -65,6 +69,12 @@ services:
       BEGUIDED_JOB_RETENTION_HOURS: "${BEGUIDED_JOB_RETENTION_HOURS:-24}"
       BEGUIDED_ADMIN_TOKEN: "${BEGUIDED_ADMIN_TOKEN:-}"
       BEGUIDED_LOG_IP_SALT: "${BEGUIDED_LOG_IP_SALT:-}"
+      # Anonymous usage statistics (one CSV row per finished web job; no IP,
+      # no user-agent, date granularity only). Written under the persisted
+      # beguided-jobs volume so it survives rebuilds; set the path to a
+      # bind-mount target to read the CSV directly on the host.
+      BEGUIDED_USAGE_STATS_PATH: "${BEGUIDED_USAGE_STATS_PATH:-/var/lib/beguided/usage_stats.csv}"
+      BEGUIDED_USAGE_STATS_ENABLED: "${BEGUIDED_USAGE_STATS_ENABLED:-true}"
     command:
       - beguided-web
       - --host

@@ -37,6 +37,7 @@ from typing import Any, Optional
 
 from beguided.pipeline import PipelineCancelled
 from beguided.web.tasks import execute_job
+from beguided.web.usage_stats import UsageStatsLogger
 
 logger = logging.getLogger("beguided.web.scheduler")
 
@@ -67,6 +68,20 @@ def _anonymise_ip(ip: str, salt: str) -> str:
         return f"ip:raw:{ip[:8]}"
     digest = hashlib.sha256(f"{salt}:{ip}".encode("utf-8")).hexdigest()
     return f"ip:{digest[:16]}"
+
+
+def _payload_size(targets_df: Any) -> int:
+    """Return the number of target rows in a job payload.
+
+    ``targets_df`` is a pandas DataFrame for real web jobs, but tests and
+    other submitters may pass a plain list or ``None``. Never raises.
+    """
+    if targets_df is None:
+        return 0
+    try:
+        return int(len(targets_df))
+    except TypeError:
+        return 0
 
 
 class SchedulerError(Exception):
@@ -106,6 +121,7 @@ class Scheduler:
         job_retention_seconds: float = 24 * 3600,
         log_ip_salt: str = "",
         sweeper_interval_seconds: float = SWEEPER_INTERVAL_SECONDS,
+        usage_stats: Optional[UsageStatsLogger] = None,
     ):
         self.db_path = db_path
         self.queue_max = queue_max
@@ -113,6 +129,10 @@ class Scheduler:
         self.job_retention_seconds = max(0.0, float(job_retention_seconds))
         self.log_ip_salt = log_ip_salt or ""
         self.sweeper_interval_seconds = max(1.0, float(sweeper_interval_seconds))
+        # Anonymous web-usage recorder; ``None`` disables recording. It is
+        # deliberately fed only the fields it needs further down — never
+        # the client IP that ``submit`` receives.
+        self._usage_stats = usage_stats
 
         self._q: "queue.Queue[Job]" = queue.Queue(maxsize=queue_max)
         self._last_submit: dict[str, float] = {}
@@ -397,6 +417,7 @@ class Scheduler:
                 # /logs/stream on first connect. Until then, log lines from
                 # this worker simply have no consumer — that's fine.
                 logger.info("Job running: %s", job.job_id)
+                t0 = time.time()
                 try:
                     if job.cancel.is_set():
                         raise PipelineCancelled("cancelled before start")
@@ -442,6 +463,16 @@ class Scheduler:
                             "UPDATE jobs SET status=?, finished_at=?, result_json=? "
                             "WHERE job_id=?",
                             (status, time.time(), json.dumps(result), job.job_id),
+                        )
+                    if self._usage_stats is not None:
+                        self._usage_stats.record(
+                            mode=job.payload.get("mode", "spreadsheet"),
+                            n_targets=_payload_size(job.payload.get("targets_df")),
+                            n_base_editors=len(
+                                job.payload.get("base_editor_names") or []
+                            ),
+                            duration_s=time.time() - t0,
+                            status=status,
                         )
             finally:
                 # Always release the queue slot, even if the job was cancelled

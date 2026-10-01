@@ -289,6 +289,130 @@ def test_scheduler_unknown_job_returns_unknown(scheduler_dir):
 
 
 # ---------------------------------------------------------------------------
+# Usage statistics integration
+# ---------------------------------------------------------------------------
+
+
+class FakeUsageStats:
+    """Records the arguments passed to ``UsageStatsLogger.record``."""
+
+    def __init__(self):
+        self.records: list[dict] = []
+        self._lock = threading.Lock()
+
+    def record(self, mode, n_targets, n_base_editors, duration_s, status):
+        with self._lock:
+            self.records.append(
+                {
+                    "mode": mode,
+                    "n_targets": n_targets,
+                    "n_base_editors": n_base_editors,
+                    "duration_s": duration_s,
+                    "status": status,
+                }
+            )
+
+
+def _wait_until(predicate, timeout=5.0):
+    deadline = time.time() + timeout
+    while not predicate():
+        if time.time() > deadline:
+            pytest.fail("condition not met in time")
+        time.sleep(0.02)
+
+
+def test_usage_stats_records_completed_job(scheduler_dir, monkeypatch):
+    import beguided.web.scheduler as sched_mod
+
+    runner = StubRunner(sleep_s=0.02)
+    monkeypatch.setattr(sched_mod, "execute_job", runner)
+
+    stats = FakeUsageStats()
+    sch = Scheduler(
+        db_path=scheduler_dir, queue_max=8, cooldown_seconds=0, usage_stats=stats
+    )
+    sch.start()
+    try:
+        job = sch.submit("ip1", _stub_payload(0))
+        _wait_until(lambda: sch.get_status(job.job_id) == "complete")
+        assert len(stats.records) == 1
+        rec = stats.records[0]
+        assert rec["mode"] == "spreadsheet"
+        assert rec["n_base_editors"] == 1
+        assert rec["status"] == "complete"
+        assert rec["duration_s"] >= 0
+        # Stub payload has targets_df=None → 0 targets, recorded as int.
+        assert rec["n_targets"] == 0
+    finally:
+        sch.shutdown(drain=True)
+
+
+def test_usage_stats_records_error_job(scheduler_dir, monkeypatch):
+    import beguided.web.scheduler as sched_mod
+
+    class FailingRunner(StubRunner):
+        def __call__(self, *args, **kwargs):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(sched_mod, "execute_job", FailingRunner())
+    stats = FakeUsageStats()
+    sch = Scheduler(
+        db_path=scheduler_dir, queue_max=8, cooldown_seconds=0, usage_stats=stats
+    )
+    sch.start()
+    try:
+        job = sch.submit("ip1", _stub_payload(0))
+        _wait_until(lambda: sch.get_status(job.job_id) == "error")
+        assert len(stats.records) == 1
+        assert stats.records[0]["status"] == "error"
+    finally:
+        sch.shutdown(drain=True)
+
+
+def test_usage_stats_not_recorded_for_cancelled_before_pickup(
+    scheduler_dir, monkeypatch
+):
+    import beguided.web.scheduler as sched_mod
+
+    runner = StubRunner(sleep_s=0.2)
+    monkeypatch.setattr(sched_mod, "execute_job", runner)
+    stats = FakeUsageStats()
+    sch = Scheduler(
+        db_path=scheduler_dir, queue_max=8, cooldown_seconds=0, usage_stats=stats
+    )
+    sch.start()
+    try:
+        j1 = sch.submit("ip1", _stub_payload(0))  # running
+        time.sleep(0.02)
+        j2 = sch.submit("ip2", _stub_payload(0))  # queued
+        sch.cancel(j2.job_id, j2.revoke_token)
+        _wait_until(lambda: sch.get_status(j2.job_id) == "cancelled")
+        # Wait for the first job to finish too.
+        _wait_until(lambda: sch.get_status(j1.job_id) == "complete")
+        # The cancelled-before-pickup job never ran, so only the first is recorded.
+        time.sleep(0.05)
+        assert len(stats.records) == 1
+        assert stats.records[0]["status"] == "complete"
+    finally:
+        sch.shutdown(drain=True)
+
+
+def test_no_usage_stats_logger_is_silent(scheduler_dir, monkeypatch):
+    """Omitting the logger must not break the worker."""
+    import beguided.web.scheduler as sched_mod
+
+    runner = StubRunner(sleep_s=0.02)
+    monkeypatch.setattr(sched_mod, "execute_job", runner)
+    sch = Scheduler(db_path=scheduler_dir, queue_max=8, cooldown_seconds=0)
+    sch.start()
+    try:
+        job = sch.submit("ip1", _stub_payload(0))
+        _wait_until(lambda: sch.get_status(job.job_id) == "complete")
+    finally:
+        sch.shutdown(drain=True)
+
+
+# ---------------------------------------------------------------------------
 # Safety tests
 # ---------------------------------------------------------------------------
 
