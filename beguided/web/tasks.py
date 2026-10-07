@@ -44,6 +44,7 @@ def _build_config(
     guide_score_threshold: float = 0.5,
     passthrough_extras: bool = False,
     genome_fasta: Optional[str] = None,
+    gtf_path: Optional[str] = None,
     skip_bystander: bool = False,
     use_custom_profiles: bool = False,
     custom_profiles_b64: Optional[str] = None,
@@ -68,6 +69,9 @@ def _build_config(
         genome_fasta: Path to the FASTA file to use as the genome. Defaults to
             the operator-configured ``cfg.genome_fasta``. Pass a custom path
             (e.g. a sequence-mode job's temp FASTA) to override it.
+        gtf_path: Path to the GTF annotation to use. Defaults to the
+            operator-configured ``cfg.gtf_path``; the per-genome selection
+            passes the chosen genome's GTF here.
         skip_bystander: When True, skip the bystander analysis step AND skip
             the bystander filter in step 3. Used by sequence-mode jobs
             (no GTF annotation available).
@@ -135,7 +139,7 @@ def _build_config(
             "targets": str(targets_path),
             "genome": genome_fasta if genome_fasta is not None else cfg.genome_fasta,
             "base_editor_profiles": profiles_file,
-            "gff_file": cfg.gtf_path,
+            "gff_file": gtf_path if gtf_path is not None else cfg.gtf_path,
         },
         "output_prefix": str(work_dir),
         "use_base_editors": use_base_editors,
@@ -259,6 +263,7 @@ def execute_job(
     cancel_event: Optional[threading.Event] = None,
     passthrough_extras: bool = False,
     keep_targets_without_guides: bool = False,
+    genome_key: str = "human",
     mode: str = "spreadsheet",
     custom_genome_b64: Optional[str] = None,
     use_custom_profiles: bool = False,
@@ -278,6 +283,8 @@ def execute_job(
             then uses the supplied custom FASTA instead of the configured
             genome, bypasses GTF loading, and forces bystander analysis
             + off-target search off.
+        genome_key: Which configured genome to use in spreadsheet mode
+            (``"human"`` / ``"mouse"``). Ignored in sequence mode.
         custom_genome_b64: Base64-encoded FASTA text containing the user's
             sequences. Required when ``mode="sequence"``.
         use_custom_profiles: When True, ``custom_profiles_b64`` is decoded
@@ -328,6 +335,18 @@ def execute_job(
     genome: Optional[dict] = None
     custom_fasta_path: Optional[str] = None
 
+    # Resolve the selected genome. ``genome_option`` falls back to the
+    # configured default when the key is unknown; a truly empty genome set
+    # means nothing can run in spreadsheet mode.
+    genome_option = cfg.genome_option(genome_key)
+    if genome_option is None and not sequence_mode:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "message": f"Unknown genome {genome_key!r}.",
+            "records": [],
+        }
+
     if sequence_mode:
         # Decode the custom FASTA and write it to a temp file. The pipeline
         # accepts a path via ``cfg["input"]["genome"]`` and the existing
@@ -368,7 +387,11 @@ def execute_job(
                 ),
                 "records": [],
             }
-    elif cfg.genome_fasta and Path(cfg.genome_fasta).exists():
+    elif (
+        genome_option is not None
+        and genome_option.genome_fasta
+        and Path(genome_option.genome_fasta).exists()
+    ):
         try:
             if cfg.preload_genome:
                 # Block the worker thread until the background preload
@@ -377,11 +400,11 @@ def execute_job(
                 # already-cached genome.
                 from beguided.web.genome_cache import wait_until_ready
 
-                genome = wait_until_ready(timeout=None)
+                genome = wait_until_ready(genome_option.key, timeout=None)
             else:
                 from beguided.genome.io import load_genome
 
-                genome = load_genome(cfg.genome_fasta)
+                genome = load_genome(genome_option.genome_fasta)
             unknown = validate_chromosomes(
                 targets_df["chromosome"].astype(str).tolist(), genome.keys()
             )
@@ -409,16 +432,23 @@ def execute_job(
     # Sequence mode skips this entirely — there's no annotation for custom
     # sequences.
     interval_trees: Optional[dict] = None
-    if not sequence_mode and cfg.gtf_path and Path(cfg.gtf_path).exists():
+    if (
+        not sequence_mode
+        and genome_option is not None
+        and genome_option.gtf_path
+        and Path(genome_option.gtf_path).exists()
+    ):
         try:
             if cfg.preload_gtf:
                 from beguided.web.gtf_cache import wait_until_ready
 
-                interval_trees = wait_until_ready(timeout=None)
+                interval_trees = wait_until_ready(genome_option.key, timeout=None)
             else:
                 from beguided.bystander.annotation import load_gtf_to_interval_tree
 
-                interval_trees = load_gtf_to_interval_tree(cfg.gtf_path)
+                interval_trees = load_gtf_to_interval_tree(
+                    genome_option.gtf_path, select_tag=genome_option.gtf_tag
+                )
         except Exception as exc:
             return {
                 "job_id": job_id,
@@ -446,7 +476,12 @@ def execute_job(
             search_offtargets,
             guide_score_threshold,
             passthrough_extras,
-            genome_fasta=custom_fasta_path,
+            genome_fasta=(
+                custom_fasta_path
+                if sequence_mode
+                else (genome_option.genome_fasta if genome_option is not None else None)
+            ),
+            gtf_path=genome_option.gtf_path if genome_option is not None else None,
             skip_bystander=skip_bystander,
             use_custom_profiles=use_custom_profiles,
             custom_profiles_b64=custom_profiles_b64,

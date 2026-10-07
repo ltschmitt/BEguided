@@ -436,6 +436,7 @@ class Scheduler:
                         keep_targets_without_guides=job.payload.get(
                             "keep_targets_without_guides", False
                         ),
+                        genome_key=job.payload.get("genome_key", "human"),
                         mode=job.payload.get("mode", "spreadsheet"),
                         custom_genome_b64=job.payload.get("custom_genome_b64"),
                         use_custom_profiles=job.payload.get("use_custom_profiles", False),

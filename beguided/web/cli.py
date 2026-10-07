@@ -36,12 +36,33 @@ def main():
     parser.add_argument(
         "--genome-fasta",
         default=None,
-        help="Genome FASTA file (default: env BEGUIDED_GENOME_FASTA or genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa)",
+        help="Human genome FASTA file (default: env BEGUIDED_GENOME_FASTA or genome/Homo_sapiens.GRCh38.116.fa)",
     )
     parser.add_argument(
         "--gtf-path",
         default=None,
-        help="GTF annotation file (default: env BEGUIDED_GTF_PATH or genome/Homo_sapiens.GRCh38.112.gtf)",
+        help="Human GTF annotation file (default: env BEGUIDED_GTF_PATH or genome/Homo_sapiens.GRCh38.116.gtf)",
+    )
+    parser.add_argument(
+        "--mouse-genome-fasta",
+        default=None,
+        help="Mouse genome FASTA file (default: env BEGUIDED_MOUSE_GENOME_FASTA or genome/Mus_musculus.GRCm39.2026_04.fa)",
+    )
+    parser.add_argument(
+        "--mouse-gtf-path",
+        default=None,
+        help="Mouse GTF annotation file (default: env BEGUIDED_MOUSE_GTF_PATH or genome/Mus_musculus.GRCm39.2026_04.gtf)",
+    )
+    parser.add_argument(
+        "--mouse-genome-label",
+        default=None,
+        help="Assembly label for the mouse genome, shown in the UI as 'Mus musculus (<label>)' (default: 'GRCm39'). Env: BEGUIDED_MOUSE_GENOME_LABEL.",
+    )
+    parser.add_argument(
+        "--default-genome",
+        default=None,
+        choices=["human", "mouse"],
+        help="Genome selected by default in the UI: human|mouse (default: human). Env: BEGUIDED_DEFAULT_GENOME.",
     )
     parser.add_argument(
         "--beguidedoff-genome",
@@ -89,7 +110,8 @@ def main():
         "--genome-label",
         default=None,
         help=(
-            "Display label for the genome (e.g. 'GRCh38.112'). "
+            "Assembly label for the human genome, shown in the UI as "
+            "'Homo sapiens (<label>)' (e.g. 'GRCh38'). "
             "Empty = derive from FASTA filename. "
             "Env: BEGUIDED_GENOME_LABEL."
         ),
@@ -186,6 +208,14 @@ def main():
         kwargs["genome_fasta"] = args.genome_fasta
     if args.gtf_path is not None:
         kwargs["gtf_path"] = args.gtf_path
+    if args.mouse_genome_fasta is not None:
+        kwargs["mouse_genome_fasta"] = args.mouse_genome_fasta
+    if args.mouse_gtf_path is not None:
+        kwargs["mouse_gtf_path"] = args.mouse_gtf_path
+    if args.mouse_genome_label is not None:
+        kwargs["mouse_genome_label"] = args.mouse_genome_label
+    if args.default_genome is not None:
+        kwargs["default_genome"] = args.default_genome
     if args.beguidedoff_genome is not None:
         kwargs["beguidedoff_genome"] = args.beguidedoff_genome
     if args.db_path is not None:

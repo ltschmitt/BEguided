@@ -39,7 +39,7 @@ results/
 ├── step2_bystander.tsv       ← step 2: bystander analysis
 ├── step3_filtered.tsv        ← step 3: filtered guides
 ├── step4_offtarget.tsv       ← step 4: BEguidedOFF off-targets (optional)
-└── beguided_results.tsv      ← step 6: final merged output
+└── beguided_results.tsv      ← step 5: final merged output
 ```
 
 Set `keep_intermediates: false` to delete the per-step files after the final merge.
@@ -85,7 +85,7 @@ CCTOP score semantics: **lower = more concerning** (mismatches near PAM). Perfec
 
 ### Bystander columns (from step 2)
 
-Step 2 attaches one row per *guide × base_editor* (since each editor has its own bystander window). Columns include the predicted bystander positions, the resulting codon changes, the amino-acid substitutions and whether the bystander is silent / missense / nonsense. See [`pipeline-steps.md`](pipeline-steps.md) for details.
+Step 2 attaches one row per *guide × base_editor* (since each editor has its own bystander window). Columns include the predicted bystander positions, the resulting codon changes, the amino-acid substitutions and whether the bystander is silent or nonsynonymous (any amino-acid change, including nonsense/stop-gain). See [`pipeline-steps.md`](pipeline-steps.md) for details.
 
 ### Passthrough columns
 

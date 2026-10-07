@@ -11,8 +11,13 @@ from Bio.Seq import Seq
 _TX_CODONS_KEY = "__tx_codons__"
 
 
-def load_gtf_to_interval_tree(gtf_file):
-    """Load GTF file and build interval trees for MANE_Select CDS per chromosome.
+def load_gtf_to_interval_tree(gtf_file, select_tag="MANE_Select"):
+    """Load GTF file and build interval trees for the canonical CDS per chromosome.
+
+    Only CDS records whose attributes contain ``select_tag`` are kept. The
+    default ``"MANE_Select"`` matches the Ensembl human annotation; the EBI
+    mouse annotation has no MANE tags and uses ``"Ensembl_canonical"``
+    instead, so callers pass that per genome.
 
     Each interval stores ``(strand, transcript_id, gene_name)``. ``gene_name``
     is extracted from the ``gene_name`` attribute and falls back to ``""``
@@ -21,6 +26,11 @@ def load_gtf_to_interval_tree(gtf_file):
     The returned dict also contains a reserved key ``"__tx_codons__"`` mapping
     ``transcript_id`` to a precomputed cumulative-codon index used by
     :func:`absolute_codon_number`.
+
+    Args:
+        gtf_file: Path to the GTF annotation file.
+        select_tag: Attribute tag identifying the canonical transcript to keep
+            (e.g. ``"MANE_Select"`` or ``"Ensembl_canonical"``).
 
     Returns:
         dict: {chromosome: IntervalTree(...), "__tx_codons__": {transcript_id: {...}}}
@@ -44,7 +54,7 @@ def load_gtf_to_interval_tree(gtf_file):
                 continue
 
             attributes = parts[8]
-            if "MANE_Select" not in attributes:
+            if select_tag not in attributes:
                 skipped_count += 1
                 continue
 

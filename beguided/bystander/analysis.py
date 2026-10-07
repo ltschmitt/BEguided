@@ -40,7 +40,7 @@ def analyze_guide(row, interval_trees, genome=None):
         tuple: (bystander_effect, simulated_outcome, aa_wanted, aa_bystander,
                 gene_edit_desired)
             bystander_effect is one of the labels documented in the module
-            (e.g. ``no_bystanders``, ``silent``, ``missense``, ``multi-transcript``,
+            (e.g. ``no_bystanders``, ``silent``, ``nonsynonymous``, ``multi-transcript``,
             ``bystander_outside_cds``, or one of the granular ``*_non_coding``
             / ``*_failed`` labels when CDS handling fails).
             gene_edit_desired is ``"<gene_name> <Target_AA><codon_number><Desired_AA>"``
@@ -310,7 +310,7 @@ def analyze_guide(row, interval_trees, genome=None):
         elif aa_wanted == aa_bystander:
             effect = "silent"
         else:
-            effect = "missense"
+            effect = "nonsynonymous"
 
     # Bracket the editing base (target [] and bystanders ()) in
     # simulated_outcome directly at the splice-aware mep positions. We

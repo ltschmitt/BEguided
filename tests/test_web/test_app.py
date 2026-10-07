@@ -418,6 +418,103 @@ def test_config_endpoint_exposes_preload_gtf(cfg_and_db):
     assert body["preload_gtf"] == cfg.preload_gtf
 
 
+def test_config_endpoint_exposes_genomes(cfg_and_db):
+    cfg, _ = cfg_and_db
+    client = _client(cfg_and_db)
+    body = client.get("/config").json()
+    keys = {g["key"] for g in body["genomes"]}
+    assert {"human", "mouse"} <= keys
+    assert body["default_genome"] == cfg.default_genome
+    human = next(g for g in body["genomes"] if g["key"] == "human")
+    # The fixture points human at /nonexistent, so it is not available.
+    assert human["available"] is False
+
+
+def test_reference_status_endpoint_merges_genome_and_gtf(cfg_and_db):
+    from beguided.web import genome_cache, gtf_cache
+
+    genome_cache._reset_for_test()
+    gtf_cache._reset_for_test()
+    client = _client(cfg_and_db)
+    res = client.get("/reference/status")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["status"] == "not_loaded"
+    assert isinstance(body["genomes"], list)
+
+
+def test_genome_status_endpoint_supports_key(cfg_and_db):
+    from beguided.web import genome_cache
+
+    genome_cache._reset_for_test()
+    client = _client(cfg_and_db)
+    body = client.get("/genome/status", params={"genome": "mouse"}).json()
+    assert body["key"] == "mouse"
+    assert body["status"] == "not_loaded"
+
+
+def test_upload_accepts_genome_field(cfg_and_db):
+    client = _client(cfg_and_db)
+    tsv_bytes = b"chromosome\tposition\ttarget_base\tdesired_base\nchr1\t100\tA\tG\n"
+    res = client.post(
+        "/upload",
+        files={"file": ("targets.tsv", io.BytesIO(tsv_bytes), "text/tab-separated-values")},
+        data={"genome": "human"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["ok"] is True
+
+
+def test_run_rejects_unknown_genome(cfg_and_db):
+    client = _client(cfg_and_db)
+    res = client.post(
+        "/run",
+        data={
+            "raw_b64": _targets_tsv_b64(),
+            "base_editor": "ABE8e",
+            "genome": "bogus",
+        },
+    )
+    assert res.status_code == 400
+    assert "Unknown genome" in res.json()["error"]
+
+
+def test_run_forwards_genome_key_to_scheduler(cfg_and_db, monkeypatch):
+    """The selected genome key must be carried in the job payload."""
+    import beguided.web.scheduler as sched_mod
+
+    captured = {}
+
+    def fake_execute_job(**kwargs):
+        captured.update(kwargs)
+        return {
+            "job_id": kwargs["job_id"],
+            "status": "complete",
+            "message": "ok",
+            "records": [],
+        }
+
+    monkeypatch.setattr(sched_mod, "execute_job", fake_execute_job)
+    client = _client(cfg_and_db)
+    res = client.post(
+        "/run",
+        data={
+            "raw_b64": _targets_tsv_b64(),
+            "base_editor": "ABE8e",
+            "genome": "human",
+        },
+    )
+    assert res.status_code == 200, res.text
+    job_id = res.json()["job_id"]
+    for _ in range(40):
+        s = client.get("/status", params={"job_id": job_id}).json()
+        if s["status"] in ("complete", "error", "cancelled"):
+            break
+        time.sleep(0.1)
+    assert captured.get("genome_key") == "human"
+
+
 def test_df_to_records_rounds_guide_score_to_3dp(tmp_path):
     """``guide_score`` should be rounded to 3 decimal places in web records
     so the UI and downloads show a compact ``0.73``-style value rather than

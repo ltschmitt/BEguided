@@ -332,28 +332,53 @@ body {
     margin-left: 12px;
 }
 
-/* Prominent file-upload control inside an input panel. Sized up with
-   primary-colored text so the upload affordance is immediately visible,
-   without a heavy border. */
-.input-panel input[type="file"] {
-    padding: 10px 16px;
-    font-size: 15px;
+/* Visually hide the native file input while keeping it focusable and
+   activatable via its <label for="fileInput"> button. `display:none`
+   would remove it from the tab order and break the label activation. */
+.visually-hidden-file {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Mirror the input's focus ring onto the visible "Choose file" label. */
+.input-panel input.visually-hidden-file:focus + label {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
+}
+
+/* Genome selector group inside the spreadsheet actions row. */
+.genome-select-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 12px;
+}
+
+.genome-select-group label {
     font-weight: 600;
-    border: none;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.genome-select-group select {
+    padding: 8px 10px;
+    border: 1px solid var(--border);
     border-radius: 8px;
-    background: var(--panel);
-    color: var(--primary);
+    font-size: 14px;
+    background: var(--bg);
+    color: var(--text);
     cursor: pointer;
-    transition: background 0.15s ease;
 }
 
-.input-panel input[type="file"]:hover {
-    background: #eff6ff;
-}
-
-.input-panel input[type="file"]:focus {
+.genome-select-group select:focus {
     outline: none;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
 }
 
 /* Action row inside an input panel. In spreadsheet mode it sits on top

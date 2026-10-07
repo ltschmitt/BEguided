@@ -22,7 +22,7 @@ def valid_preset_tsv():
     return (
         "name\tediting\tgeneral_edit_start\tgeneral_edit_end\thigh_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
         "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\n"
-        "saABE8e\tABE\t5\t13\t5\t13\tNNGRRT\tsaCas9\tNature2020\n"
+        "SaABE8e\tABE\t5\t13\t5\t13\tNNGRRT\tsaCas9\tNature2020\n"
         "ABE9\tABE\t4\t7\t5\t6\tNGG\tSpCas9\tChen2023\n"
     )
 
@@ -95,7 +95,7 @@ def synthetic_beguided_output():
         "guide_rna_sequence": ["AAAAAAAAAAAAAAAAAAAA", "TTTTTTTTTTTTTTTTTTTT",
                                "GGGGGGGGGGGGGGGGGGGG", "CCCCCCCCCCCCCCCCCCCC"],
         "pam_sequence": ["AGG", "TGG", "GGG", "CGG"],
-        "base_editor": ["ABE8e", "ABE8e", "saABE8e", "saABE8e"]
+        "base_editor": ["ABE8e", "ABE8e", "SaABE8e", "SaABE8e"]
     })
 
 
@@ -116,8 +116,8 @@ def synthetic_bystander_output():
                                "GGGGGGGGGGGGGGGGGGGG", "CCCCCCCCCCCCCCCCCCCC",
                                "NNNNNNNNNNNNNNNNNNNN"],
         "pam_sequence": ["AGG", "TGG", "GGG", "CGG", "AGG"],
-        "base_editor": ["ABE8e", "ABE8e", "saABE8e", "saABE8e", "ABE8e"],
-        "bystander_effect": ["missense", "no_bystanders", "silent", "no_bystanders", "no_bystanders"],
+        "base_editor": ["ABE8e", "ABE8e", "SaABE8e", "SaABE8e", "ABE8e"],
+        "bystander_effect": ["nonsynonymous", "no_bystanders", "silent", "no_bystanders", "no_bystanders"],
         "simulated_outcome": ["AAAAAAAGAAAAAAAAAAAA", "TTTTTTTTTTTTTTTTTTTT",
                               "GGGGGAGGGGGGGGGGGGGG", "CCCCCCCCCCCCCCCCCCCC",
                               "NNNNNNNNNNNNNNNNNNNN"],
@@ -133,7 +133,7 @@ def synthetic_beguidedoff_output():
     return pd.DataFrame({
         "guide_rna_sequence": ["AAAAAAAAAAAAAAAAAAAA", "TTTTTTTTTTTTTTTTTTTT",
                                "GGGGGGGGGGGGGGGGGGGG"],
-        "base_editor": ["ABE8e", "ABE8e", "saABE8e"],
+        "base_editor": ["ABE8e", "ABE8e", "SaABE8e"],
         "ot_rank": [1, 1, 1],
         "ot_chromosome": ["chr1", "chr1", "chr2"],
         "ot_position": [1000, 2000, 3000],

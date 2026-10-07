@@ -181,7 +181,7 @@ class TestFilterGuides:
             ],
             "pam_sequence": ["TGG", "TGG", "TGG"],
             "base_editor": ["ABE-NW1", "ABE-Umax", "ABE8e"],
-            "bystander_effect": ["silent", "silent", "missense"],
+            "bystander_effect": ["silent", "silent", "nonsynonymous"],
             "simulated_outcome": ["", "", ""],
             "aa_wanted": ["X", "X", "X"],
             "aa_bystander": ["X", "X", "X"],

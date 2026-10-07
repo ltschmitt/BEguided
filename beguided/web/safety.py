@@ -211,6 +211,16 @@ def validate_operator_paths(cfg) -> None:
             validate_path(cfg.gtf_path, "GTF annotation")
         except (FileNotFoundError, PermissionError) as exc:
             logger.warning("GTF annotation not accessible: %s", exc)
+    # Optional mouse reference (best-effort, like the human genome above).
+    for label, path in (
+        ("Mouse genome FASTA", getattr(cfg, "mouse_genome_fasta", "")),
+        ("Mouse GTF annotation", getattr(cfg, "mouse_gtf_path", "")),
+    ):
+        if path:
+            try:
+                validate_path(path, label)
+            except (FileNotFoundError, PermissionError) as exc:
+                logger.warning("%s not accessible: %s", label, exc)
     if cfg.beguidedoff_genome:
         try:
             validate_path(cfg.beguidedoff_genome, "BEguidedOFF genome (.npz)")

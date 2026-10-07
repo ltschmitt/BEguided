@@ -121,7 +121,7 @@ class TestLoadPresets:
         profiles = load_base_editor_profiles(str(preset_file))
 
         assert "ABE8e" in profiles[("A", "G")]
-        assert "saABE8e" in profiles[("A", "G")]
+        assert "SaABE8e" in profiles[("A", "G")]
         assert "ABE9" in profiles[("A", "G")]
 
 
@@ -143,7 +143,7 @@ class TestSupportedEditorKeys:
         preset_file.write_text(valid_preset_tsv)
         profiles = load_base_editor_profiles(str(preset_file))
 
-        keys = get_supported_editor_keys(profiles, ["saABE8e"])
+        keys = get_supported_editor_keys(profiles, ["SaABE8e"])
         assert ("A", "G") in keys
         assert ("T", "C") in keys
         assert ("C", "T") not in keys
@@ -212,7 +212,7 @@ class TestGetBaseEditorNamesByType:
         assert "abe" in type_map
         assert "cbe" in type_map
         assert "ABE8e" in type_map["abe"]
-        assert "saABE8e" in type_map["abe"]
+        assert "SaABE8e" in type_map["abe"]
         assert "ABE9" in type_map["abe"]
         # valid_preset_tsv has no CBE profiles, so cbe list should be empty
         assert type_map["cbe"] == []
@@ -239,7 +239,7 @@ class TestResolveBaseEditorNames:
 
         names = _resolve_base_editor_names(profiles, "all ABEs")
         assert "ABE8e" in names
-        assert "saABE8e" in names
+        assert "SaABE8e" in names
         assert "ABE9" in names
 
     def test_all_cbes_empty_when_no_cbe_presets(self, tmp_path, valid_preset_tsv):

@@ -90,6 +90,37 @@ class TestLoadGtfGeneName:
         assert gene_name == "TP53"
 
 
+class TestLoadGtfSelectTag:
+    """``select_tag`` makes the canonical-tag lookup configurable."""
+
+    def test_ensembl_canonical_tag(self, tmp_path):
+        gtf_content = (
+            "##format: gtf\n"
+            "chr1\ttest\tCDS\t1\t60\t.\t+\t0\t"
+            'gene_id "ENSMUSG1"; gene_name "Kras"; transcript_id "T1"; '
+            'tag "Ensembl_canonical";\n'
+        )
+        path = _write_gtf(tmp_path, gtf_content)
+        # Default MANE_Select tag does not match this record.
+        assert "chr1" not in load_gtf_to_interval_tree(path)
+        # Ensembl_canonical does.
+        trees = load_gtf_to_interval_tree(path, select_tag="Ensembl_canonical")
+        overlaps, _ = get_cds_overlap("chr1", 5, 10, trees)
+        assert len(overlaps) == 1
+        assert overlaps[0][4] == "Kras"
+
+    def test_default_tag_remains_mane_select(self, tmp_path):
+        gtf_content = (
+            "##format: gtf\n"
+            "chr1\ttest\tCDS\t1\t60\t.\t+\t0\t"
+            'gene_id "G1"; gene_name "KRAS"; transcript_id "T1"; '
+            'tag "MANE_Select";\n'
+        )
+        path = _write_gtf(tmp_path, gtf_content)
+        trees = load_gtf_to_interval_tree(path)
+        assert len(list(trees["chr1"][0:60])) == 1
+
+
 class TestGetCdsOverlap:
     """Tests for get_cds_overlap with the extended 5-tuple."""
 

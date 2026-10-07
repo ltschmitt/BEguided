@@ -55,6 +55,7 @@ class StubRunner:
         cancel_event=None,
         passthrough_extras=False,
         keep_targets_without_guides=False,
+        genome_key="human",
         mode="spreadsheet",
         custom_genome_b64=None,
         use_custom_profiles=False,

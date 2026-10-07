@@ -37,11 +37,40 @@ _DEFAULT_PRESETS = str(Path(__file__).resolve().parents[2] / "configs" / "base_e
 _DEFAULT_GENOME = str(
     Path(__file__).resolve().parents[2]
     / "genome"
-    / "Homo_sapiens.GRCh38.dna.primary_assembly.fa"
+    / "Homo_sapiens.GRCh38.116.fa"
 )
 _DEFAULT_GTF = str(
-    Path(__file__).resolve().parents[2] / "genome" / "Homo_sapiens.GRCh38.112.gtf"
+    Path(__file__).resolve().parents[2] / "genome" / "Homo_sapiens.GRCh38.116.gtf"
 )
+# Mouse reference (GCA_000001635.9 = GRCm39) downloaded by scripts/download_genome.sh
+# from the EBI ensemblorganisms tree. The EBI GTF uses ``Ensembl_canonical``
+# tags (there are no MANE_Select tags for mouse).
+_DEFAULT_MOUSE_GENOME = str(
+    Path(__file__).resolve().parents[2]
+    / "genome"
+    / "Mus_musculus.GRCm39.2026_04.fa"
+)
+_DEFAULT_MOUSE_GTF = str(
+    Path(__file__).resolve().parents[2] / "genome" / "Mus_musculus.GRCm39.2026_04.gtf"
+)
+
+
+@dataclass(frozen=True)
+class GenomeOption:
+    """A selectable reference genome (FASTA + GTF) for the web UI.
+
+    ``gtf_tag`` is the CDS attribute tag marking the canonical transcript in
+    the GTF (``"MANE_Select"`` for human Ensembl, ``"Ensembl_canonical"`` for
+    the EBI mouse annotation). ``species`` is the scientific name shown in the
+    UI selector (e.g. ``"Homo sapiens"``).
+    """
+
+    key: str
+    label: str
+    genome_fasta: str
+    gtf_path: str
+    gtf_tag: str = "MANE_Select"
+    species: str = ""
 
 
 @dataclass
@@ -58,6 +87,24 @@ class WebConfig:
     )
     gtf_path: str = field(
         default_factory=lambda: os.getenv("BEGUIDED_GTF_PATH", _DEFAULT_GTF)
+    )
+    mouse_genome_fasta: str = field(
+        default_factory=lambda: os.getenv(
+            "BEGUIDED_MOUSE_GENOME_FASTA", _DEFAULT_MOUSE_GENOME
+        )
+    )
+    mouse_gtf_path: str = field(
+        default_factory=lambda: os.getenv(
+            "BEGUIDED_MOUSE_GTF_PATH", _DEFAULT_MOUSE_GTF
+        )
+    )
+    mouse_genome_label: str = field(
+        default_factory=lambda: os.getenv(
+            "BEGUIDED_MOUSE_GENOME_LABEL", "GRCm39"
+        ).strip()
+    )
+    default_genome: str = field(
+        default_factory=lambda: os.getenv("BEGUIDED_DEFAULT_GENOME", "human").strip().lower()
     )
     beguidedoff_genome: str = field(
         default_factory=lambda: os.getenv(
@@ -126,6 +173,49 @@ class WebConfig:
     usage_stats_enabled: bool = field(
         default_factory=lambda: _env_bool("BEGUIDED_USAGE_STATS_ENABLED", True)
     )
+
+    @property
+    def genomes(self) -> "dict[str, GenomeOption]":
+        """Return the selectable genomes, ordered (human first, then mouse).
+
+        An entry is included whenever its FASTA path is non-empty. The
+        ``human`` entry is built from the legacy ``genome_fasta`` /
+        ``gtf_path`` / ``genome_label`` fields so existing code and tests that
+        set those directly keep working.
+        """
+        out: "dict[str, GenomeOption]" = {}
+        if self.genome_fasta:
+            out["human"] = GenomeOption(
+                key="human",
+                label=self.genome_label or "GRCh38",
+                genome_fasta=self.genome_fasta,
+                gtf_path=self.gtf_path,
+                gtf_tag="MANE_Select",
+                species="Homo sapiens",
+            )
+        if self.mouse_genome_fasta:
+            out["mouse"] = GenomeOption(
+                key="mouse",
+                label=self.mouse_genome_label or "GRCm39",
+                genome_fasta=self.mouse_genome_fasta,
+                gtf_path=self.mouse_gtf_path,
+                gtf_tag="Ensembl_canonical",
+                species="Mus musculus",
+            )
+        return out
+
+    def genome_option(self, key: "str | None" = None) -> "GenomeOption | None":
+        """Resolve ``key`` to a :class:`GenomeOption`.
+
+        With no (or an unknown) key, the configured ``default_genome`` is
+        used, falling back to the first configured genome.
+        """
+        genomes = self.genomes
+        if key and key in genomes:
+            return genomes[key]
+        if self.default_genome in genomes:
+            return genomes[self.default_genome]
+        return next(iter(genomes.values()), None)
 
     @property
     def has_beguidedoff(self) -> bool:

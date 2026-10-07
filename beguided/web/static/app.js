@@ -38,6 +38,8 @@ const sequencePanel = document.getElementById("sequencePanel");
 const sequenceInput = document.getElementById("sequenceInput");
 const loadSequenceExampleBtn = document.getElementById("loadSequenceExampleBtn");
 const loadSpreadsheetExampleBtn = document.getElementById("loadSpreadsheetExampleBtn");
+const genomeSelect = document.getElementById("genomeSelect");
+const defaultGenomeKey = genomeSelect ? genomeSelect.value : "human";
 const profilesUpload = document.getElementById("profilesUpload");
 const profilesAlert = document.getElementById("profilesAlert");
 const profilesSource = document.getElementById("profilesSource");
@@ -56,8 +58,7 @@ let currentJobId = null;
 let currentRevokeToken = null;
 let eventSource = null;
 let pollHandle = null;
-let genomePollHandle = null;
-let gtfPollHandle = null;
+let referencePollHandle = null;
 let currentRecords = [];
 // When true, rows that differ only in `base_editor` are collapsed into a
 // single row whose `base_editor` cell lists every editor newline-separated.
@@ -136,17 +137,15 @@ const isSpryCas = (cas) => /spry/i.test(cas || "");
         console.warn("Failed to fetch server config:", err);
     }
 
-    // Genome preload status: one-shot fetch, then poll while loading.
+    // Make sure the genome selector doesn't start on an unavailable option.
+    ensureGenomeSelection();
+
+    // Reference (genome + GTF) preload status: one-shot fetch, then poll
+    // while loading.
     try {
-        await refreshGenomeStatus();
+        await refreshReferenceStatus();
     } catch (err) {
-        console.warn("Failed to fetch genome status:", err);
-    }
-    // GTF preload status: one-shot fetch, then poll while loading.
-    try {
-        await refreshGtfStatus();
-    } catch (err) {
-        console.warn("Failed to fetch gtf status:", err);
+        console.warn("Failed to fetch reference status:", err);
     }
     // Hydrate the custom profiles state and render the Base Editors table.
     try {
@@ -521,130 +520,84 @@ function showToast(kind, msg, ttlMs = 8000) {
     }, ttlMs);
 }
 
-// Genome preload status badge. Polls /genome/status while the preload is in
-// flight, then stops on a terminal state (ready / error / disabled).
-async function refreshGenomeStatus() {
-    const badge = document.getElementById("genomeStatus");
+// Combined reference (genome + GTF) preload status badge. Polls
+// /reference/status while any preload is in flight, then stops on a
+// terminal state (ready / error / disabled). A single aggregate pill is
+// shown rather than one per genome; per-genome detail lives in the title.
+async function refreshReferenceStatus() {
+    const badge = document.getElementById("referenceStatus");
     if (!badge) return;
 
     let data;
     try {
-        const res = await fetch("/genome/status");
+        const res = await fetch("/reference/status");
         data = await res.json();
     } catch (err) {
-        badge.textContent = "genome: status unavailable";
+        badge.textContent = "reference: status unavailable";
         badge.className = "badge error";
         return;
     }
 
-    if (!data.ok || !data.preload_enabled) {
-        badge.textContent = "genome: per-job";
-        badge.className = "badge muted";
-        if (genomePollHandle) {
-            clearInterval(genomePollHandle);
-            genomePollHandle = null;
+    const detailLines = (data.genomes || []).map(g => {
+        const parts = [`${g.key}: genome=${g.status}`];
+        if (g.label) parts.push(`(${g.label})`);
+        if (g.gtf_status !== undefined) {
+            let gtf = `gtf=${g.gtf_status}`;
+            if (g.gtf_label) gtf += ` (${g.gtf_label})`;
+            parts.push(gtf);
         }
+        return parts.join(" ");
+    });
+    badge.title = detailLines.join("\n");
+
+    if (!data.ok || !data.preload_enabled) {
+        badge.textContent = "reference: per-job";
+        badge.className = "badge muted";
+        stopReferencePoll();
         return;
     }
 
     if (data.status === "loading") {
-        badge.textContent = "genome: loading\u2026";
+        badge.textContent = "reference: loading\u2026";
         badge.className = "badge loading";
-        if (!genomePollHandle) {
-            genomePollHandle = setInterval(refreshGenomeStatus, 2000);
+        if (!referencePollHandle) {
+            referencePollHandle = setInterval(refreshReferenceStatus, 2000);
         }
         return;
     }
 
     if (data.status === "ready") {
-        const label = (data.label || "").trim();
-        badge.textContent = label ? `genome: ${label}` : "genome: ready";
+        badge.textContent = "reference: ready";
         badge.className = "badge ready";
-        badge.title = data.path || "";
-        if (genomePollHandle) {
-            clearInterval(genomePollHandle);
-            genomePollHandle = null;
-        }
+        stopReferencePoll();
+        return;
+    }
+
+    if (data.status === "partial") {
+        badge.textContent = "reference: partially loaded";
+        badge.className = "badge error";
+        stopReferencePoll();
         return;
     }
 
     if (data.status === "error") {
-        badge.textContent = "genome: load failed";
+        badge.textContent = "reference: load failed";
         badge.className = "badge error";
-        badge.title = data.error || "";
-        if (genomePollHandle) {
-            clearInterval(genomePollHandle);
-            genomePollHandle = null;
-        }
+        stopReferencePoll();
         return;
     }
 
     // not_loaded or anything unexpected — keep quiet but don't poll.
-    badge.textContent = "genome: idle";
+    badge.textContent = "reference: idle";
     badge.className = "badge muted";
+    stopReferencePoll();
 }
 
-// GTF preload status badge. Polls /gtf/status while the preload is in
-// flight, then stops on a terminal state (ready / error / disabled).
-async function refreshGtfStatus() {
-    const badge = document.getElementById("gtfStatus");
-    if (!badge) return;
-
-    let data;
-    try {
-        const res = await fetch("/gtf/status");
-        data = await res.json();
-    } catch (err) {
-        badge.textContent = "gtf: status unavailable";
-        badge.className = "badge error";
-        return;
+function stopReferencePoll() {
+    if (referencePollHandle) {
+        clearInterval(referencePollHandle);
+        referencePollHandle = null;
     }
-
-    if (!data.ok || !data.preload_enabled) {
-        badge.textContent = "gtf: per-job";
-        badge.className = "badge muted";
-        if (gtfPollHandle) {
-            clearInterval(gtfPollHandle);
-            gtfPollHandle = null;
-        }
-        return;
-    }
-
-    if (data.status === "loading") {
-        badge.textContent = "gtf: loading\u2026";
-        badge.className = "badge loading";
-        if (!gtfPollHandle) {
-            gtfPollHandle = setInterval(refreshGtfStatus, 2000);
-        }
-        return;
-    }
-
-    if (data.status === "ready") {
-        const label = (data.label || "").trim();
-        badge.textContent = label ? `gtf: ${label}` : "gtf: ready";
-        badge.className = "badge ready";
-        badge.title = data.path || "";
-        if (gtfPollHandle) {
-            clearInterval(gtfPollHandle);
-            gtfPollHandle = null;
-        }
-        return;
-    }
-
-    if (data.status === "error") {
-        badge.textContent = "gtf: load failed";
-        badge.className = "badge error";
-        badge.title = data.error || "";
-        if (gtfPollHandle) {
-            clearInterval(gtfPollHandle);
-            gtfPollHandle = null;
-        }
-        return;
-    }
-
-    // not_loaded or anything unexpected — keep quiet but don't poll.
-    badge.textContent = "gtf: idle";
-    badge.className = "badge muted";
 }
 
 // Tab switching
@@ -822,6 +775,25 @@ fileInput.addEventListener("change", async () => {
     fileInput.value = "";
 });
 
+// Return the genome key currently selected in the spreadsheet genome
+// selector, or the default when the selector is absent.
+function selectedGenomeKey() {
+    if (genomeSelect && genomeSelect.value) return genomeSelect.value;
+    return defaultGenomeKey || "human";
+}
+
+// If the server-rendered default genome is unavailable (its <option> is
+// disabled because the FASTA is missing on disk), fall back to the first
+// available genome so the selector never submits a reference the server
+// cannot load.
+function ensureGenomeSelection() {
+    if (!genomeSelect) return;
+    const current = genomeSelect.selectedOptions && genomeSelect.selectedOptions[0];
+    if (current && !current.disabled) return;
+    const fallback = Array.from(genomeSelect.options).find(o => !o.disabled);
+    if (fallback) genomeSelect.value = fallback.value;
+}
+
 // Reusable upload pipeline for spreadsheet-mode targets. Used by both the
 // <input type="file"> change handler and the "Load example" button (which
 // synthesizes a File from in-memory text).
@@ -838,6 +810,7 @@ async function uploadTargetsFile(file) {
 
     const form = new FormData();
     form.append("file", file);
+    form.append("genome", selectedGenomeKey());
 
     let res, data;
     try {
@@ -866,7 +839,7 @@ async function uploadTargetsFile(file) {
         return;
     }
 
-    showAlert(inputAlert, "success", `Loaded ${data.row_count} rows. Showing up to 100.`);
+    showAlert(inputAlert, "success", `Loaded ${data.row_count} rows from "${file.name}". Showing up to 100.`);
     uploadedRawB64 = data.raw_b64;
     inputPanel.innerHTML = renderTable(data.preview, data.columns);
     await runCompatibilityCheck();
@@ -884,6 +857,14 @@ const SPREADSHEET_EXAMPLE_TSV = [
 if (loadSpreadsheetExampleBtn) {
     loadSpreadsheetExampleBtn.addEventListener("click", async () => {
         if (currentMode !== "spreadsheet") setMode("spreadsheet");
+        // The example targets are human (GRCh38); force the selector to
+        // human so chromosome validation uses the right reference even when
+        // the operator's default genome is mouse.
+        if (genomeSelect) {
+            const humanOption = Array.from(genomeSelect.options)
+                .find(o => o.value === "human");
+            if (humanOption) genomeSelect.value = "human";
+        }
         const file = new File(
             [SPREADSHEET_EXAMPLE_TSV],
             "example_targets.tsv",
@@ -970,6 +951,7 @@ runBtn.addEventListener("click", async () => {
     form.append("raw_b64", uploadedRawB64);
     form.append("base_editor", baseEditorSelectionValue());
     form.append("mode", currentMode);
+    form.append("genome", selectedGenomeKey());
     if (currentMode === "sequence") {
         form.append("custom_genome_b64", customGenomeB64 || "");
     }
@@ -1263,7 +1245,7 @@ const RESULTS_COLUMN_TOOLTIPS = {
     bystander_positions:
         "Comma-separated 1-based positions from the 5' end of the guide where additional bases may be edited as bystanders.",
     bystander_effect:
-        "Predicted coding-sequence consequence of the bystander edits (e.g. silent / missense / nonsense), assessed against the MANE Select transcript codon frame. Empty when no GTF was provided.",
+        "Predicted coding-sequence consequence of the bystander edits (silent or nonsynonymous, the latter covering any amino-acid change including missense and nonsense), assessed against the MANE Select transcript codon frame. Empty when no GTF was provided.",
     guide_score:
         "CRISPRater on-target activity score (0-1). Derived from spCas9 training data and used here as a general guide-quality proxy.",
     gc_content:

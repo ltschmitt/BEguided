@@ -138,8 +138,8 @@ def _sniff_upload_kind(content: bytes, suffix: str) -> str:
     return "tsv"
 
 
-def _genome_chromosome_keys() -> list[str]:
-    """Return the chromosome keys of the preloaded genome, or [] if not ready.
+def _genome_chromosome_keys(genome_key: Optional[str] = None) -> list[str]:
+    """Return the chromosome keys of a preloaded genome, or [] if not ready.
 
     Blocks briefly on the genome preload completion so the check runs
     after the FASTA has been parsed. Returns an empty list if the genome
@@ -148,12 +148,51 @@ def _genome_chromosome_keys() -> list[str]:
     check is skipped downstream so the UI flow is not blocked.
     """
     try:
-        genome = genome_cache.wait_until_ready(timeout=5.0)
+        genome = genome_cache.wait_until_ready(genome_key, timeout=5.0)
     except (RuntimeError, TimeoutError):
         return []
     if not genome:
         return []
     return list(genome.keys())
+
+
+def _genome_options_for_ui(cfg) -> list[dict]:
+    """Return the selectable genomes for the frontend, in display order.
+
+    Each entry is ``{key, species, label, available}`` where ``available`` is
+    True when the FASTA exists on disk (the UI disables the others). The
+    selector renders ``"<species> (<label>)"``.
+    """
+    options = []
+    for key, opt in cfg.genomes.items():
+        available = bool(opt.genome_fasta and Path(opt.genome_fasta).exists())
+        options.append(
+            {
+                "key": key,
+                "species": opt.species,
+                "label": opt.label,
+                "available": available,
+            }
+        )
+    return options
+
+
+def _resolve_genome_key(cfg, genome: str) -> Optional[str]:
+    """Resolve a posted genome key to a known key, or None if unknown.
+
+    An empty value resolves to the configured default genome, falling back
+    to the first configured genome. An explicit but unknown key returns
+    ``None`` so the caller can reject the request.
+    """
+    genomes = cfg.genomes
+    if not genomes:
+        return None
+    key = (genome or "").strip()
+    if key:
+        return key if key in genomes else None
+    if cfg.default_genome in genomes:
+        return cfg.default_genome
+    return next(iter(genomes), None)
 
 
 # Tokens inside legal-config text lines that become hyperlinks when
@@ -469,33 +508,68 @@ def create_app() -> FastAPI:
         # Validate every operator-configured path; warn but don't fail if
         # the genome FASTA / GTF / .npz are absent (genome-free reruns).
         validate_operator_paths(cfg)
-        # Kick off the genome preload in the background. If it fails, the
-        # preload thread calls os._exit(1) (fail-fast) so this process never
-        # serves jobs against a missing/broken genome.
-        if cfg.preload_genome and cfg.genome_fasta and Path(cfg.genome_fasta).exists():
-            genome_cache.preload_async(cfg.genome_fasta, label=cfg.genome_label)
-            logger.info(
-                "Genome preload started in background for %s (label=%r)",
-                cfg.genome_fasta,
-                cfg.genome_label or "<auto>",
-            )
-        else:
-            logger.info(
-                "Genome preload disabled (preload_genome=%s, genome_fasta=%s)",
-                cfg.preload_genome,
-                cfg.genome_fasta,
-            )
-        # Same fail-fast policy for the GTF annotation: parse it once at
-        # startup so step 2 (bystander analysis) does not reload per job.
-        if cfg.preload_gtf and cfg.gtf_path and Path(cfg.gtf_path).exists():
-            gtf_cache.preload_async(cfg.gtf_path)
-            logger.info("GTF preload started in background for %s", cfg.gtf_path)
-        else:
-            logger.info(
-                "GTF preload disabled (preload_gtf=%s, gtf_path=%s)",
-                cfg.preload_gtf,
-                cfg.gtf_path,
-            )
+        # Kick off the preload for every configured genome in the
+        # background. The *default* genome uses fail-fast (os._exit(1) on
+        # error) so this process never serves jobs against a broken
+        # primary reference; any other genome fails soft and is reported
+        # as an ``error`` pill.
+        genome_options = cfg.genomes
+        for key, opt in genome_options.items():
+            is_default = key == cfg.default_genome
+            if (
+                cfg.preload_genome
+                and opt.genome_fasta
+                and Path(opt.genome_fasta).exists()
+            ):
+                genome_cache.preload_async(
+                    key,
+                    opt.genome_fasta,
+                    label=opt.label,
+                    fail_fast=is_default,
+                )
+                logger.info(
+                    "Genome preload started in background for %s (key=%s, label=%r)",
+                    opt.genome_fasta,
+                    key,
+                    opt.label or "<auto>",
+                )
+            else:
+                logger.info(
+                    "Genome preload skipped for key=%s "
+                    "(preload_genome=%s, fasta=%s)",
+                    key,
+                    cfg.preload_genome,
+                    opt.genome_fasta,
+                )
+        # Same policy for each GTF annotation: parse once at startup so
+        # step 2 (bystander analysis) does not reload per job.
+        for key, opt in genome_options.items():
+            is_default = key == cfg.default_genome
+            if (
+                cfg.preload_gtf
+                and opt.gtf_path
+                and Path(opt.gtf_path).exists()
+            ):
+                gtf_cache.preload_async(
+                    key,
+                    opt.gtf_path,
+                    select_tag=opt.gtf_tag,
+                    fail_fast=is_default,
+                )
+                logger.info(
+                    "GTF preload started in background for %s "
+                    "(key=%s, tag=%s)",
+                    opt.gtf_path,
+                    key,
+                    opt.gtf_tag,
+                )
+            else:
+                logger.info(
+                    "GTF preload skipped for key=%s (preload_gtf=%s, gtf=%s)",
+                    key,
+                    cfg.preload_gtf,
+                    opt.gtf_path,
+                )
         # Install and start the scheduler.
         usage_stats = (
             UsageStatsLogger(cfg.usage_stats_path, enabled=True)
@@ -535,6 +609,8 @@ def create_app() -> FastAPI:
             beguidedoff_available=cfg.has_beguidedoff,
             preload_genome=cfg.preload_genome,
             preload_gtf=cfg.preload_gtf,
+            genomes=_genome_options_for_ui(cfg),
+            default_genome=cfg.default_genome,
         )
         return HTMLResponse(content=html)
 
@@ -611,13 +687,20 @@ def create_app() -> FastAPI:
             "max_upload_mb": cfg.max_upload_mb,
             "preload_genome": cfg.preload_genome,
             "preload_gtf": cfg.preload_gtf,
+            "genomes": _genome_options_for_ui(cfg),
+            "default_genome": cfg.default_genome,
         }
 
     @app.get("/genome/status")
-    def genome_status() -> dict:
-        """Return the preload state of the genome FASTA."""
+    def genome_status(genome: str = "") -> dict:
+        """Return the preload state of the genome FASTA(s).
+
+        With ``?genome=<key>`` returns that key's snapshot; without it,
+        returns an aggregate snapshot with a ``genomes`` list.
+        """
         cfg = get_config()
-        status = genome_cache.get_status()
+        key = genome.strip() or None
+        status = genome_cache.get_status(key)
         return {
             "ok": True,
             "preload_enabled": cfg.preload_genome,
@@ -625,14 +708,79 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/gtf/status")
-    def gtf_status() -> dict:
-        """Return the preload state of the GTF annotation."""
+    def gtf_status(genome: str = "") -> dict:
+        """Return the preload state of the GTF annotation(s).
+
+        With ``?genome=<key>`` returns that key's snapshot; without it,
+        returns an aggregate snapshot with a ``gtfs`` list.
+        """
         cfg = get_config()
-        status = gtf_cache.get_status()
+        key = genome.strip() or None
+        status = gtf_cache.get_status(key)
         return {
             "ok": True,
             "preload_enabled": cfg.preload_gtf,
             **status,
+        }
+
+    @app.get("/reference/status")
+    def reference_status() -> dict:
+        """Return the combined genome+GTF preload state for the status pill.
+
+        The UI shows a single aggregate "reference" pill rather than one
+        per genome, so this endpoint merges both caches. ``status`` is the
+        worst-case across every genome and annotation; ``genomes`` lists
+        per-key detail for tooltips.
+        """
+        cfg = get_config()
+        genome_status = genome_cache.get_status()
+        gtf_status = gtf_cache.get_status()
+        # Explicit precedence: error > partial > loading > ready > not_loaded.
+        # Only caches whose preload is enabled participate, so disabling one
+        # (e.g. --no-preload-gtf) doesn't drag the aggregate down to "idle".
+        precedence = {
+            "error": 0,
+            "partial": 1,
+            "loading": 2,
+            "ready": 3,
+            "not_loaded": 4,
+        }
+        active = []
+        if cfg.preload_genome:
+            active.append(genome_status["status"])
+        if cfg.preload_gtf:
+            active.append(gtf_status["status"])
+        combined = (
+            min(active, key=lambda s: precedence.get(s, 5))
+            if active
+            else "not_loaded"
+        )
+        per_genome = []
+        gtf_by_key = {g["key"]: g for g in gtf_status.get("gtfs", [])}
+        for g in genome_status.get("genomes", []):
+            entry = dict(g)
+            gtf = gtf_by_key.get(g["key"])
+            entry["gtf_status"] = gtf["status"] if gtf else "not_loaded"
+            entry["gtf_label"] = gtf["label"] if gtf else ""
+            entry["gtf_select_tag"] = gtf["select_tag"] if gtf else ""
+            per_genome.append(entry)
+        # Include any GTF-only keys not present in the genome list.
+        genome_keys = {g["key"] for g in genome_status.get("genomes", [])}
+        for g in gtf_status.get("gtfs", []):
+            if g["key"] not in genome_keys:
+                per_genome.append({
+                    "key": g["key"],
+                    "status": "not_loaded",
+                    "label": "",
+                    "gtf_status": g["status"],
+                    "gtf_label": g["label"],
+                    "gtf_select_tag": g["select_tag"],
+                })
+        return {
+            "ok": True,
+            "preload_enabled": cfg.preload_genome or cfg.preload_gtf,
+            "status": combined,
+            "genomes": per_genome,
         }
 
     @app.get("/base-editor-table")
@@ -794,7 +942,10 @@ def create_app() -> FastAPI:
         }
 
     @app.post("/upload")
-    async def upload(file: UploadFile = File(...)) -> dict:
+    async def upload(
+        file: UploadFile = File(...),
+        genome: Annotated[str, Form()] = "",
+    ) -> dict:
         """Parse uploaded TSV/CSV/XLSX and return preview."""
         content = await file.read()
         suffix = Path(file.filename or "").suffix.lower()
@@ -848,13 +999,14 @@ def create_app() -> FastAPI:
             }
 
         df.columns = df.columns.str.strip()
-        # Validate every chromosome against the loaded genome if available
+        # Validate every chromosome against the selected genome if available
         # (best-effort: if the genome is still preloading or absent the
         # check is skipped so the UI flow is not blocked).
-        if genome_cache.is_ready():
+        genome_key = _resolve_genome_key(cfg, genome)
+        if genome_key and genome_cache.is_ready(genome_key):
             invalid = validate_chromosomes(
                 df["chromosome"].astype(str).tolist(),
-                _genome_chromosome_keys(),
+                _genome_chromosome_keys(genome_key),
             )
             if invalid:
                 sample = ", ".join(sorted(set(invalid))[:5])
@@ -996,6 +1148,7 @@ def create_app() -> FastAPI:
         base_editor: Annotated[str, Form()],
         mode: Annotated[str, Form()] = "spreadsheet",
         custom_genome_b64: Annotated[str, Form()] = "",
+        genome: Annotated[str, Form()] = "",
     ) -> JSONResponse:
         """Enqueue a pipeline run. Returns immediately with job_id + revoke_token.
 
@@ -1025,6 +1178,16 @@ def create_app() -> FastAPI:
         merged_profiles_b64 = resolved.get("merged_profiles_b64")
 
         custom_genome_b64 = custom_genome_b64.strip()
+        genome_key = _resolve_genome_key(cfg, genome)
+        if genome_key is None and mode != "sequence":
+            return JSONResponse(
+                {"ok": False, "error": f"Unknown genome: {genome!r}"},
+                status_code=400,
+            )
+        if genome_key is None:
+            # Sequence mode ignores the genome selection but the job payload
+            # still carries a key; fall back to the configured default.
+            genome_key = cfg.default_genome
         if mode == "sequence":
             if not custom_genome_b64:
                 return JSONResponse(
@@ -1039,9 +1202,9 @@ def create_app() -> FastAPI:
                 )
         else:
             # Spreadsheet mode: validate chromosome names against the
-            # loaded genome before queueing the job so the user gets an
+            # selected genome before queueing the job so the user gets an
             # immediate 400 instead of a per-target pipeline error.
-            chrom_keys = _genome_chromosome_keys()
+            chrom_keys = _genome_chromosome_keys(genome_key)
             if chrom_keys:
                 invalid = validate_chromosomes(
                     df["chromosome"].astype(str).tolist(), chrom_keys
@@ -1074,6 +1237,7 @@ def create_app() -> FastAPI:
                     "passthrough_extras": False,
                     "keep_targets_without_guides": True,
                     "mode": mode,
+                    "genome_key": genome_key,
                     "custom_genome_b64": custom_genome_b64 or None,
                     "use_custom_profiles": use_custom_profiles,
                     "custom_profiles_b64": custom_profiles_b64,

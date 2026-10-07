@@ -44,7 +44,7 @@ def _write_results_tsv(path: Path) -> Path:
             "editing_position": [4, 5],
             "strand_used": ["-", "+"],
             "bystander_positions": ["", "3,7"],
-            "bystander_effect": ["no_bystanders", "missense"],
+            "bystander_effect": ["no_bystanders", "nonsynonymous"],
             "base_editor": ["ABE8e", "ABE8e"],
             "guide_score": [0.0, 0.812345],
         }
@@ -523,3 +523,164 @@ def test_build_config_keep_targets_without_guides(tmp_path):
         search_offtargets=False, guide_score_threshold=0.0,
     )
     assert off["keep_targets_without_guides"] is False
+
+
+def test_build_config_gtf_override(tmp_path):
+    """``gtf_path`` overrides the operator default in ``config['input']``."""
+    from beguided.web.tasks import _build_config
+
+    _minimal_web_config(tmp_path)
+    targets_df = pd.DataFrame(
+        {
+            "chromosome": ["chr1"],
+            "position": [50],
+            "target_base": ["T"],
+            "desired_base": ["C"],
+        }
+    )
+    work = tmp_path / "work"
+    work.mkdir()
+
+    config = _build_config(
+        targets_df, ["ABE8e"], "all", str(work),
+        search_offtargets=False, guide_score_threshold=0.0,
+        genome_fasta="/refs/mouse.fa",
+        gtf_path="/refs/mouse.gtf",
+    )
+    assert config["input"]["genome"] == "/refs/mouse.fa"
+    assert config["input"]["gff_file"] == "/refs/mouse.gtf"
+
+
+def test_execute_job_spreadsheet_uses_selected_genome(monkeypatch, tmp_path):
+    """Selecting the mouse genome loads its FASTA + Ensembl_canonical GTF and
+    feeds those paths into the pipeline config."""
+    import beguided.web.tasks as tasks_mod
+    from beguided.web.config import WebConfig, set_config
+
+    presets = tmp_path / "presets.tsv"
+    presets.write_text(
+        "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
+        "high_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+        "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\n"
+    )
+    human_fa = tmp_path / "Homo_sapiens.GRCh38.116.fa"
+    human_fa.write_text(">1\nACGTACGT\n")
+    human_gtf = tmp_path / "Homo_sapiens.GRCh38.116.gtf"
+    human_gtf.write_text("")
+    mouse_fa = tmp_path / "Mus_musculus.GRCm39.2026_04.fa"
+    mouse_fa.write_text(">1\nACGTACGT\n")
+    mouse_gtf = tmp_path / "Mus_musculus.GRCm39.2026_04.gtf"
+    mouse_gtf.write_text(
+        "##format: gtf\n"
+        "1\ttest\tCDS\t1\t6\t.\t+\t0\t"
+        'gene_id "G1"; gene_name "X"; transcript_id "T1"; '
+        'tag "Ensembl_canonical";\n'
+    )
+    set_config(WebConfig(
+        base_editor_profiles_file=str(presets),
+        genome_fasta=str(human_fa),
+        gtf_path=str(human_gtf),
+        mouse_genome_fasta=str(mouse_fa),
+        mouse_gtf_path=str(mouse_gtf),
+        mouse_genome_label="GRCm39",
+        beguidedoff_genome="",
+        max_input_targets=100,
+        db_path=str(tmp_path / "jobs.db"),
+        preload_genome=False,
+        preload_gtf=False,
+    ))
+
+    captured = {}
+
+    def fake_pipeline(config, **_kwargs):
+        captured["config"] = config
+        work_dir = config["output_prefix"]
+        pd.DataFrame(
+            {
+                "chromosome": ["1"],
+                "position": [3],
+                "target_base": ["G"],
+                "desired_base": ["A"],
+                "genome_base": ["G"],
+                "guide_rna_sequence": ["AAAAAAAAAAAAAAAAAAAA"],
+                "pam_sequence": ["AGG"],
+                "editing_position": [4],
+                "strand_used": ["-"],
+                "bystander_positions": [""],
+                "bystander_effect": ["no_bystanders"],
+                "base_editor": ["ABE8e"],
+                "guide_score": [0.5],
+            }
+        ).to_csv(Path(work_dir) / "beguided_results.tsv", sep="\t", index=False)
+
+    monkeypatch.setattr(tasks_mod, "run_pipeline", fake_pipeline)
+
+    targets_df = pd.DataFrame(
+        {
+            "chromosome": ["1"],
+            "position": [3],
+            "target_base": ["G"],
+            "desired_base": ["A"],
+        }
+    )
+    result = tasks_mod.execute_job(
+        job_id="job-mouse",
+        targets_df=targets_df,
+        base_editor_names=["ABE8e"],
+        filter_mode="all",
+        search_offtargets=False,
+        guide_score_threshold=0.0,
+        genome_key="mouse",
+    )
+    assert result["status"] == "complete", result
+    assert captured["config"]["input"]["genome"] == str(mouse_fa)
+    assert captured["config"]["input"]["gff_file"] == str(mouse_gtf)
+
+
+def test_execute_job_rejects_unknown_chromosome_for_selected_genome(
+    monkeypatch, tmp_path
+):
+    """A human-style chromosome name must be rejected when mouse is selected."""
+    import beguided.web.tasks as tasks_mod
+    from beguided.web.config import WebConfig, set_config
+
+    presets = tmp_path / "presets.tsv"
+    presets.write_text(
+        "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
+        "high_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+        "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\n"
+    )
+    mouse_fa = tmp_path / "Mus_musculus.GRCm39.2026_04.fa"
+    mouse_fa.write_text(">1\nACGTACGT\n")
+    set_config(WebConfig(
+        base_editor_profiles_file=str(presets),
+        genome_fasta="/nonexistent",
+        gtf_path="/nonexistent",
+        mouse_genome_fasta=str(mouse_fa),
+        mouse_gtf_path="/nonexistent",
+        beguidedoff_genome="",
+        max_input_targets=100,
+        db_path=str(tmp_path / "jobs.db"),
+        preload_genome=False,
+        preload_gtf=False,
+    ))
+
+    targets_df = pd.DataFrame(
+        {
+            "chromosome": ["chr1"],  # human spelling; mouse uses "1"
+            "position": [3],
+            "target_base": ["G"],
+            "desired_base": ["A"],
+        }
+    )
+    result = tasks_mod.execute_job(
+        job_id="job-bad-chrom",
+        targets_df=targets_df,
+        base_editor_names=["ABE8e"],
+        filter_mode="all",
+        search_offtargets=False,
+        guide_score_threshold=0.0,
+        genome_key="mouse",
+    )
+    assert result["status"] == "error"
+    assert "Unknown chromosome" in result["message"]

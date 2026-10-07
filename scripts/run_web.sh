@@ -42,8 +42,10 @@ fi
 # --genome-fasta etc. on the command line)
 # ---------------------------------------------------------------------------
 : "${BEGUIDED_BASE_EDITOR_PROFILES_FILE:=configs/base_editor_profiles.tsv}"
-: "${BEGUIDED_GENOME_FASTA:=genome/Homo_sapiens.GRCh38.112.fa}"
-: "${BEGUIDED_GTF_PATH:=genome/Homo_sapiens.GRCh38.112.gtf}"
+: "${BEGUIDED_GENOME_FASTA:=genome/Homo_sapiens.GRCh38.116.fa}"
+: "${BEGUIDED_GTF_PATH:=genome/Homo_sapiens.GRCh38.116.gtf}"
+: "${BEGUIDED_MOUSE_GENOME_FASTA:=genome/Mus_musculus.GRCm39.2026_04.fa}"
+: "${BEGUIDED_MOUSE_GTF_PATH:=genome/Mus_musculus.GRCm39.2026_04.gtf}"
 : "${BEGUIDED_BEGUIDEDOFF_GENOME:=genome/hg38_otbe.npz}"
 
 # ---------------------------------------------------------------------------
@@ -57,6 +59,8 @@ echo "  upload cap:       ${BEGUIDED_MAX_UPLOAD_MB}MB" >&2
 echo "  base editor file: $BEGUIDED_BASE_EDITOR_PROFILES_FILE" >&2
 echo "  genome:           $BEGUIDED_GENOME_FASTA" >&2
 echo "  gtf:              $BEGUIDED_GTF_PATH" >&2
+echo "  mouse genome:     $BEGUIDED_MOUSE_GENOME_FASTA" >&2
+echo "  mouse gtf:        $BEGUIDED_MOUSE_GTF_PATH" >&2
 echo "  beguidedoff npz:  $BEGUIDED_BEGUIDEDOFF_GENOME" >&2
 
 # ---------------------------------------------------------------------------
@@ -72,5 +76,7 @@ exec pixi run --environment web beguided-web \
     --base-editor-profiles-file "$BEGUIDED_BASE_EDITOR_PROFILES_FILE" \
     --genome-fasta "$BEGUIDED_GENOME_FASTA" \
     --gtf-path "$BEGUIDED_GTF_PATH" \
+    --mouse-genome-fasta "$BEGUIDED_MOUSE_GENOME_FASTA" \
+    --mouse-gtf-path "$BEGUIDED_MOUSE_GTF_PATH" \
     --beguidedoff-genome "$BEGUIDED_BEGUIDEDOFF_GENOME" \
     "$@"

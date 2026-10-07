@@ -41,16 +41,23 @@
     <div class="input-meta-row input-title-row">
         <span id="limitsInfo" class="input-panel-title"></span>
         <div class="input-panel-statuses">
-            <span id="genomeStatus" class="badge" data-preload="{{ 'true' if preload_genome else 'false' }}" aria-live="polite">&hellip;</span>
-            <span id="gtfStatus" class="badge" data-preload="{{ 'true' if preload_gtf else 'false' }}" aria-live="polite">&hellip;</span>
+            <span id="referenceStatus" class="badge" data-preload="{{ 'true' if (preload_genome or preload_gtf) else 'false' }}" aria-live="polite" aria-atomic="true">&hellip;</span>
         </div>
     </div>
     <div class="input-meta-row input-actions-row">
-        <label class="btn btn-secondary" for="fileInput">Choose file</label>
         <input type="file" id="fileInput" accept=".tsv,.csv,.xlsx,.xls"
-            aria-label="Choose file" />
+            aria-label="Choose file" class="visually-hidden-file" />
+        <label class="btn btn-secondary" for="fileInput">Choose file</label>
         <a href="/download/template" class="btn btn-secondary" download>Template</a>
         <button id="loadSpreadsheetExampleBtn" class="btn btn-secondary" type="button">Load example</button>
+        <div class="genome-select-group">
+            <label for="genomeSelect">Genome reference</label>
+            <select id="genomeSelect" aria-label="Genome reference">
+                {% for g in genomes %}
+                <option value="{{ g.key }}"{% if not g.available %} disabled{% endif %}{% if g.key == default_genome %} selected{% endif %}>{% if g.species %}{{ g.species }} ({{ g.label }}){% else %}{{ g.label }}{% endif %}{% if not g.available %} &mdash; unavailable{% endif %}</option>
+                {% endfor %}
+            </select>
+        </div>
         <button id="runBtn" class="btn btn-primary right" disabled>Run</button>
     </div>
 </div>

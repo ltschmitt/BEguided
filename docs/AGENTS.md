@@ -82,7 +82,10 @@ beguided                 --config config.yaml [--from-step 3] [-v] \
                          [--passthrough-extras | --no-passthrough-extras]
 beguided-web             [--host 0.0.0.0] [--port 8000] [--reload] \
                          [--base-editor-profiles-file ...] [--genome-fasta ...] \
-                         [--gtf-path ...] [--beguidedoff-genome ...] \
+                         [--gtf-path ...] [--mouse-genome-fasta ...] \
+                         [--mouse-gtf-path ...] [--mouse-genome-label ...] \
+                         [--default-genome human|mouse] \
+                         [--beguidedoff-genome ...] \
                          [--preload-genome | --no-preload-genome] \
                          [--preload-gtf | --no-preload-gtf] \
                          [--genome-label ...] \
@@ -248,12 +251,23 @@ python -m pytest tests/test_editing/test_presets.py::TestPAMToRegex -v
 
 ### Preload Caches (Web)
 
-The web server mirrors the same two caches used by the pipeline:
+The web server mirrors the same two caches used by the pipeline. Both are
+now **keyed registries** (one entry per genome: `human`, `mouse`, …):
 
-- `beguided/web/genome_cache.py` — parses the genome FASTA once at startup; exposes `/genome/status`; `os._exit(1)` on failure (fail-fast).
-- `beguided/web/gtf_cache.py` — parses the GTF annotation once at startup; exposes `/gtf/status`; same fail-fast policy.
+- `beguided/web/genome_cache.py` — parses each configured genome FASTA once
+  at startup; exposes `/genome/status` (optionally `?genome=<key>`) and the
+  aggregate `/reference/status`; the *default* genome fails fast
+  (`os._exit(1)`), other keys fail soft and are marked `error`.
+- `beguided/web/gtf_cache.py` — parses each configured GTF once at startup;
+  exposes `/gtf/status` (optionally `?genome=<key>`). The CDS `select_tag` is
+  per genome (`MANE_Select` for human Ensembl, `Ensembl_canonical` for the EBI
+  mouse annotation).
 
-Both back the `run_pipeline(..., genome=..., interval_trees=...)` kwargs in `beguided.pipeline`. When `preload_genome=False` or `preload_gtf=False`, the pipeline falls back to parsing the file per job.
+Both back the `run_pipeline(..., genome=..., interval_trees=...)` kwargs in
+`beguided.pipeline`. When `preload_genome=False` or `preload_gtf=False`, the
+pipeline falls back to parsing the file per job. The selected genome key is
+carried through the job payload (`genome_key`) into `tasks.execute_job`, which
+picks the matching FASTA + GTF (and tag) via `WebConfig.genomes`.
 
 ### Config Keys (offtargets block)
 
@@ -303,13 +317,23 @@ Both back the `run_pipeline(..., genome=..., interval_trees=...)` kwargs in `beg
 - FastAPI-based, started via `beguided-web`
 - Config via CLI flags (override env variables):
   - `--base-editor-profiles-file`
-  - `--genome-fasta`
-  - `--gtf-path`
+  - `--genome-fasta` (human; default `genome/Homo_sapiens.GRCh38.116.fa`)
+  - `--gtf-path` (human; default `genome/Homo_sapiens.GRCh38.116.gtf`)
+  - `--mouse-genome-fasta` (default `genome/Mus_musculus.GRCm39.2026_04.fa`)
+  - `--mouse-gtf-path` (default `genome/Mus_musculus.GRCm39.2026_04.gtf`)
+  - `--mouse-genome-label` (default `GRCm39`; UI shows `Mus musculus (<label>)`)
+  - `--genome-label` (human assembly label; default `GRCh38`; UI shows `Homo sapiens (<label>)`)
+  - `--default-genome` (`human` | `mouse`; default `human`)
   - `--beguidedoff-genome`
 - Or via environment variables:
   - `BEGUIDED_BASE_EDITOR_PROFILES_FILE`
   - `BEGUIDED_GENOME_FASTA`
   - `BEGUIDED_GTF_PATH`
+  - `BEGUIDED_MOUSE_GENOME_FASTA`
+  - `BEGUIDED_MOUSE_GTF_PATH`
+  - `BEGUIDED_MOUSE_GENOME_LABEL`
+  - `BEGUIDED_GENOME_LABEL`
+  - `BEGUIDED_DEFAULT_GENOME`
   - `BEGUIDED_BEGUIDEDOFF_GENOME`
 - `BEGUIDED_PRELOAD_GENOME` / `--preload-genome` / `--no-preload-genome` — preload the genome FASTA at startup (default: enabled).
 - `BEGUIDED_PRELOAD_GTF` / `--preload-gtf` / `--no-preload-gtf` — preload the GTF annotation at startup (default: enabled).

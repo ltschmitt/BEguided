@@ -10,14 +10,18 @@ from Bio import SeqIO
 logger = logging.getLogger("beguided.genome.io")
 
 
-SKIP_HEADER_TOKENS = ("dna:scaffold",)
+# Records whose header description contains any of these tokens are skipped.
+# ``:scaffold`` covers both Ensembl's ``dna:scaffold`` (human primary
+# assembly fixtures) and the EBI ``ensemblorganisms`` ``unmasked:scaffold``
+# (mouse), dropping unplaced scaffolds so only chromosomes land in the dict.
+SKIP_HEADER_TOKENS = (":scaffold",)
 
 
 def load_genome(genome_file, *, skip_header_tokens: Iterable[str] = SKIP_HEADER_TOKENS):
     """Read genome file and return dictionary of chromosomes.
 
     FASTA records whose description contains any of the tokens in
-    ``skip_header_tokens`` (default: ``"dna:scaffold"``) are skipped. This
+    ``skip_header_tokens`` (default: ``":scaffold"``) are skipped. This
     drops assembly scaffolds and patches (e.g. ``KI270728.1``,
     ``GL000225.1``) so only the canonical chromosomes land in the dict.
 
@@ -51,7 +55,7 @@ def load_genome(genome_file, *, skip_header_tokens: Iterable[str] = SKIP_HEADER_
 
 
 _ASSEMBLY_RE = re.compile(
-    r"^Homo_sapiens\.([A-Za-z0-9.]+?)(?:\.dna\.|\.fa$|\.fasta$|$)"
+    r"^(?:Homo_sapiens|Mus_musculus)\.([A-Za-z0-9._]+?)(?:\.dna\.|\.fa$|\.fasta$|$)"
 )
 
 
@@ -62,6 +66,7 @@ def derive_genome_label(fasta_path: str) -> str:
     Examples:
         ``Homo_sapiens.GRCh38.dna.primary_assembly.fa`` -> ``"GRCh38"``
         ``Homo_sapiens.GRCh38.112.dna.primary_assembly.fa`` -> ``"GRCh38.112"``
+        ``Mus_musculus.GRCm39.2026_04.fa`` -> ``"GRCm39.2026_04"``
         ``/data/genomes/anything.fa`` -> ``"GRCh38"`` (fallback)
 
     The fallback is ``"GRCh38"`` because the on-disk fixtures shipped with

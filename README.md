@@ -64,12 +64,16 @@ The repo ships four image targets: `beguided:cli`, `beguided:cli-cuda`, `beguide
 ## Get the reference genome
 
 BEguided needs a reference FASTA and a matching GTF annotation. A helper
-script downloads both from Ensembl into `./genome/`:
+script downloads both for human (Ensembl GRCh38) and mouse (EBI
+ensemblorganisms GRCm39) into `./genome/`:
 
 ```bash
-scripts/download_genome.sh                       # default: ./genome, release 116
-scripts/download_genome.sh --target-dir /data/refs/GRCh38.116
+scripts/download_genome.sh                       # both species, ./genome, release 116
+scripts/download_genome.sh --species human
+scripts/download_genome.sh --species mouse
+scripts/download_genome.sh --target-dir /data/refs
 scripts/download_genome.sh --release 115
+scripts/download_genome.sh --mouse-release 2026_04
 scripts/download_genome.sh --force               # re-download even if present
 ```
 
@@ -78,11 +82,17 @@ After the script finishes you will have:
 ```
 ./genome/Homo_sapiens.GRCh38.116.fa
 ./genome/Homo_sapiens.GRCh38.116.gtf
+./genome/Mus_musculus.GRCm39.2026_04.fa
+./genome/Mus_musculus.GRCm39.2026_04.gtf
 ```
 
 Point your CLI config at these paths (see `configs/cli.yaml`) or set
-`BEGUIDED_GENOME_FASTA` / `BEGUIDED_GTF_PATH` for the web server. Re-running
-the script is safe: existing files are kept unless `--force` is passed.
+`BEGUIDED_GENOME_FASTA` / `BEGUIDED_GTF_PATH` (human) and
+`BEGUIDED_MOUSE_GENOME_FASTA` / `BEGUIDED_MOUSE_GTF_PATH` (mouse) for the web
+server. The web UI's Genome selector switches between the two references; the
+default is chosen with `BEGUIDED_DEFAULT_GENOME` (`human` or `mouse`).
+Re-running the script is safe: existing files are kept unless `--force` is
+passed.
 
 ## Quick start — CLI
 
@@ -100,7 +110,7 @@ beguided --config my_run.yaml
 # → results/step1_guidefinder.tsv, ..., beguided_results.tsv
 ```
 
-See [`docs/cli-usage.md`](docs/cli-usage.md) for the full config reference, [`docs/input-output.md`](docs/input-output.md) for file formats, and [`docs/pipeline-steps.md`](docs/pipeline-steps.md) for what each of the six steps does.
+See [`docs/cli-usage.md`](docs/cli-usage.md) for the full config reference, [`docs/input-output.md`](docs/input-output.md) for file formats, and [`docs/pipeline-steps.md`](docs/pipeline-steps.md) for what each of the five steps does.
 
 Need target lists from sources other than COSMIC? OncoDB, Cancer Hotspots, DORM, ClinVar, and cBioPortal are supported via the companion repo [`BEguided-datasets`](../BEguided-datasets), which holds the download/converter scripts, ready-made full-run and smoke configs, and a dataset version manifest. BEguided consumes the generated TSVs through the standard input contract — see [`docs/alternative-mutation-sources.md`](docs/alternative-mutation-sources.md) for the pointer.
 
@@ -142,7 +152,7 @@ The operator's real legal YAML is gitignored and pointed at via `BEGUIDED_LEGAL_
 | [CLI usage](docs/cli-usage.md) | Running the pipeline; config keys; web server |
 | [Input / output](docs/input-output.md) | Target file format, output TSV columns |
 | [Alternative mutation sources](docs/alternative-mutation-sources.md) | Pointer to the BEguided-datasets companion repo (converters, configs, manifest) |
-| [Pipeline steps](docs/pipeline-steps.md) | What each of the six steps does |
+| [Pipeline steps](docs/pipeline-steps.md) | What each of the five steps does |
 | [Scoring](docs/scoring.md) | `guide_score`, `gc_content`, `trinuc_edit_score`, CCTOP |
 | [Web deployment](docs/web-deployment.md) | Caddy, Docker Compose, GDPR checklist, legal YAML |
 | [AGENTS.md](docs/AGENTS.md) | Notes for AI coding agents working on this repo |

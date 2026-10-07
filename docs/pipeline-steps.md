@@ -1,6 +1,6 @@
 # Pipeline steps
 
-The BEguided pipeline is a sequence of six steps. Steps 1–3 always run. Steps 4–5 only run if `BEguidedOFF` is installed and `search_offtargets: true` is set. Step 6 is the final merge.
+The BEguided pipeline is a sequence of five steps. Steps 1–3 always run. Steps 4–5 only run if `BEguidedOFF` is installed and `search_offtargets: true` is set; step 5 performs the off-target filtering and the final merge inline.
 
 ```
 inputs (TSV + FASTA + GTF + base editor profiles)
@@ -36,16 +36,9 @@ inputs (TSV + FASTA + GTF + base editor profiles)
         │
         ▼
 ┌─────────────────────────────────────┐
-│ Step 5: off-target filter           │  ← drop guides with too many / too
-│   in : step4                        │     concerning off-targets
-│   out: (merged into step 6)         │
-└─────────────────────────────────────┘
-        │
-        ▼
-┌─────────────────────────────────────┐
-│ Step 6: merge                       │  ← combine step3 + step5 into
-│   in : step3, step4                 │     the final TSV
-│   out: beguided_results.tsv         │
+│ Step 5: off-target filter & merge   │  ← drop guides with too many / too
+│   in : step3, step4                 │     concerning off-targets, then
+│   out: beguided_results.tsv         │     combine with step3 into final TSV
 └─────────────────────────────────────┘
 ```
 
@@ -69,7 +62,7 @@ For every guide produced in step 1, this step:
 
 1. Determines the protospacer sequence and the editing window implied by the base editor profile.
 2. Slides every other editable base within the window (per the profile's editing chemistry) and checks the codon context using the supplied GTF annotation.
-3. Classifies each bystander as silent (same amino acid), missense (different amino acid), or nonsense (premature stop).
+3. Classifies each bystander by its protein-level consequence: silent (same amino acid) or nonsynonymous (any amino-acid change). Missense and nonsense (stop-gain) are collapsed into this single class — the finer distinction is not maintained.
 4. Attaches per-bystander metadata: position (1-based from the 5' end of the guide), original codon, edited codon, original amino acid, edited amino acid, classification, transcript / exon context.
 
 Step 2 only runs when the genome FASTA and GTF annotation are both available. The `keep_bystanders` config knob controls which guides step 3 keeps:
@@ -99,18 +92,14 @@ For every guide that survives step 3, this step:
 3. Scores every off-target with CCTOP (penalty model that weighs mismatches by PAM proximity).
 4. Keeps the top-1 (worst) off-target per guide to minimise output size.
 
-## Step 5 — Off-target filter
+## Step 5 — Off-target filter & merge (`beguided_results.tsv`)
 
 For every guide with at least one off-target in step 4, applies:
 
 - `remove_guides_score` — drop guides whose worst off-target score is below this value (i.e. too concerning)
 - `remove_guides_n_offtargets` — drop guides whose count of concerning off-targets exceeds this number (if set)
 
-Step 5 doesn't write a separate file; it runs inline and the resulting keep/discard decisions feed into step 6.
-
-## Step 6 — Merge (`beguided_results.tsv`)
-
-Joins step 3 (filtered guides) with step 5 (off-target decisions) and writes the final TSV. Columns:
+The filtering and the merge run inline in this step; no separate file is written for the filter. The step joins step 3 (filtered guides) with the off-target decisions and writes the final TSV. Columns:
 
 - Everything from step 3 (guide metadata, bystander info, sequence properties)
 - The five off-target summary columns (`worst_offtarget_score`, `offtarget_count`, `worst_offtarget_chr`, `worst_offtarget_pos`, `worst_offtarget_sequence`) when applicable; `NaN` if off-target search was skipped

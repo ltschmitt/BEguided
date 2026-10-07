@@ -18,7 +18,12 @@
 #   GENOME_HOST_DIR            Host directory with the reference FASTA + GTF.
 #                              Default: ./genome.
 #   PORT                       Host port to publish. Default: 8000.
-#   BEGUIDED_GENOME_LABEL      Display label in the UI. Default: GRCh38.116.
+#   BEGUIDED_GENOME_LABEL      Human assembly label shown in the UI selector
+#                              as "Homo sapiens (<label>)". Default: GRCh38.
+#   BEGUIDED_MOUSE_GENOME_LABEL Mouse assembly label shown as
+#                              "Mus musculus (<label>)". Default: GRCm39.
+#   BEGUIDED_DEFAULT_GENOME    Genome selected by default: human|mouse.
+#                              Default: human.
 #   BEGUIDED_LEGAL_CONFIG      Path to legal.yaml inside the container.
 #                              Default: /etc/beguided/legal.yaml (mounted
 #                              from ./legal.yaml if present).
@@ -53,11 +58,15 @@ services:
       BEGUIDED_BASE_EDITOR_PROFILES_FILE: "${BEGUIDED_BASE_EDITOR_PROFILES_FILE:-/app/configs/base_editor_profiles.tsv}"
       BEGUIDED_GENOME_FASTA: "${BEGUIDED_GENOME_FASTA:-/app/genome/Homo_sapiens.GRCh38.116.fa}"
       BEGUIDED_GTF_PATH: "${BEGUIDED_GTF_PATH:-/app/genome/Homo_sapiens.GRCh38.116.gtf}"
+      BEGUIDED_MOUSE_GENOME_FASTA: "${BEGUIDED_MOUSE_GENOME_FASTA:-/app/genome/Mus_musculus.GRCm39.2026_04.fa}"
+      BEGUIDED_MOUSE_GTF_PATH: "${BEGUIDED_MOUSE_GTF_PATH:-/app/genome/Mus_musculus.GRCm39.2026_04.gtf}"
       BEGUIDED_BEGUIDEDOFF_GENOME: "${BEGUIDED_BEGUIDEDOFF_GENOME:-}"
       BEGUIDED_DB_PATH: "${BEGUIDED_DB_PATH:-/var/lib/beguided/jobs.db}"
       BEGUIDED_PRELOAD_GENOME: "${BEGUIDED_PRELOAD_GENOME:-true}"
       BEGUIDED_PRELOAD_GTF: "${BEGUIDED_PRELOAD_GTF:-true}"
-      BEGUIDED_GENOME_LABEL: "${BEGUIDED_GENOME_LABEL:-GRCh38.116}"
+      BEGUIDED_GENOME_LABEL: "${BEGUIDED_GENOME_LABEL:-GRCh38}"
+      BEGUIDED_MOUSE_GENOME_LABEL: "${BEGUIDED_MOUSE_GENOME_LABEL:-GRCm39}"
+      BEGUIDED_DEFAULT_GENOME: "${BEGUIDED_DEFAULT_GENOME:-human}"
       BEGUIDED_LEGAL_CONFIG: "${BEGUIDED_LEGAL_CONFIG:-/etc/beguided/legal.yaml}"
       # Scheduler knobs (previously hardcoded in the command: block).
       BEGUIDED_QUEUE_MAX: "${BEGUIDED_QUEUE_MAX:-8}"
