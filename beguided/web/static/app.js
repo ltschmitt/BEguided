@@ -1145,8 +1145,8 @@ function escapeHtml(str) {
 
 // Render the guidefinder-derived columns. ``gc_content`` is shown as a
 // percentage with one decimal (the column value is percent 0-100); a missing
-// value renders as an em-dash. ``homopolymer`` is rendered as a small
-// coloured pill ("poly" or "ok") so flagged guides stand out at a glance.
+// value renders as an em-dash. ``homopolymer`` is rendered as plain text
+// ("poly" when flagged, "ok" otherwise) to match the rest of the table.
 // ``trinuc_edit_score`` (Marquart et al. 2021, ABE8e, 0..1) is shown as a
 // 2-decimal number; ``NaN``/null (CBE rows) render as an em-dash.
 function formatSequencePropsCell(row, column, value) {
@@ -1162,10 +1162,10 @@ function formatSequencePropsCell(row, column, value) {
     }
     if (column === "homopolymer") {
         if (value === true || value === "true") {
-            return `<span class="badge badge-warn">poly</span>`;
+            return "poly";
         }
         if (value === false || value === "false") {
-            return `<span class="muted">ok</span>`;
+            return "ok";
         }
         return `<span class="muted">&mdash;</span>`;
     }
@@ -1240,6 +1240,8 @@ const COLUMN_LABELS = {
 const RESULTS_COLUMN_TOOLTIPS = {
     gene_edit_desired:
         "Desired edit at the protein level, formatted as '<gene> <Target_AA><codon_number><Desired_AA>' (e.g. 'TP53 *306R'). Codon numbering follows the MANE Select CDS frame; empty when the target is not in a CDS or no gene name resolves.",
+    genome_base:
+        "Reference-genome base at the target position. Useful for confirming that the target position and edit are correct.",
     editing_position:
         "1-based position of the edited base, counted from the 5' end of the guide RNA (not the genomic coordinate).",
     bystander_positions:
@@ -1254,6 +1256,8 @@ const RESULTS_COLUMN_TOOLTIPS = {
         "True when the spacer contains a run of >=4 identical bases (e.g. AAAA). Homopolymer runs can hurt guide specificity and efficiency.",
     trinuc_edit_score:
         "Marquart et al. 2021 normalised ABE8e editing proportion for the local X-A-Y trinucleotide context (the bases immediately before and after the target A). 0-1; NaN for CBE guides.",
+    base_editor:
+        "Generally, favor SpCas9 over NG/SpG over SpRY. Relaxed PAMs trade activity and specificity for targeting range. Regarding ABEs, ABE8e is most established and a reliable choice.",
 };
 
 // Maps each results-toolbar filter <select>/<input> id to the column whose
