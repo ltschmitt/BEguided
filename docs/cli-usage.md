@@ -70,7 +70,7 @@ The full annotated template at [`configs/cli.yaml`](../../configs/cli.yaml) walk
 | `filter_homopolymers` | `false` | Drop guides with a run of ≥4 identical bases (Pol III termination signal). |
 | `trinuc_edit_score_min` | `null` | Minimum Marquart et al. 2021 ABE8e trinuc context score (0–1) to keep an ABE guide. CBE guides are always kept (NaN by construction). |
 | `keep_targets_without_guides` | `false` | Keep one row per input target in `beguided_results.tsv` even when no guide could be designed or the mutation type is unsupported. Placeholder rows keep the input identity/bases columns; `guide_rna_sequence` is `**No guide possible**` or `**Base change incompatible**`, all other result fields empty. Added only in the final step. |
-| `keep_bystanders` | `all` | `all` / `no_bystanders` / `silent` |
+| `keep_bystanders` | `all` | `all` / `none` / `synonymous` |
 | `use_base_editors` | `all` | `all` / `all ABEs` / `all CBEs` / comma-separated profile names |
 | `offtargets.mismatch_tolerance` | `5` | Max mismatches in 20-nt guide |
 | `offtargets.count_threshold_score` | `15.0` | CCTOP **maximum** for counting off-targets |

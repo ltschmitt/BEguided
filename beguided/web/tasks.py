@@ -59,7 +59,7 @@ def _build_config(
     Args:
         targets_df: DataFrame with target rows.
         base_editor_names: List of base editor name strings.
-        filter_mode: One of 'all', 'no_bystanders', 'silent'.
+        filter_mode: One of 'all', 'none', 'synonymous'.
         work_dir: Working directory for outputs.
         search_offtargets: Whether to run BEguidedOFF off-target steps.
         guide_score_threshold: Minimum on-target guide score (0-1).
@@ -313,7 +313,7 @@ def execute_job(
     # Sequence mode has no GTF annotation and no pre-encoded off-target
     # genome, so we (a) skip the bystander step entirely (via the explicit
     # ``skip_bystander`` pipeline flag, NOT by setting filter_mode to
-    # "no_bystanders", which would also drop every guide with bystanders)
+    # "none", which would also drop every guide with bystanders)
     # and (b) disable BEguidedOFF.
     skip_bystander = sequence_mode
     if sequence_mode:

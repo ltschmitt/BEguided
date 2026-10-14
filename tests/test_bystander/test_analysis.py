@@ -117,7 +117,7 @@ class TestAnalyzeGuideDetail:
         mock_mark.return_value = "M"
         row = self._make_row(editing_position=5, bystander_positions="")
         effect, *_ = analyze_guide(row, {"chr1": True})
-        assert effect == "no_bystanders"
+        assert effect == "none"
 
 
 class TestGeneEditDesired:

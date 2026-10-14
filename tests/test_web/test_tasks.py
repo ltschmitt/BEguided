@@ -44,7 +44,7 @@ def _write_results_tsv(path: Path) -> Path:
             "editing_position": [4, 5],
             "strand_used": ["-", "+"],
             "bystander_positions": ["", "3,7"],
-            "bystander_effect": ["no_bystanders", "nonsynonymous"],
+            "bystander_effect": ["none", "nonsynonymous"],
             "base_editor": ["ABE8e", "ABE8e"],
             "guide_score": [0.0, 0.812345],
         }
@@ -164,7 +164,7 @@ class TestDistinctTargetsMath:
                 "editing_position": [4, 4],
                 "strand_used": ["+", "+"],
                 "bystander_positions": ["", ""],
-                "bystander_effect": ["no_bystanders", "no_bystanders"],
+                "bystander_effect": ["none", "none"],
                 "base_editor": ["ABE8e", "ABE8e"],
                 "guide_score": [0.5, 0.5],
             }
@@ -310,7 +310,7 @@ def _fake_pipeline_writer(*args, **kwargs) -> None:
             "editing_position": [4],
             "strand_used": ["-"],
             "bystander_positions": [""],
-            "bystander_effect": ["no_bystanders"],
+            "bystander_effect": ["none"],
             "base_editor": ["ABE8e"],
             "guide_score": [0.5],
         }
@@ -437,7 +437,7 @@ class TestExecuteJobColumnDrops:
                     "editing_position": [4, 4],
                     "strand_used": ["+", "+"],
                     "bystander_positions": ["", ""],
-                    "bystander_effect": ["no_bystanders", "no_bystanders"],
+                    "bystander_effect": ["none", "none"],
                     "base_editor": ["ABE8e", "ABE8e"],
                     "guide_score": [0.5, 0.5],
                 }
@@ -607,7 +607,7 @@ def test_execute_job_spreadsheet_uses_selected_genome(monkeypatch, tmp_path):
                 "editing_position": [4],
                 "strand_used": ["-"],
                 "bystander_positions": [""],
-                "bystander_effect": ["no_bystanders"],
+                "bystander_effect": ["none"],
                 "base_editor": ["ABE8e"],
                 "guide_score": [0.5],
             }

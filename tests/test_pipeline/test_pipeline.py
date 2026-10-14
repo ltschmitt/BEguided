@@ -77,7 +77,7 @@ class TestPassthroughExtras:
             },
             "output_prefix": str(tmp_path / "out"),
             "use_base_editors": "all",
-            "keep_bystanders": "no_bystanders",
+            "keep_bystanders": "none",
             "search_offtargets": False,
         }
         if passthrough_extras is not None:
@@ -211,7 +211,7 @@ class TestPipelineAlwaysRunBystander:
     of keep_bystanders filter mode."""
 
     def _build_config(self, tmp_path, sample_fasta_file, valid_preset_tsv,
-                      keep_bystanders="no_bystanders", skip_bystander=False):
+                      keep_bystanders="none", skip_bystander=False):
         presets_path = tmp_path / "presets.tsv"
         presets_path.write_text(valid_preset_tsv)
         targets_path = tmp_path / "targets.tsv"
@@ -240,16 +240,16 @@ class TestPipelineAlwaysRunBystander:
             config["skip_bystander"] = True
         return config
 
-    def test_no_bystanders_mode_still_runs_step2(
+    def test_none_mode_still_runs_step2(
         self, tmp_path, sample_fasta_file, valid_preset_tsv
     ):
-        """keep_bystanders='no_bystanders' must NOT skip step 2 anymore."""
+        """keep_bystanders='none' must NOT skip step 2 anymore."""
         from beguided.pipeline import run_pipeline
         import pandas as pd
 
         config = self._build_config(
             tmp_path, sample_fasta_file, valid_preset_tsv,
-            keep_bystanders="no_bystanders",
+            keep_bystanders="none",
         )
         run_pipeline(config, start_step=1, end_step=5)
 
@@ -412,7 +412,7 @@ class TestPipelineWithBEguidedOFF:
             "guide_rna_sequence": ["CCCCCCCCCCCCCCCCCCCC"],
             "pam_sequence": ["TGG"],
             "base_editor": ["ABE8e"],
-            "bystander_effect": ["no_bystanders"],
+            "bystander_effect": ["none"],
             "simulated_outcome": ["CCCCCCCCCCCCCCCCCCCC"],
             "aa_wanted": ["P"],
             "aa_bystander": ["P"],
@@ -492,7 +492,7 @@ class TestPipelineWithBEguidedOFF:
             "guide_rna_sequence": ["GTACAGCTAGCTAGCTAGCT"],
             "pam_sequence": ["GGG"],
             "base_editor": ["ABE8e"],
-            "bystander_effect": ["no_bystanders"],
+            "bystander_effect": ["none"],
             "simulated_outcome": ["GTACGGCTAGCTAGCTAGCT"],
             "aa_wanted": ["P"],
             "aa_bystander": ["P"],
@@ -618,7 +618,7 @@ class TestPipelineFailFast:
             },
             "output_prefix": str(tmp_path / "out"),
             "use_base_editors": "all",
-            "keep_bystanders": "no_bystanders",
+            "keep_bystanders": "none",
             "search_offtargets": False,
             "guide_score_threshold": 0.5,
             "offtargets": {
@@ -656,7 +656,7 @@ class TestPipelineFailFast:
             },
             "output_prefix": str(base_dir),
             "use_base_editors": "all",
-            "keep_bystanders": "no_bystanders",
+            "keep_bystanders": "none",
             "search_offtargets": False,
             "offtargets": {
                 "max_mismatches": 5,
@@ -710,7 +710,7 @@ class TestRunPipelineGenomeKwarg:
             },
             "output_prefix": str(base_dir),
             "use_base_editors": "all",
-            "keep_bystanders": "no_bystanders",
+            "keep_bystanders": "none",
             "search_offtargets": False,
             "offtargets": {
                 "max_mismatches": 5,
@@ -770,7 +770,7 @@ class TestRunPipelineGenomeKwarg:
             },
             "output_prefix": str(base_dir),
             "use_base_editors": "all",
-            "keep_bystanders": "no_bystanders",
+            "keep_bystanders": "none",
             "search_offtargets": False,
             "offtargets": {
                 "max_mismatches": 5,
@@ -836,7 +836,7 @@ class TestPipelineScaffoldFilter:
             },
             "output_prefix": str(base_dir),
             "use_base_editors": "all",
-            "keep_bystanders": "no_bystanders",
+            "keep_bystanders": "none",
             "search_offtargets": False,
             "offtargets": {
                 "max_mismatches": 5,

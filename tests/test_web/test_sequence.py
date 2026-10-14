@@ -622,7 +622,7 @@ class TestSequenceModeEndToEnd:
     def test_end_to_end_user_reporting_a_rich_sequences(self):
         """Regression: the two A/T-rich sequences reported by a user
         produced 29 guides in step 1 but step 3 dropped all of them
-        because the filter_mode='no_bystanders' shortcut also acted as a
+        because the filter_mode='none' shortcut also acted as a
         bystander filter on bystander_positions, which is empty for nearly
         no guide on A-rich sequences. Sequence-mode jobs must keep all
         guides generated in step 1.

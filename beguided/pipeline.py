@@ -211,7 +211,7 @@ def _read_new_style_config(config):
     # gate for whether step 2 runs; ``keep_bystanders`` only governs step 3
     # filtering. Used by the sequence-input web path where no GTF annotation
     # is available — the step is skipped, and the downstream filter must NOT
-    # apply a "no_bystanders" cut on ``bystander_positions`` either (which
+    # apply a "none" cut on ``bystander_positions`` either (which
     # would drop every guide on A-rich sequences).
     result["skip_bystander"] = bool(config.get("skip_bystander", False))
 

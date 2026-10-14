@@ -1247,7 +1247,7 @@ const RESULTS_COLUMN_TOOLTIPS = {
     bystander_positions:
         "Comma-separated 1-based positions from the 5' end of the guide where additional bases may be edited as bystanders.",
     bystander_effect:
-        "Predicted coding-sequence consequence of the bystander edits (silent or nonsynonymous, the latter covering any amino-acid change including missense and nonsense), assessed against the MANE Select transcript codon frame. Empty when no GTF was provided.",
+        "Protein-level consequence of the bystander edits: synonymous (same amino acid), nonsynonymous (any amino-acid change, including missense and nonsense), or none (no bystander edits). Assessed against the MANE Select transcript codon frame. Empty when no GTF was provided.",
     guide_score:
         "CRISPRater on-target activity score (0-1). Derived from spCas9 training data and used here as a general guide-quality proxy.",
     gc_content:
@@ -1818,13 +1818,13 @@ function filterRecords(records, mode, minScore, gcMode = "all", dropHomopolymers
         if (mode === "all") return true;
 
         const effect = (row.bystander_effect ?? "").toString();
-        if (mode === "no_bystanders") {
-            if (effect) return effect === "no_bystanders";
+        if (mode === "none") {
+            if (effect) return effect === "none";
             const positions = (row.bystander_positions ?? "").toString().trim();
             return positions === "";
         }
-        if (mode === "silent") {
-            return effect === "silent" || effect === "no_bystanders";
+        if (mode === "synonymous") {
+            return effect === "synonymous" || effect === "none";
         }
         return true;
     });

@@ -85,7 +85,7 @@ CCTOP score semantics: **lower = more concerning** (mismatches near PAM). Perfec
 
 ### Bystander columns (from step 2)
 
-Step 2 attaches one row per *guide × base_editor* (since each editor has its own bystander window). Columns include the predicted bystander positions, the resulting codon changes, the amino-acid substitutions and whether the bystander is silent or nonsynonymous (any amino-acid change, including nonsense/stop-gain). See [`pipeline-steps.md`](pipeline-steps.md) for details.
+Step 2 attaches one row per *guide × base_editor* (since each editor has its own bystander window). Columns include the predicted bystander positions, the resulting codon changes, the amino-acid substitutions and whether the bystander is synonymous or nonsynonymous (any amino-acid change, including nonsense/stop-gain). See [`pipeline-steps.md`](pipeline-steps.md) for details.
 
 ### Passthrough columns
 

@@ -40,9 +40,9 @@ def analyze_guide(row, interval_trees, genome=None):
         tuple: (bystander_effect, simulated_outcome, aa_wanted, aa_bystander,
                 gene_edit_desired)
             bystander_effect is one of the labels documented in the module
-            (e.g. ``no_bystanders``, ``silent``, ``nonsynonymous``, ``multi-transcript``,
-            ``bystander_outside_cds``, or one of the granular ``*_non_coding``
-            / ``*_failed`` labels when CDS handling fails).
+            (e.g. ``none``, ``synonymous``, ``nonsynonymous``, ``multi-transcript``,
+            ``bystander_outside_cds``, ``no_cds_overlap``, ``editing_position_non_coding``,
+            or ``cds_reconstruction_failed``).
             gene_edit_desired is ``"<gene_name> <Target_AA><codon_number><Desired_AA>"``
             (e.g. ``"TP53 *306R"``) when the target lies in a CDS with a resolvable
             gene name and translatable codon, otherwise ``""``. Target_AA is the
@@ -306,9 +306,9 @@ def analyze_guide(row, interval_trees, genome=None):
 
     if not effect:
         if not has_bystanders:
-            effect = "no_bystanders"
+            effect = "none"
         elif aa_wanted == aa_bystander:
-            effect = "silent"
+            effect = "synonymous"
         else:
             effect = "nonsynonymous"
 

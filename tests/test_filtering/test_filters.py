@@ -14,26 +14,26 @@ class TestLoadFilterCriteria:
         assert criteria["mode"] == "all"
 
     def test_override(self):
-        criteria = load_filter_criteria(mode="silent")
-        assert criteria["mode"] == "silent"
+        criteria = load_filter_criteria(mode="synonymous")
+        assert criteria["mode"] == "synonymous"
 
 
 class TestFilterGuides:
     """Tests for filter_guides."""
 
-    def test_no_bystanders_mode(self, synthetic_bystander_output):
-        criteria = {"mode": "no_bystanders"}
+    def test_none_mode(self, synthetic_bystander_output):
+        criteria = {"mode": "none"}
         result = filter_guides(synthetic_bystander_output, criteria)
         assert len(result) == 3
         assert "TTTTTTTTTTTTTTTTTTTT" in result["guide_rna_sequence"].values
 
-    def test_silent_mode(self, synthetic_bystander_output):
-        criteria = {"mode": "silent"}
+    def test_synonymous_mode(self, synthetic_bystander_output):
+        criteria = {"mode": "synonymous"}
         result = filter_guides(synthetic_bystander_output, criteria)
-        assert len(result) == 4  # 3 no_bystanders + 1 silent
+        assert len(result) == 4  # 3 none + 1 synonymous
 
-    def test_no_bystanders_from_beguided(self, synthetic_beguided_output):
-        criteria = load_filter_criteria(mode="no_bystanders")
+    def test_none_from_beguided(self, synthetic_beguided_output):
+        criteria = load_filter_criteria(mode="none")
         result = filter_guides(synthetic_beguided_output, criteria)
         assert len(result) == 2
 
@@ -51,7 +51,7 @@ class TestFilterGuides:
             "guide_rna_sequence": ["**No guide possible**"],
             "pam_sequence": ["XXX"],
             "base_editor": ["ABE8e"],
-            "bystander_effect": ["no_bystanders"],
+            "bystander_effect": ["none"],
             "simulated_outcome": [""],
             "aa_wanted": ["X"],
             "aa_bystander": ["X"],
@@ -66,15 +66,15 @@ class TestFilterGuides:
         result = filter_guides(synthetic_bystander_output, criteria)
         assert len(result) == 5
 
-    def test_silent_mode_empty_df(self):
+    def test_synonymous_mode_empty_df(self):
         empty_df = pd.DataFrame(columns=["chromosome", "position", "target_base"])
-        criteria = {"mode": "silent"}
+        criteria = {"mode": "synonymous"}
         result = filter_guides(empty_df, criteria)
         assert len(result) == 0
 
-    def test_no_bystanders_mode_empty_df(self):
+    def test_none_mode_empty_df(self):
         empty_df = pd.DataFrame(columns=["chromosome", "position", "target_base"])
-        criteria = {"mode": "no_bystanders"}
+        criteria = {"mode": "none"}
         result = filter_guides(empty_df, criteria)
         assert len(result) == 0
 
@@ -125,9 +125,9 @@ class TestFilterGuides:
         criteria = load_filter_criteria(config_file=str(p), guide_score_threshold=0.9)
         assert criteria["guide_score_threshold"] == 0.9
 
-    def test_skip_bystander_keeps_all_when_mode_is_no_bystanders(self):
+    def test_skip_bystander_keeps_all_when_mode_is_none(self):
         """Regression: when ``skip_bystander=True`` is set (sequence-mode
-        jobs), ``mode='no_bystanders'`` must NOT drop guides whose
+        jobs), ``mode='none'`` must NOT drop guides whose
         ``bystander_positions`` is non-empty. This is the bug that
         previously caused every guide to be filtered out on A-rich
         sequences in sequence mode.
@@ -139,17 +139,17 @@ class TestFilterGuides:
             "desired_base": ["G", "G", "G"],
             "guide_rna_sequence": ["AAAAA", "BBBBB", "CCCCC"],
             # Every guide has at least one bystander. Without the fix,
-            # all three would be dropped under ``mode='no_bystanders'``.
+            # all three would be dropped under ``mode='none'``.
             "bystander_positions": ["5", "3,7", "2,4,8"],
         })
-        criteria = {"mode": "no_bystanders", "skip_bystander": True}
+        criteria = {"mode": "none", "skip_bystander": True}
         result = filter_guides(df, criteria)
         assert len(result) == 3
         assert set(result["guide_rna_sequence"]) == {"AAAAA", "BBBBB", "CCCCC"}
 
     def test_skip_bystander_default_false(self):
         """Default behaviour: ``skip_bystander`` is False, so
-        ``mode='no_bystanders'`` still drops guides with bystanders.
+        ``mode='none'`` still drops guides with bystanders.
         """
         df = pd.DataFrame({
             "chromosome": ["chr1", "chr1"],
@@ -159,7 +159,7 @@ class TestFilterGuides:
             "guide_rna_sequence": ["AAAAA", "BBBBB"],
             "bystander_positions": ["", "5"],  # one clean, one with bystander
         })
-        criteria = {"mode": "no_bystanders"}
+        criteria = {"mode": "none"}
         result = filter_guides(df, criteria)
         assert len(result) == 1
         assert result.iloc[0]["guide_rna_sequence"] == "AAAAA"
@@ -181,12 +181,12 @@ class TestFilterGuides:
             ],
             "pam_sequence": ["TGG", "TGG", "TGG"],
             "base_editor": ["ABE-NW1", "ABE-Umax", "ABE8e"],
-            "bystander_effect": ["silent", "silent", "nonsynonymous"],
+            "bystander_effect": ["synonymous", "synonymous", "nonsynonymous"],
             "simulated_outcome": ["", "", ""],
             "aa_wanted": ["X", "X", "X"],
             "aa_bystander": ["X", "X", "X"],
         })
-        criteria = {"mode": "silent"}
+        criteria = {"mode": "synonymous"}
         result = filter_guides(df, criteria)
         assert len(result) == 2
         assert set(result["base_editor"].values) == {"ABE-NW1", "ABE-Umax"}
@@ -439,14 +439,14 @@ class TestFillMissingTargets:
     """Tests for the ``fill_missing_targets`` option of filter_guides."""
 
     def test_off_by_default_no_placeholders(self, synthetic_bystander_output):
-        result = filter_guides(synthetic_bystander_output, {"mode": "no_bystanders"})
+        result = filter_guides(synthetic_bystander_output, {"mode": "none"})
         assert len(result) == 3
         assert "**Guides removed by filter**" not in set(result["guide_rna_sequence"])
 
     def test_adds_guides_removed_by_filter_rows(self, synthetic_bystander_output):
         result = filter_guides(
             synthetic_bystander_output,
-            {"mode": "no_bystanders"},
+            {"mode": "none"},
             fill_missing_targets=True,
         )
         # 3 surviving guides + 2 placeholder rows (one per removed target).
@@ -474,7 +474,7 @@ class TestFillMissingTargets:
                     "**No guide possible**",
                     "AAAAAAAAAAAAAAAAAAAA",
                 ],
-                "bystander_effect": [None, "silent"],
+                "bystander_effect": [None, "synonymous"],
                 "bystander_positions": ["", ""],
                 "guide_score": [None, 0.9],
             }

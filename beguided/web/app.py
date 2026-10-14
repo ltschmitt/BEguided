@@ -67,7 +67,7 @@ from beguided.web.usage_stats import UsageStatsLogger
 logger = logging.getLogger("beguided.web.app")
 
 REQUIRED_COLUMNS = {"chromosome", "position", "target_base", "desired_base"}
-VALID_FILTER_MODES = ("all", "no_bystanders", "silent")
+VALID_FILTER_MODES = ("all", "none", "synonymous")
 VALID_INPUT_MODES = ("spreadsheet", "sequence")
 CUSTOM_EDITOR_KEY = "custom"
 CUSTOM_EDITOR_LABEL = "Custom (uploaded)"
@@ -1357,7 +1357,7 @@ def create_app() -> FastAPI:
     async def download_results(
         job_id: str,
         filter_mode: Annotated[
-            str, Query(description="Bystander filter: all | no_bystanders | silent")
+            str, Query(description="Bystander filter: all | none | synonymous")
         ] = "all",
         guide_score_threshold: Annotated[
             float,

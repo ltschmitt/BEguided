@@ -378,7 +378,7 @@ In sequence mode:
 - The configured reference genome and GTF annotation are not used.
 - Bystander analysis is silently skipped (no GTF for custom sequences).
   This is implemented with the explicit `skip_bystander` pipeline flag so
-  that step 3's filter does NOT apply a `mode="no_bystanders"` cut on
+  that step 3's filter does NOT apply a `mode="none"` cut on
   `bystander_positions` either — doing so would drop every guide on
   A-rich sequences.
 - BEguidedOFF off-target search is disabled (requires a pre-encoded `.npz`).

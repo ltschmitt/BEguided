@@ -256,21 +256,21 @@ def filter_guides(input_df, criteria, fill_missing_targets=False):
     skip_bystander = bool(criteria.get("skip_bystander", False))
 
     if not skip_bystander:
-        if mode == "no_bystanders":
+        if mode == "none":
             if "bystander_effect" in df.columns:
-                df = df[df["bystander_effect"] == "no_bystanders"]
+                df = df[df["bystander_effect"] == "none"]
             elif "bystander_positions" in df.columns:
                 df = df[df["bystander_positions"].isna() | (df["bystander_positions"] == "")]
             # No bystander metadata at all: nothing to filter on, rows pass.
 
-        elif mode == "silent":
+        elif mode == "synonymous":
             if "bystander_effect" not in df.columns:
                 if len(df) == 0:
                     return df
                 raise ValueError(
                     "'bystander_effect' column not found. Run bystander analysis first."
                 )
-            df = df[df["bystander_effect"].isin(["silent", "no_bystanders"])]
+            df = df[df["bystander_effect"].isin(["synonymous", "none"])]
 
         elif mode != "all":
             raise ValueError(f"Unknown filter mode: {mode}")

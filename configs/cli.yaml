@@ -25,7 +25,7 @@ input:
   # edit_context_table: "path/to/custom_context.tsv"
 
   # GFF/GTF annotation file for transcript/CDS information
-  # Required for bystander analysis (unless keep_bystanders=no_bystanders)
+  # Required for bystander analysis (unless keep_bystanders=none)
   gff_file: "path/to/annotation.gtf"
 
 # =============================================================================
@@ -69,9 +69,9 @@ use_base_editors: "all"
 # FILTERING / BYSTANDERS
 # =============================================================================
 # Filter mode for guide selection:
-#   "all"            -> keep all guides
-#   "no_bystanders"  -> only guides with zero bystander edits (skips bystander scanner)
-#   "silent"         -> guides with silent bystanders or no bystanders
+#   "all"         -> keep all guides
+#   "none"        -> only guides with zero bystander edits (skips bystander scanner)
+#   "synonymous"  -> guides with synonymous bystanders or no bystanders
 keep_bystanders: "all"
 
 # On-target score filter (CRISPRater).

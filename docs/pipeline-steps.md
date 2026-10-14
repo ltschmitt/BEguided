@@ -62,13 +62,13 @@ For every guide produced in step 1, this step:
 
 1. Determines the protospacer sequence and the editing window implied by the base editor profile.
 2. Slides every other editable base within the window (per the profile's editing chemistry) and checks the codon context using the supplied GTF annotation.
-3. Classifies each bystander by its protein-level consequence: silent (same amino acid) or nonsynonymous (any amino-acid change). Missense and nonsense (stop-gain) are collapsed into this single class — the finer distinction is not maintained.
+3. Classifies each bystander by its protein-level consequence: synonymous (same amino acid) or nonsynonymous (any amino-acid change). Missense and nonsense (stop-gain) are collapsed into this single class — the finer distinction is not maintained.
 4. Attaches per-bystander metadata: position (1-based from the 5' end of the guide), original codon, edited codon, original amino acid, edited amino acid, classification, transcript / exon context.
 
 Step 2 only runs when the genome FASTA and GTF annotation are both available. The `keep_bystanders` config knob controls which guides step 3 keeps:
 - `all` — keep every guide regardless of bystander status
-- `no_bystanders` — keep only guides with zero bystanders
-- `silent` — keep guides whose bystanders are all silent (or absent)
+- `none` — keep only guides with zero bystanders
+- `synonymous` — keep guides whose bystanders are all synonymous (or absent)
 
 ## Step 3 — Filtering (`step3_filtered.tsv`)
 

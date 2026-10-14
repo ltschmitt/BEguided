@@ -547,7 +547,7 @@ def test_df_to_records_preserves_non_score_columns(tmp_path):
     tsv = tmp_path / "results.tsv"
     tsv.write_text(
         "chromosome\tposition\tguide_score\tguide_rna_sequence\tbystander_effect\n"
-        "chr1\t10\t0.123456789\tAAAAAAAAAAAAAAAAAAAA\tsilent\n"
+        "chr1\t10\t0.123456789\tAAAAAAAAAAAAAAAAAAAA\tsynonymous\n"
     )
     records = _df_to_records(tsv)
     assert len(records) == 1
@@ -556,7 +556,7 @@ def test_df_to_records_preserves_non_score_columns(tmp_path):
     assert r["position"] == 10
     assert r["guide_score"] == round(0.123456789, 3)
     assert r["guide_rna_sequence"] == "AAAAAAAAAAAAAAAAAAAA"
-    assert r["bystander_effect"] == "silent"
+    assert r["bystander_effect"] == "synonymous"
 
 
 def test_run_pipeline_invoked_with_unfiltered_defaults(cfg_and_db):
@@ -622,7 +622,7 @@ def test_run_ignores_legacy_form_fields(cfg_and_db):
         data={
             "raw_b64": _targets_tsv_b64(),
             "base_editor": "ABE8e",
-            "filter_mode": "silent",
+            "filter_mode": "synonymous",
             "guide_score_threshold": "0.9",
             "search_offtargets": "true",
         },
@@ -645,13 +645,13 @@ def test_results_returns_full_unfiltered_records(cfg_and_db):
     import beguided.web.scheduler as sched_mod
 
     records = [
-        {"chromosome": "chr1", "position": 50, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 50, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA"},
         {"chromosome": "chr1", "position": 80, "bystander_effect": "coding",
          "bystander_positions": "5,7", "guide_score": 0.2,
          "guide_rna_sequence": "CCCCCCCCCCCCCCCCCCCC"},
-        {"chromosome": "chr2", "position": 30, "bystander_effect": "no_bystanders",
+        {"chromosome": "chr2", "position": 30, "bystander_effect": "none",
          "bystander_positions": "", "guide_score": None,
          "guide_rna_sequence": "GGGGGGGGGGGGGGGGGGGG"},
     ]
@@ -686,13 +686,13 @@ def test_download_results_applies_dynamic_filters(cfg_and_db):
     import beguided.web.scheduler as sched_mod
 
     records = [
-        {"chromosome": "chr1", "position": 50, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 50, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA"},
         {"chromosome": "chr1", "position": 80, "bystander_effect": "coding",
          "bystander_positions": "5,7", "guide_score": 0.2,
          "guide_rna_sequence": "CCCCCCCCCCCCCCCCCCCC"},
-        {"chromosome": "chr2", "position": 30, "bystander_effect": "no_bystanders",
+        {"chromosome": "chr2", "position": 30, "bystander_effect": "none",
          "bystander_positions": "", "guide_score": 0.6,
          "guide_rna_sequence": "GGGGGGGGGGGGGGGGGGGG"},
     ]
@@ -725,18 +725,18 @@ def test_download_results_applies_dynamic_filters(cfg_and_db):
     assert lines[0].startswith("chromosome")
     assert len(lines) == 1 + 3
 
-    # silent: keep bystander_effect in {silent, no_bystanders}. The "coding"
+    # synonymous: keep bystander_effect in {synonymous, none}. The "coding"
     # chr1:80 target loses its only guide, so the fill keeps one placeholder
     # row for it.
-    res_silent = client.get(
+    res_syn = client.get(
         "/download/results",
-        params={"job_id": submit["job_id"], "filter_mode": "silent"},
+        params={"job_id": submit["job_id"], "filter_mode": "synonymous"},
     )
-    assert res_silent.status_code == 200
-    rows = [l.split("\t") for l in res_silent.text.strip().split("\n")[1:]]
+    assert res_syn.status_code == 200
+    rows = [l.split("\t") for l in res_syn.text.strip().split("\n")[1:]]
     positions = sorted(int(r[1]) for r in rows)
     assert positions == [30, 50, 80]
-    assert "**Guides removed by filter**" in res_silent.text
+    assert "**Guides removed by filter**" in res_syn.text
 
     # guide_score_threshold=0.5 -> drop the 0.2 row (placeheld for chr1:80).
     res_score = client.get(
@@ -748,13 +748,13 @@ def test_download_results_applies_dynamic_filters(cfg_and_db):
     positions = sorted(int(r[1]) for r in rows)
     assert positions == [30, 50, 80]
 
-    # Combined: silent AND score >= 0.8 -> only the 0.9 silent chr1:50 row is
+    # Combined: synonymous AND score >= 0.8 -> only the 0.9 synonymous chr1:50 row is
     # a real guide; chr2:30 and chr1:80 fall back to placeholder rows.
     res_combo = client.get(
         "/download/results",
         params={
             "job_id": submit["job_id"],
-            "filter_mode": "silent",
+            "filter_mode": "synonymous",
             "guide_score_threshold": 0.8,
         },
     )
@@ -837,7 +837,7 @@ def test_download_results_filename_reflects_filters(cfg_and_db):
     import beguided.web.scheduler as sched_mod
 
     records = [
-        {"chromosome": "chr1", "position": 50, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 50, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA"},
         {"chromosome": "chr1", "position": 80, "bystander_effect": "coding",
@@ -873,11 +873,11 @@ def test_download_results_filename_reflects_filters(cfg_and_db):
         "/download/results",
         params={
             "job_id": submit["job_id"],
-            "filter_mode": "silent",
+            "filter_mode": "synonymous",
             "guide_score_threshold": 0.5,
         },
     )
-    assert "beguided_results_silent_s0.5.tsv" in filtered.headers["content-disposition"]
+    assert "beguided_results_synonymous_s0.5.tsv" in filtered.headers["content-disposition"]
 
 
 def test_download_results_xlsx(cfg_and_db):
@@ -886,13 +886,13 @@ def test_download_results_xlsx(cfg_and_db):
     import beguided.web.scheduler as sched_mod
 
     records = [
-        {"chromosome": "chr1", "position": 50, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 50, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA"},
         {"chromosome": "chr1", "position": 80, "bystander_effect": "coding",
          "bystander_positions": "5,7", "guide_score": 0.2,
          "guide_rna_sequence": "CCCCCCCCCCCCCCCCCCCC"},
-        {"chromosome": "chr2", "position": 30, "bystander_effect": "no_bystanders",
+        {"chromosome": "chr2", "position": 30, "bystander_effect": "none",
          "bystander_positions": "", "guide_score": 0.6,
          "guide_rna_sequence": "GGGGGGGGGGGGGGGGGGGG"},
     ]
@@ -931,32 +931,32 @@ def test_download_results_xlsx(cfg_and_db):
     assert "chromosome" in df.columns
     assert "guide_score" in df.columns
 
-    # silent filter applied -> 2 guides + 1 placeholder for the "coding" target.
-    res_silent = client.get(
+    # synonymous filter applied -> 2 guides + 1 placeholder for the "coding" target.
+    res_syn = client.get(
         "/download/results",
         params={
             "job_id": submit["job_id"],
-            "filter_mode": "silent",
+            "filter_mode": "synonymous",
             "format": "xlsx",
         },
     )
-    assert res_silent.status_code == 200
-    df_silent = pd.read_excel(io.BytesIO(res_silent.content), engine="openpyxl")
-    assert sorted(int(p) for p in df_silent["position"]) == [30, 50, 80]
-    assert (df_silent["guide_rna_sequence"] == "**Guides removed by filter**").sum() == 1
+    assert res_syn.status_code == 200
+    df_syn = pd.read_excel(io.BytesIO(res_syn.content), engine="openpyxl")
+    assert sorted(int(p) for p in df_syn["position"]) == [30, 50, 80]
+    assert (df_syn["guide_rna_sequence"] == "**Guides removed by filter**").sum() == 1
 
     # Filename reflects filters.
     filtered = client.get(
         "/download/results",
         params={
             "job_id": submit["job_id"],
-            "filter_mode": "silent",
+            "filter_mode": "synonymous",
             "guide_score_threshold": 0.5,
             "format": "xlsx",
         },
     )
     assert (
-        "beguided_results_silent_s0.5.xlsx" in filtered.headers["content-disposition"]
+        "beguided_results_synonymous_s0.5.xlsx" in filtered.headers["content-disposition"]
     )
 
     # Default format (no param) is still TSV.
@@ -1009,15 +1009,15 @@ def test_download_results_condense_merges_identical_rows(cfg_and_db):
     into a single row whose base_editor cell is newline-separated, and
     the download filename should reflect the condense flag."""
     records = [
-        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
          "pam_sequence": "NGG", "base_editor": "ABE8e"},
-        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
          "pam_sequence": "NGG", "base_editor": "ABE9e"},
-        {"chromosome": "chr2", "position": 200, "bystander_effect": "no_bystanders",
+        {"chromosome": "chr2", "position": 200, "bystander_effect": "none",
          "bystander_positions": "", "guide_score": 0.6,
          "guide_rna_sequence": "CCCCCCCCCCCCCCCCCCCC",
          "pam_sequence": "NGG", "base_editor": "ABE8e"},
@@ -1045,11 +1045,11 @@ def test_download_results_condense_keeps_different_guides_separate(cfg_and_db):
     """Rows whose guide_rna_sequence differs must NOT be merged, even
     when every other column matches."""
     records = [
-        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
          "pam_sequence": "NGG", "base_editor": "ABE8e"},
-        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "TTTTTTTTTTTTTTTTTTTT",
          "pam_sequence": "NGG", "base_editor": "ABE8e"},
@@ -1071,11 +1071,11 @@ def test_download_results_condense_off_keeps_every_row(cfg_and_db):
     """Without condense=1 the download must still return every row, even
     when several are identical except for base_editor."""
     records = [
-        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
          "pam_sequence": "NGG", "base_editor": "ABE8e"},
-        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
          "pam_sequence": "NGG", "base_editor": "ABE9e"},
@@ -1096,11 +1096,11 @@ def test_download_results_condense_combines_with_filter_and_score(cfg_and_db):
     """condense should compose with filter_mode and guide_score_threshold;
     the resulting filename should encode every active flag."""
     records = [
-        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
          "pam_sequence": "NGG", "base_editor": "ABE8e"},
-        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
          "pam_sequence": "NGG", "base_editor": "ABE9e"},
@@ -1115,7 +1115,7 @@ def test_download_results_condense_combines_with_filter_and_score(cfg_and_db):
         "/download/results",
         params={
             "job_id": job_id,
-            "filter_mode": "silent",
+            "filter_mode": "synonymous",
             "guide_score_threshold": 0.5,
             "condense": "1",
         },
@@ -1125,10 +1125,10 @@ def test_download_results_condense_combines_with_filter_and_score(cfg_and_db):
     # Filename should mention both filters and condense (order is implementation
     # detail — check both tokens are present).
     assert "condensed" in cd
-    assert "silent_s0.5" in cd
+    assert "synonymous_s0.5" in cd
 
     df = pd.read_csv(io.StringIO(res.text), sep="\t")
-    # After filter_mode=silent + score>=0.5 only the chr1:100 group remains
+    # After filter_mode=synonymous + score>=0.5 only the chr1:100 group remains
     # as a real guide (condensed into a single row); the "coding" chr1:80
     # target falls back to a "**Guides removed by filter**" placeholder row.
     assert len(df) == 2
@@ -1142,11 +1142,11 @@ def test_download_results_condense_combines_with_filter_and_score(cfg_and_db):
 def test_download_results_condense_xlsx(cfg_and_db):
     """condense=1 should also work for XLSX downloads."""
     records = [
-        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
          "pam_sequence": "NGG", "base_editor": "ABE8e"},
-        {"chromosome": "chr1", "position": 100, "bystander_effect": "silent",
+        {"chromosome": "chr1", "position": 100, "bystander_effect": "synonymous",
          "bystander_positions": "", "guide_score": 0.9,
          "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
          "pam_sequence": "NGG", "base_editor": "ABE9e"},
@@ -1179,7 +1179,7 @@ def test_download_results_preserves_pipeline_placeholder_markers(cfg_and_db):
         # A real guide for a third target.
         {"chromosome": "chr3", "position": 30, "target_base": "A",
          "desired_base": "G", "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
-         "bystander_effect": "silent", "bystander_positions": "",
+         "bystander_effect": "synonymous", "bystander_positions": "",
          "guide_score": 0.9},
     ]
     job_id, client = _submit_with_records(cfg_and_db, records)
@@ -1198,15 +1198,15 @@ def test_download_results_preserves_pipeline_placeholder_markers(cfg_and_db):
         "AAAAAAAAAAAAAAAAAAAA",
     }
 
-    # "silent" filter keeps the real guide, the no-guide placeholders survive.
-    res_silent = client.get(
+    # "synonymous" filter keeps the real guide, the no-guide placeholders survive.
+    res_syn = client.get(
         "/download/results",
-        params={"job_id": job_id, "filter_mode": "silent"},
+        params={"job_id": job_id, "filter_mode": "synonymous"},
     )
-    assert res_silent.status_code == 200
-    df_silent = pd.read_csv(io.StringIO(res_silent.text), sep="\t")
-    assert len(df_silent) == 3
-    markers = set(df_silent["guide_rna_sequence"])
+    assert res_syn.status_code == 200
+    df_syn = pd.read_csv(io.StringIO(res_syn.text), sep="\t")
+    assert len(df_syn) == 3
+    markers = set(df_syn["guide_rna_sequence"])
     assert "**No guide possible**" in markers
     assert "**Base change incompatible**" in markers
     assert "AAAAAAAAAAAAAAAAAAAA" in markers

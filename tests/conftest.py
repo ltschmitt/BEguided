@@ -117,7 +117,7 @@ def synthetic_bystander_output():
                                "NNNNNNNNNNNNNNNNNNNN"],
         "pam_sequence": ["AGG", "TGG", "GGG", "CGG", "AGG"],
         "base_editor": ["ABE8e", "ABE8e", "SaABE8e", "SaABE8e", "ABE8e"],
-        "bystander_effect": ["nonsynonymous", "no_bystanders", "silent", "no_bystanders", "no_bystanders"],
+        "bystander_effect": ["nonsynonymous", "none", "synonymous", "none", "none"],
         "simulated_outcome": ["AAAAAAAGAAAAAAAAAAAA", "TTTTTTTTTTTTTTTTTTTT",
                               "GGGGGAGGGGGGGGGGGGGG", "CCCCCCCCCCCCCCCCCCCC",
                               "NNNNNNNNNNNNNNNNNNNN"],
