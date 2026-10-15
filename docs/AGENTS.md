@@ -89,6 +89,9 @@ beguided-web             [--host 0.0.0.0] [--port 8000] [--reload] \
                          [--preload-genome | --no-preload-genome] \
                          [--preload-gtf | --no-preload-gtf] \
                          [--genome-label ...] \
+                         [--queue-max N] [--cooldown-seconds S] \
+                         [--max-upload-mb N] [--max-input-targets N] \
+                         [--workers N] \
                          [--job-retention-hours 24] \
                          [--trusted-proxy-ips 127.0.0.1,::1] \
                          [--log-ip-salt ...] [--admin-token ...] \
@@ -337,7 +340,8 @@ picks the matching FASTA + GTF (and tag) via `WebConfig.genomes`.
   - `BEGUIDED_BEGUIDEDOFF_GENOME`
 - `BEGUIDED_PRELOAD_GENOME` / `--preload-genome` / `--no-preload-genome` — preload the genome FASTA at startup (default: enabled).
 - `BEGUIDED_PRELOAD_GTF` / `--preload-gtf` / `--no-preload-gtf` — preload the GTF annotation at startup (default: enabled).
-- `BEGUIDED_QUEUE_MAX`, `BEGUIDED_COOLDOWN_SECONDS`, `BEGUIDED_MAX_UPLOAD_MB` — scheduler caps (env-only; CLI overrides also exist).
+- `BEGUIDED_QUEUE_MAX` / `--queue-max`, `BEGUIDED_COOLDOWN_SECONDS` / `--cooldown-seconds`, `BEGUIDED_MAX_UPLOAD_MB` / `--max-upload-mb`, `BEGUIDED_MAX_INPUT_TARGETS` / `--max-input-targets` — scheduler caps. Deployment (docker-compose) defaults: 16, 15 s, 1 MB, 500; bare-CLI defaults: 8, 60 s, 10 MB, 500.
+- `BEGUIDED_WORKERS` / `--workers` — number of parallel in-process pipeline worker threads (default: 1). Threads share the preloaded genome/GTF, so extra workers cost CPU time but not RAM; keep it `<=` the number of CPU cores. Do **not** pass a worker count to uvicorn — that spawns separate processes, each reloading the genome.
 - `BEGUIDED_TRUSTED_PROXY_IPS` / `BEGUIDED_JOB_RETENTION_HOURS` / `BEGUIDED_LOG_IP_SALT` / `BEGUIDED_ADMIN_TOKEN` — compliance knobs (see `compliance_safety.md`).
 - `BEGUIDED_LEGAL_CONFIG` / `--legal-config` — path to the operator's `web-legal.yaml` with institution / DPO / DPA. Default `/etc/beguided/legal.yaml`. See `configs/web-legal.yaml` (template, committed empty).
 - `BEGUIDED_USAGE_STATS_PATH` / `--usage-stats-path` and `BEGUIDED_USAGE_STATS_ENABLED` / `--no-usage-stats` — anonymous web-usage CSV (one row per finished job: date, mode, target count, base-editor count, duration, status; no IP/user-agent). Enabled by default; see `beguided/web/usage_stats.py` and `scripts/summarize_usage.py`.

@@ -1,12 +1,15 @@
-"""Single-worker FIFO job scheduler for the BEguided web server.
+"""FIFO job scheduler for the BEguided web server.
 
-Submits a queue.Queue (maxsize=cfg.queue_max) plus one persistent
-``threading.Thread`` worker. Job state is persisted to SQLite (WAL mode) so
-the queue survives a restart. Each running job owns a ``threading.Event``
-that the worker checks at pipeline-step boundaries (cooperative cancel).
+Submits a queue.Queue (maxsize=cfg.queue_max) plus N persistent
+``threading.Thread`` workers (``workers=1`` by default). Job state is persisted
+to SQLite (WAL mode) so the queue survives a restart. Each running job owns a
+``threading.Event`` that its worker checks at pipeline-step boundaries
+(cooperative cancel).
 
 Concurrency invariants:
-    * At most one pipeline runs at any time (one worker thread).
+    * Up to ``workers`` pipelines run at any time (one per worker thread); the
+      worker threads share the process-wide genome/GTF caches, so extra
+      parallelism costs CPU time but not RAM.
     * At most ``queue_max`` jobs can sit in the queue; further submits raise
       ``QueueFull`` (HTTP 503).
     * Per-IP cooldown ``cooldown_seconds`` blocks back-to-back submits (HTTP 429).
@@ -118,6 +121,7 @@ class Scheduler:
         db_path: str = DEFAULT_DB_PATH,
         queue_max: int = 8,
         cooldown_seconds: float = 60.0,
+        workers: int = 1,
         job_retention_seconds: float = 24 * 3600,
         log_ip_salt: str = "",
         sweeper_interval_seconds: float = SWEEPER_INTERVAL_SECONDS,
@@ -126,6 +130,11 @@ class Scheduler:
         self.db_path = db_path
         self.queue_max = queue_max
         self.cooldown_seconds = cooldown_seconds
+        # Number of parallel pipeline worker threads. Each shares the
+        # process-wide genome/GTF caches, so extra workers cost CPU time but
+        # not RAM. Keep this small (2-3) — the pipeline is CPU-bound and the
+        # host typically has few cores.
+        self.workers = max(1, int(workers))
         self.job_retention_seconds = max(0.0, float(job_retention_seconds))
         self.log_ip_salt = log_ip_salt or ""
         self.sweeper_interval_seconds = max(1.0, float(sweeper_interval_seconds))
@@ -138,7 +147,8 @@ class Scheduler:
         self._last_submit: dict[str, float] = {}
         self._db_lock = threading.Lock()
         self._running: dict[str, Job] = {}
-        self._worker: Optional[threading.Thread] = None
+        self._running_lock = threading.Lock()
+        self._workers: "list[threading.Thread]" = []
         self._sweeper: Optional[threading.Thread] = None
         self._sweeper_stop = threading.Event()
 
@@ -147,13 +157,20 @@ class Scheduler:
     def start(self) -> None:
         """Idempotent: start the worker + sweeper threads and init the DB schema."""
         self._init_db()
-        if self._worker is None or not self._worker.is_alive():
-            self._worker = threading.Thread(
-                target=self._worker_loop, name="beguided-worker", daemon=True
-            )
-            self._worker.start()
+        if not self._workers or not any(t.is_alive() for t in self._workers):
+            self._workers = []
+            for i in range(self.workers):
+                t = threading.Thread(
+                    target=self._worker_loop,
+                    name=f"beguided-worker-{i}",
+                    daemon=True,
+                )
+                t.start()
+                self._workers.append(t)
             logger.info(
-                "Scheduler started (queue_max=%d, cooldown=%ds, retention=%ds, db=%s)",
+                "Scheduler started (workers=%d, queue_max=%d, cooldown=%ds, "
+                "retention=%ds, db=%s)",
+                self.workers,
                 self.queue_max,
                 int(self.cooldown_seconds),
                 int(self.job_retention_seconds),
@@ -244,7 +261,8 @@ class Scheduler:
                 )
                 return True
             if status == "running":
-                job = self._running.get(job_id)
+                with self._running_lock:
+                    job = self._running.get(job_id)
                 if job is not None:
                     job.cancel.set()
                     return True
@@ -392,11 +410,15 @@ class Scheduler:
     def _worker_loop(self) -> None:
         # Local imports: keep heavy optional deps (BEguidedOFF) out of the
         # import graph until a job actually starts.
-        from beguided.web.sse_logger import get_sse_handler
+        from beguided.web.sse_logger import current_job_id, get_sse_handler
 
         sse = get_sse_handler()
         while True:
             job: Job = self._q.get()
+            # Route this job's log records to its own SSE queue (see
+            # AsyncQueueHandler.emit). The token is reset in the ``finally``
+            # below so no log line leaks into the next job on this thread.
+            ctx_token = current_job_id.set(job.job_id)
             try:
                 # Atomic claim: skip if cancelled before pickup.
                 with self._db_lock:
@@ -412,7 +434,8 @@ class Scheduler:
                     )
                     continue
 
-                self._running[job.job_id] = job
+                with self._running_lock:
+                    self._running[job.job_id] = job
                 # The SSE queue for this job is registered lazily by
                 # /logs/stream on first connect. Until then, log lines from
                 # this worker simply have no consumer — that's fine.
@@ -458,7 +481,8 @@ class Scheduler:
                     result = {"status": status, "records": [], "message": str(exc)}
                     logger.exception("Job %s failed: %s", job.job_id, exc)
                 finally:
-                    self._running.pop(job.job_id, None)
+                    with self._running_lock:
+                        self._running.pop(job.job_id, None)
                     with self._db_lock:
                         self._conn().execute(
                             "UPDATE jobs SET status=?, finished_at=?, result_json=? "
@@ -476,8 +500,10 @@ class Scheduler:
                             status=status,
                         )
             finally:
-                # Always release the queue slot, even if the job was cancelled
-                # before pickup; otherwise `q.join()` would block forever.
+                # Clear the per-job log routing before the thread picks up the
+                # next job, then always release the queue slot (even if the job
+                # was cancelled before pickup) so `q.join()` cannot block.
+                current_job_id.reset(ctx_token)
                 self._q.task_done()
 
 

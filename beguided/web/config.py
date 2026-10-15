@@ -116,7 +116,9 @@ class WebConfig:
     remove_guides_score: float = 5.0
     mismatch_tolerance: int = 5
     remove_guides_n_offtargets: int = 100
-    max_input_targets: int = 1000
+    max_input_targets: int = field(
+        default_factory=lambda: int(os.getenv("BEGUIDED_MAX_INPUT_TARGETS", "500"))
+    )
     gc_content_filter: str = "off"
     filter_homopolymers: bool = False
     trinuc_edit_score_min: float = None  # None = disabled (default)
@@ -141,6 +143,9 @@ class WebConfig:
     )
     cooldown_seconds: float = field(
         default_factory=lambda: float(os.getenv("BEGUIDED_COOLDOWN_SECONDS", "60"))
+    )
+    workers: int = field(
+        default_factory=lambda: max(1, int(os.getenv("BEGUIDED_WORKERS", "1")))
     )
     max_upload_mb: int = field(
         default_factory=lambda: int(os.getenv("BEGUIDED_MAX_UPLOAD_MB", "10"))

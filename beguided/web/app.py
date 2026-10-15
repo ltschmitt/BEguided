@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader
 
@@ -57,6 +57,7 @@ from beguided.web.safety import (
     MaxBodySizeMiddleware,
     ProxyHeadersMiddleware,
     SecurityHeadersMiddleware,
+    SelectiveGZipMiddleware,
     validate_chromosomes,
     validate_operator_paths,
 )
@@ -496,6 +497,13 @@ def create_app() -> FastAPI:
         ProxyHeadersMiddleware,
         trusted_hosts=cfg.trusted_proxy_ips or None,
     )
+    # GZip only the large single-shot JSON/TSV result responses. The SSE
+    # endpoint (``/logs/stream``) must NOT be compressed — buffering there
+    # stalls the live log stream.
+    app.add_middleware(
+        SelectiveGZipMiddleware,
+        paths=("/results", "/download/results"),
+    )
 
     # Static files
     base_dir = Path(__file__).resolve().parent
@@ -580,6 +588,7 @@ def create_app() -> FastAPI:
             db_path=cfg.db_path,
             queue_max=cfg.queue_max,
             cooldown_seconds=cfg.cooldown_seconds,
+            workers=cfg.workers,
             job_retention_seconds=cfg.job_retention_hours * 3600,
             log_ip_salt=cfg.log_ip_salt,
             usage_stats=usage_stats,
@@ -587,7 +596,9 @@ def create_app() -> FastAPI:
         install_scheduler(scheduler)
         scheduler.start()
         logger.info(
-            "BEguided web server started. queue_max=%d cooldown=%ds db=%s retention=%dh",
+            "BEguided web server started. workers=%d queue_max=%d cooldown=%ds "
+            "db=%s retention=%dh",
+            cfg.workers,
             cfg.queue_max,
             int(cfg.cooldown_seconds),
             cfg.db_path,
@@ -597,6 +608,15 @@ def create_app() -> FastAPI:
             "Usage statistics: %s",
             cfg.usage_stats_path if cfg.usage_stats_enabled else "disabled",
         )
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> RedirectResponse:
+        """Redirect the legacy /favicon.ico path to the SVG icon.
+
+        Browsers request /favicon.ico automatically even when a <link
+        rel="icon"> is present; without this route those requests would 404.
+        """
+        return RedirectResponse("/static/favicon.svg", status_code=307)
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
@@ -683,6 +703,7 @@ def create_app() -> FastAPI:
             "beguidedoff_available": cfg.has_beguidedoff,
             "max_input_targets": cfg.max_input_targets,
             "queue_max": cfg.queue_max,
+            "workers": cfg.workers,
             "cooldown_seconds": int(cfg.cooldown_seconds),
             "max_upload_mb": cfg.max_upload_mb,
             "preload_genome": cfg.preload_genome,
@@ -1168,6 +1189,18 @@ def create_app() -> FastAPI:
             )
 
         df = _decode_targets(raw_b64)
+
+        if len(df) > cfg.max_input_targets:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"Too many targets: {len(df)} rows "
+                        f"(max {cfg.max_input_targets})."
+                    ),
+                },
+                status_code=400,
+            )
 
         resolved, error = _resolve_base_editor_for_run(base_editor)
         if error is not None:

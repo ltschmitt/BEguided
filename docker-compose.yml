@@ -69,9 +69,11 @@ services:
       BEGUIDED_DEFAULT_GENOME: "${BEGUIDED_DEFAULT_GENOME:-human}"
       BEGUIDED_LEGAL_CONFIG: "${BEGUIDED_LEGAL_CONFIG:-/etc/beguided/legal.yaml}"
       # Scheduler knobs (previously hardcoded in the command: block).
-      BEGUIDED_QUEUE_MAX: "${BEGUIDED_QUEUE_MAX:-8}"
+      BEGUIDED_QUEUE_MAX: "${BEGUIDED_QUEUE_MAX:-16}"
       BEGUIDED_COOLDOWN_SECONDS: "${BEGUIDED_COOLDOWN_SECONDS:-15}"
-      BEGUIDED_MAX_UPLOAD_MB: "${BEGUIDED_MAX_UPLOAD_MB:-2}"
+      BEGUIDED_MAX_UPLOAD_MB: "${BEGUIDED_MAX_UPLOAD_MB:-1}"
+      BEGUIDED_MAX_INPUT_TARGETS: "${BEGUIDED_MAX_INPUT_TARGETS:-500}"
+      BEGUIDED_WORKERS: "${BEGUIDED_WORKERS:-1}"
       # Compliance knobs. The two secrets MUST be set per host (the
       # defaults here are placeholders that should be overridden).
       BEGUIDED_TRUSTED_PROXY_IPS: "${BEGUIDED_TRUSTED_PROXY_IPS:-127.0.0.1,::1}"

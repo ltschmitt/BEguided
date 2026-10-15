@@ -93,6 +93,25 @@ def main():
         help="Cap on request body size in MB (default: 10)",
     )
     parser.add_argument(
+        "--max-input-targets",
+        type=int,
+        default=None,
+        help=(
+            "Max target rows per upload (default: env BEGUIDED_MAX_INPUT_TARGETS "
+            "or 500)"
+        ),
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help=(
+            "Number of parallel pipeline worker threads (default: env "
+            "BEGUIDED_WORKERS or 1). Threads share the preloaded genome/GTF, so "
+            "more workers cost CPU time but not RAM; keep it <= CPU cores."
+        ),
+    )
+    parser.add_argument(
         "--preload-genome",
         dest="preload_genome",
         action="store_true",
@@ -226,6 +245,10 @@ def main():
         kwargs["cooldown_seconds"] = args.cooldown_seconds
     if args.max_upload_mb is not None:
         kwargs["max_upload_mb"] = args.max_upload_mb
+    if args.max_input_targets is not None:
+        kwargs["max_input_targets"] = args.max_input_targets
+    if args.workers is not None:
+        kwargs["workers"] = args.workers
     if args.preload_genome is not None:
         kwargs["preload_genome"] = args.preload_genome
     if args.genome_label is not None:
@@ -259,11 +282,14 @@ def main():
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    # Reminder: do NOT run with --workers N > 1. Each worker would claim the
-    # GPU independently and the FIFO guarantee would break.
+    # Reminder: do NOT pass uvicorn a worker count > 1. That would spawn
+    # separate processes, each reloading the genome (wasting GBs of RAM) and
+    # each with its own queue/cooldown. Use --workers instead, which adds
+    # in-process scheduler threads that share the preloaded genome.
     print(
-        f"BEguided web: queue_max={cfg.queue_max} cooldown={int(cfg.cooldown_seconds)}s "
-        f"db={cfg.db_path} upload_cap={cfg.max_upload_mb}MB",
+        f"BEguided web: workers={cfg.workers} queue_max={cfg.queue_max} "
+        f"cooldown={int(cfg.cooldown_seconds)}s db={cfg.db_path} "
+        f"upload_cap={cfg.max_upload_mb}MB max_targets={cfg.max_input_targets}",
         file=sys.stderr,
     )
 

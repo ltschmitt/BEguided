@@ -112,6 +112,35 @@ def test_run_returns_job_id_and_token(cfg_and_db):
     assert r["records"] == [{"chromosome": "chr1", "position": 50}]
 
 
+def test_run_rejects_too_many_targets(cfg_and_db):
+    """The /run endpoint must enforce max_input_targets (direct API callers
+    bypass /upload, which is where the UI-level cap is applied)."""
+    import base64
+
+    cfg, _ = cfg_and_db
+    cfg.max_input_targets = 2
+    try:
+        client = _client(cfg_and_db)
+        tsv = (
+            "chromosome\tposition\ttarget_base\tdesired_base\n"
+            "1\t10\tT\tC\n"
+            "1\t20\tA\tG\n"
+            "1\t30\tT\tC\n"
+        )
+        res = client.post(
+            "/run",
+            data={
+                "raw_b64": base64.b64encode(tsv.encode()).decode(),
+                "base_editor": "ABE8e",
+                "mode": "spreadsheet",
+            },
+        )
+        assert res.status_code == 400, res.text
+        assert "Too many targets" in res.json()["error"]
+    finally:
+        cfg.max_input_targets = 1000
+
+
 def test_run_returns_429_on_cooldown(cfg_and_db):
     cfg, sch = cfg_and_db
     from beguided.web.scheduler import install, Scheduler
@@ -428,6 +457,21 @@ def test_config_endpoint_exposes_genomes(cfg_and_db):
     human = next(g for g in body["genomes"] if g["key"] == "human")
     # The fixture points human at /nonexistent, so it is not available.
     assert human["available"] is False
+
+
+def test_config_endpoint_exposes_scheduler_knobs(cfg_and_db):
+    cfg, _ = cfg_and_db
+    client = _client(cfg_and_db)
+    body = client.get("/config").json()
+    assert body["max_input_targets"] == cfg.max_input_targets
+    assert body["workers"] == cfg.workers
+
+
+def test_favicon_redirects_to_svg(cfg_and_db):
+    client = _client(cfg_and_db)
+    res = client.get("/favicon.ico", follow_redirects=False)
+    assert res.status_code == 307
+    assert res.headers["location"] == "/static/favicon.svg"
 
 
 def test_reference_status_endpoint_merges_genome_and_gtf(cfg_and_db):

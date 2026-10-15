@@ -1,7 +1,17 @@
 """Custom logging handler that writes to an asyncio queue for SSE streaming."""
 
 import asyncio
+import contextvars
 import logging
+
+
+# The scheduler worker sets this to the running job's id for the duration of
+# that job. ``AsyncQueueHandler.emit`` uses it to route each log record to
+# only that job's SSE queue, so parallel workers cannot cross-talk. Records
+# emitted outside any job (startup, maintenance) fall back to broadcasting.
+current_job_id: contextvars.ContextVar = contextvars.ContextVar(
+    "beguided_current_job_id", default=None
+)
 
 
 class AsyncQueueHandler(logging.Handler):
@@ -21,12 +31,25 @@ class AsyncQueueHandler(logging.Handler):
         self._loop = loop
 
     def emit(self, record):
-        """Put formatted log record into every registered job queue (thread-safe)."""
+        """Route a formatted log record to the originating job's queue.
+
+        Thread-safe. When ``current_job_id`` is set (the normal case inside a
+        job) the record goes only to that job's queue; with several worker
+        threads running, each browser therefore sees only its own job's logs.
+        Records emitted with no active job fall back to broadcasting to every
+        registered queue (startup / maintenance logs).
+        """
         msg = self._formatter.format(record)
         loop = self._loop
         if loop is None or loop.is_closed():
             return
-        for q in list(self._queues.values()):
+        job_id = current_job_id.get()
+        if job_id is not None:
+            q = self._queues.get(job_id)
+            queues = [q] if q is not None else []
+        else:
+            queues = list(self._queues.values())
+        for q in queues:
             try:
                 loop.call_soon_threadsafe(q.put_nowait, msg)
             except Exception:

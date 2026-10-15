@@ -11,6 +11,7 @@ Two concerns:
 
 from __future__ import annotations
 
+import gzip
 import logging
 from pathlib import Path
 from typing import Iterable, Optional
@@ -55,6 +56,59 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
                     status_code=400,
                 )
         return await call_next(request)
+
+
+class SelectiveGZipMiddleware(BaseHTTPMiddleware):
+    """GZip only the large, non-streaming responses under ``paths``.
+
+    A global ``GZipMiddleware`` would also wrap the Server-Sent Events
+    (``/logs/stream``) response, which can stall or break streaming; Caddy's
+    ``encode`` handler has the same problem (caddyserver/caddy#6293). We
+    therefore compress only the endpoints that return one large document in a
+    single shot (job results + result downloads) and leave every other
+    response — especially SSE — untouched.
+    """
+
+    def __init__(self, app, paths, minimum_size: int = 1024):
+        super().__init__(app)
+        self.paths = frozenset(paths)
+        self.minimum_size = max(0, int(minimum_size))
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        if (
+            request.method != "GET"
+            or request.url.path not in self.paths
+            or response.status_code != 200
+            or "content-encoding" in response.headers
+        ):
+            return response
+        if "gzip" not in request.headers.get("accept-encoding", "").lower():
+            return response
+
+        if hasattr(response, "body_iterator"):
+            body = b"".join([chunk async for chunk in response.body_iterator])
+        else:
+            body = response.body
+        if len(body) < self.minimum_size:
+            # Iterator already consumed: hand back an equivalent response.
+            return Response(
+                content=body,
+                status_code=response.status_code,
+                headers=dict(response.headers),
+            )
+
+        compressed = gzip.compress(body, compresslevel=6)
+        headers = dict(response.headers)
+        headers.pop("content-length", None)
+        headers["content-encoding"] = "gzip"
+        vary = headers.get("vary")
+        headers["vary"] = f"{vary}, Accept-Encoding" if vary else "Accept-Encoding"
+        return Response(
+            content=compressed,
+            status_code=response.status_code,
+            headers=headers,
+        )
 
 
 # Default Content-Security-Policy for the BEguided web app.

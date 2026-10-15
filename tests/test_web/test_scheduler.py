@@ -124,10 +124,55 @@ def test_scheduler_serializes_jobs(scheduler_dir, monkeypatch):
         assert sch.get_status(j2.job_id) == "complete"
         # Both ran in the same worker thread.
         names = {c[1] for c in runner.calls}
-        assert names == {"beguided-worker"}, f"expected single worker, got {names}"
+        assert len(names) == 1, f"expected a single worker, got {names}"
+        assert names.pop().startswith("beguided-worker")
         # Sequential order: j1.order < j2.order.
         orders = {c[0]: c[3] for c in runner.calls}
         assert orders[j1.job_id] < orders[j2.job_id]
+    finally:
+        sch.shutdown(drain=True)
+
+
+def test_scheduler_runs_jobs_in_parallel(scheduler_dir, monkeypatch):
+    """With workers=2 two jobs must run concurrently on distinct threads."""
+    import beguided.web.scheduler as sched_mod
+
+    lock = threading.Lock()
+    active = 0
+    max_active = 0
+    threads: set[str] = set()
+
+    def runner(*, job_id, cancel_event=None, **kwargs):
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+            threads.add(threading.current_thread().name)
+        time.sleep(0.2)
+        with lock:
+            active -= 1
+        return {"status": "complete", "records": [], "message": "stub ok"}
+
+    monkeypatch.setattr(sched_mod, "execute_job", runner)
+
+    sch = Scheduler(db_path=scheduler_dir, queue_max=8, cooldown_seconds=0, workers=2)
+    sch.start()
+    try:
+        j1 = sch.submit("ip1", _stub_payload(0))
+        j2 = sch.submit("ip2", _stub_payload(1))
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if all(
+                sch.get_status(j.job_id) == "complete" for j in (j1, j2)
+            ):
+                break
+            time.sleep(0.02)
+        else:
+            pytest.fail("parallel jobs did not finish in time")
+
+        assert max_active >= 2, f"expected overlap, max_active={max_active}"
+        assert len(threads) == 2, f"expected two worker threads, got {threads}"
     finally:
         sch.shutdown(drain=True)
 
