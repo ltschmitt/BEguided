@@ -12,7 +12,7 @@ BEguided requires Python ≥ 3.10. Install via **pip** (any system), **Pixi** (r
 | Everything | `pip install -e ".[web,test]"` |
 
 ```bash
-git clone <repo-url> BEguided
+git clone https://github.com/ltschmitt/BEguided.git BEguided
 cd BEguided
 pip install -e .
 ```
@@ -22,7 +22,7 @@ Core functionality works out of the box. Off-target search requires the separate
 ## Pixi
 
 ```bash
-git clone <repo-url> BEguided
+git clone https://github.com/ltschmitt/BEguided.git BEguided
 cd BEguided
 
 # Core environment (CLI + tests)
@@ -62,7 +62,7 @@ This installs the `cuda` pixi environment with `BEguidedOFF` editable from `../B
 ### Manual install
 
 ```bash
-pip install "git+ssh://git@gitlab.mn.tu-dresden.de/buchholzlab/beguidedoff.git"
+pip install "git+https://github.com/ltschmitt/BEguidedOFF.git"
 ```
 
 ### Encoding a genome

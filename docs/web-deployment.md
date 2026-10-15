@@ -33,19 +33,47 @@ docker compose logs -f web
 Caddy terminates TLS in front of the container and reverse-proxies to `127.0.0.1:8000`. The minimum Caddy snippet:
 
 ```
-www.buchholz.org {
-    handle_path /beguided* {
-        reverse_proxy 127.0.0.1:8000 {
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
-            header_up Host {host}
+beguided.buchholzlab.org {
+    # Static assets (matched by path) are the only responses Caddy compresses:
+    # the app gzips its own large /results JSON, and SSE (/logs/stream) must
+    # never be compressed or the live log stream stalls.
+    @static path /static/*
+    encode @static gzip zstd
+
+    reverse_proxy 127.0.0.1:8000 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up Host {host}
+    }
+
+    # Long-lived caching for the static assets served under /static.
+    header @static Cache-Control "public, max-age=86400"
+
+    # Size-rotated access log; no external logrotate needed.
+    log {
+        output file /var/log/caddy/beguided-access.log {
+            roll_size 10MiB
+            roll_keep 5
+            roll_keep_for 720h
         }
     }
 }
 ```
 
-`handle_path` strips the `/beguided` prefix so FastAPI sees paths at root — the server is unchanged. Caddy's automatic Let's Encrypt issuance kicks in once DNS resolves.
+Caddy's automatic Let's Encrypt issuance kicks in once DNS resolves. If you serve the app under a path prefix (e.g. `example.org/beguided`) instead, wrap the `reverse_proxy` in `handle_path /beguided* { … }` — `handle_path` strips the prefix so FastAPI still sees paths at root. The app itself gzips the large `/results` and `/download/results` payloads (see `SelectiveGZipMiddleware`), so compression works even without Caddy.
+
+### Capacity and parallelism
+
+| Variable | Default (compose) | Meaning |
+|---|---|---|
+| `BEGUIDED_WORKERS` | `1` | Parallel pipeline worker threads. Threads share the preloaded genome/GTF, so each extra worker costs CPU time but **not** RAM. Set to `cores - 1` (e.g. `3` on a 4-core box). |
+| `BEGUIDED_QUEUE_MAX` | `16` | Max queued jobs; further submits get HTTP 503. |
+| `BEGUIDED_COOLDOWN_SECONDS` | `15` | Per-IP delay between submits (HTTP 429). |
+| `BEGUIDED_MAX_UPLOAD_MB` | `1` | Request body cap (target tables are tiny text). |
+| `BEGUIDED_MAX_INPUT_TARGETS` | `500` | Max target rows per upload; also shown in the UI (read from `/config`). |
+
+Do **not** raise `BEGUIDED_WORKERS` above the core count, and never pass a worker count to uvicorn — that spawns separate processes that each reload the genome into RAM.
 
 ### Reverse-proxy trust
 
@@ -243,8 +271,9 @@ number of base editors per job.
 - [ ] `BEGUIDED_ADMIN_TOKEN` and `BEGUIDED_LOG_IP_SALT` set to 32+ random bytes
 - [ ] `BEGUIDED_TRUSTED_PROXY_IPS=127.0.0.1,::1` (or Caddy's container IP)
 - [ ] Caddy reaches Let's Encrypt and serves HTTPS
-- [ ] Browser dev-tools: no requests to non-`buchholz.org` hosts on first load; all security headers present
-- [ ] `curl -I https://www.buchholz.org/beguided/` returns 200 with the expected headers
-- [ ] `curl -I -H "Host: evil.com" https://www.buchholz.org/beguided/` returns 400
+- [ ] Browser dev-tools: no requests to non-`buchholzlab.org` hosts on first load; all security headers present
+- [ ] `curl -I https://beguided.buchholzlab.org/` returns 200 with the expected headers
+- [ ] `curl -I -H "Host: evil.com" https://beguided.buchholzlab.org/` returns 400
 - [ ] `pixi run test` is green
+- [ ] gitleaks secret scan is green (`pre-commit run --all-files` or CI)
 - [ ] `/etc/docker/daemon.json` on the host caps BuildKit cache (see [Docker disk management](#docker-disk-management))

@@ -18,6 +18,21 @@ results*
 config.yaml
 run_web.sh
 
+# Private / operator-local files — never send these to the build context
+.env
+.env.*
+legal.yaml
+*.local.yaml
+nogit/
+
+# Repo metadata and dev-only trees (no image target copies these)
+.git
+.gitignore
+.gitattributes
+docs/
+tests/
+opencode.json
+
 # IDE
 .vscode/
 .idea/

@@ -177,7 +177,7 @@ def _validate_offtarget_config(search_offtargets: bool) -> None:
     if not cfg.has_beguidedoff:
         raise RuntimeError(
             "Off-target search is unavailable because BEguidedOFF is not installed. "
-            "Install it from ssh://git@gitlab.mn.tu-dresden.de/buchholzlab/beguidedoff.git "
+            "Install it from https://github.com/ltschmitt/BEguidedOFF "
             "or uncheck the Off-target option."
         )
     if not cfg.beguidedoff_genome:

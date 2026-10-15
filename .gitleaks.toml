@@ -1,0 +1,17 @@
+# Gitleaks configuration.
+#
+# Extends the built-in default ruleset. Docs:
+# https://github.com/gitleaks/gitleaks#configuration
+#
+# Add project-specific allowlists only when the default ruleset produces a
+# false positive (a path or value that looks like a secret but is not).
+# Uncomment and edit the block below as needed — an empty allowlist is not
+# valid, so keep it fully commented out until you have an entry.
+
+[extend]
+useDefault = true
+
+# [[allowlists]]
+# description = "Known false positives"
+# paths = ['''tests/fixtures/.*''']
+# regexes = ['''contact@tu-dresden\.de''']

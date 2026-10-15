@@ -14,7 +14,7 @@ Pick one of the following.
 ### CLI — pip
 
 ```bash
-git clone <repo-url> BEguided
+git clone https://github.com/ltschmitt/BEguided.git BEguided
 cd BEguided
 pip install -e .
 beguided --help
@@ -23,7 +23,7 @@ beguided --help
 ### CLI — Pixi
 
 ```bash
-git clone <repo-url> BEguided
+git clone https://github.com/ltschmitt/BEguided.git BEguided
 cd BEguided
 pixi install
 ```
@@ -33,7 +33,7 @@ pixi install
 The CUDA path uses the separate BEguidedOFF package for GPU-accelerated off-target search.
 
 ```bash
-git clone <repo-url> BEguided
+git clone https://github.com/ltschmitt/BEguided.git BEguided
 cd BEguided
 
 # Option A — Pixi with sibling BEguidedOFF at ../BEguidedOFF
@@ -41,7 +41,7 @@ pixi install --features cuda
 
 # Option B — pip + manual BEguidedOFF
 pip install -e .
-pip install "git+ssh://git@gitlab.mn.tu-dresden.de/buchholzlab/beguidedoff.git"
+pip install "git+https://github.com/ltschmitt/BEguidedOFF.git"
 ```
 
 See [`docs/installation.md`](docs/installation.md#beguidedoff-integration) for the full CUDA setup, including encoding the genome once to `.npz`.

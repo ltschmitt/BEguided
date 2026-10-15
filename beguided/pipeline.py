@@ -377,7 +377,7 @@ def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
     except ImportError as exc:
         raise PipelineError(
             "BEguidedOFF is not installed. Off-target search is unavailable.\n"
-            "Install it from: ssh://git@gitlab.mn.tu-dresden.de/buchholzlab/beguidedoff.git\n"
+            "Install it from: https://github.com/ltschmitt/BEguidedOFF\n"
             "Or set search_offtargets=false in your config to skip off-target search."
         ) from exc
 

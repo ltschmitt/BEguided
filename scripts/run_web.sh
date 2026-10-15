@@ -14,7 +14,9 @@
 #   ./run_web.sh --port 8080
 #   BEGUIDED_DB_PATH=/tmp/beguided.db ./run_web.sh
 #
-# NOTE: This script is for personal/local use and is gitignored.
+# NOTE: This script is for personal/local use. It is tracked in the repo,
+# but its hardcoded paths assume a local checkout; production uses the
+# container entrypoint (see docs/web-deployment.md).
 
 set -euo pipefail
 
