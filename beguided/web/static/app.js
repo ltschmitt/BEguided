@@ -1824,7 +1824,15 @@ function filterRecords(records, mode, minScore, gcMode = "all", dropHomopolymers
             return positions === "";
         }
         if (mode === "synonymous") {
-            return effect === "synonymous" || effect === "none";
+            if (effect === "synonymous" || effect === "none") return true;
+            // No bystander metadata (e.g. sequence mode, where step 2 is
+            // skipped and the column is absent): treat the guide as
+            // bystander-free, mirroring the "none" branch above.
+            if (!effect) {
+                const positions = (row.bystander_positions ?? "").toString().trim();
+                return positions === "";
+            }
+            return false;
         }
         return true;
     });

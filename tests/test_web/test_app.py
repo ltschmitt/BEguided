@@ -819,6 +819,50 @@ def test_download_results_applies_dynamic_filters(cfg_and_db):
     assert bad.status_code == 400
 
 
+def test_download_results_synonymous_without_bystander_column(cfg_and_db):
+    """Sequence-mode jobs skip bystander analysis and their records have no
+    ``bystander_effect`` column. Requesting filter_mode=synonymous must keep
+    the rows (not error or drop everything), matching the client-side filter.
+    """
+    import beguided.web.scheduler as sched_mod
+
+    records = [
+        {"chromosome": "custom", "position": 1, "guide_score": 0.9,
+         "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA",
+         "bystander_positions": ""},
+        {"chromosome": "custom", "position": 1, "guide_score": 0.8,
+         "guide_rna_sequence": "CCCCCCCCCCCCCCCCCCCC",
+         "bystander_positions": ""},
+    ]
+
+    def fake_execute_job(**kwargs):
+        return {
+            "job_id": kwargs["job_id"], "status": "complete",
+            "message": "ok", "records": records,
+        }
+
+    sched_mod.execute_job = fake_execute_job
+    client = _client(cfg_and_db)
+    submit = client.post(
+        "/run",
+        data={"raw_b64": _targets_tsv_b64(), "base_editor": "ABE8e"},
+    ).json()
+    for _ in range(40):
+        s = client.get("/status", params={"job_id": submit["job_id"]}).json()
+        if s["status"] in ("complete", "error", "cancelled"):
+            break
+        time.sleep(0.1)
+
+    res = client.get(
+        "/download/results",
+        params={"job_id": submit["job_id"], "filter_mode": "synonymous"},
+    )
+    assert res.status_code == 200
+    rows = [l.split("\t") for l in res.text.strip().split("\n")[1:]]
+    assert len(rows) == 2
+    assert "Guides removed" not in res.text
+
+
 def test_download_results_applies_trinuc_filter(cfg_and_db):
     """The /download/results endpoint should respect the
     trinuc_edit_score_min query param, keeping NaN (CBE) rows."""

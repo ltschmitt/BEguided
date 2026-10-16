@@ -32,6 +32,84 @@ class TestFilterGuides:
         result = filter_guides(synthetic_bystander_output, criteria)
         assert len(result) == 4  # 3 none + 1 synonymous
 
+    def test_synonymous_mode_without_bystander_columns_keeps_rows(self):
+        """Sequence-mode jobs skip bystander analysis, so neither
+        ``bystander_effect`` nor ``bystander_positions`` is present. The
+        synonymous filter must keep every guide instead of dropping them all.
+        """
+        df = pd.DataFrame({
+            "chromosome": ["custom", "custom", "custom"],
+            "position": [1, 1, 1],
+            "target_base": ["A", "A", "A"],
+            "desired_base": ["G", "G", "G"],
+            "guide_rna_sequence": ["AAAAA", "BBBBB", "CCCCC"],
+        })
+        criteria = {"mode": "synonymous"}
+        result = filter_guides(df, criteria)
+        assert len(result) == 3
+
+    def test_synonymous_mode_falls_back_to_positions(self):
+        """When ``bystander_effect`` is missing but ``bystander_positions``
+        exists, the synonymous filter mirrors the "none" branch: guides with
+        no bystander positions survive."""
+        df = pd.DataFrame({
+            "chromosome": ["chr1", "chr1"],
+            "position": [10, 10],
+            "target_base": ["A", "A"],
+            "desired_base": ["G", "G"],
+            "guide_rna_sequence": ["AAAAA", "BBBBB"],
+            "bystander_positions": ["", "5"],
+        })
+        criteria = {"mode": "synonymous"}
+        result = filter_guides(df, criteria)
+        assert len(result) == 1
+        assert result.iloc[0]["guide_rna_sequence"] == "AAAAA"
+
+    def test_synonymous_mode_keeps_missing_bystander_effect(self):
+        """Rows with an empty/NaN ``bystander_effect`` are kept (recall over
+        silent dropouts), while nonsynonymous rows are dropped."""
+        df = pd.DataFrame({
+            "chromosome": ["chr1", "chr1", "chr1", "chr1"],
+            "position": [10, 10, 10, 10],
+            "guide_rna_sequence": ["AAAAA", "BBBBB", "CCCCC", "DDDDD"],
+            "bystander_effect": ["synonymous", "none", "", "nonsynonymous"],
+        })
+        criteria = {"mode": "synonymous"}
+        result = filter_guides(df, criteria)
+        assert len(result) == 3
+        assert "DDDDD" not in result["guide_rna_sequence"].values
+
+    def test_synonymous_mode_keeps_nan_bystander_effect(self):
+        df = pd.DataFrame({
+            "chromosome": ["chr1", "chr1"],
+            "position": [10, 10],
+            "guide_rna_sequence": ["AAAAA", "BBBBB"],
+            "bystander_effect": ["synonymous", None],
+        })
+        criteria = {"mode": "synonymous"}
+        result = filter_guides(df, criteria)
+        assert len(result) == 2
+
+    def test_synonymous_without_metadata_placeholder_fill(self):
+        """A target whose guides are all removed by the score filter still
+        gets a placeholder row when synonymous runs without bystander
+        metadata (sequence-mode download path)."""
+        df = pd.DataFrame({
+            "chromosome": ["custom"],
+            "position": [1],
+            "target_base": ["A"],
+            "desired_base": ["G"],
+            "guide_rna_sequence": ["AAAAAAAAAAAAAAAAAAAA"],
+            "guide_score": [0.1],
+        })
+        result = filter_guides(
+            df,
+            {"mode": "synonymous", "guide_score_threshold": 0.5},
+            fill_missing_targets=True,
+        )
+        assert len(result) == 1
+        assert result.iloc[0]["guide_rna_sequence"] == "**Guides removed by filter**"
+
     def test_none_from_beguided(self, synthetic_beguided_output):
         criteria = load_filter_criteria(mode="none")
         result = filter_guides(synthetic_beguided_output, criteria)

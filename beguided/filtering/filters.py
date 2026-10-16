@@ -265,12 +265,25 @@ def filter_guides(input_df, criteria, fill_missing_targets=False):
 
         elif mode == "synonymous":
             if "bystander_effect" not in df.columns:
-                if len(df) == 0:
-                    return df
-                raise ValueError(
-                    "'bystander_effect' column not found. Run bystander analysis first."
-                )
-            df = df[df["bystander_effect"].isin(["synonymous", "none"])]
+                # No bystander metadata at all (e.g. sequence-mode jobs where
+                # step 2 is skipped): nothing to filter on. Fall back to the
+                # ``bystander_positions`` column when present, mirroring the
+                # "none" branch, and otherwise let every row pass.
+                if "bystander_positions" in df.columns:
+                    df = df[
+                        df["bystander_positions"].isna()
+                        | (df["bystander_positions"] == "")
+                    ]
+            else:
+                effect = df["bystander_effect"]
+                # Keep synonymous and bystander-free guides, plus rows with a
+                # missing/empty annotation (e.g. sequence mode). This favours
+                # recall over silent dropouts, like the other filters.
+                df = df[
+                    effect.isin(["synonymous", "none"])
+                    | effect.isna()
+                    | (effect == "")
+                ]
 
         elif mode != "all":
             raise ValueError(f"Unknown filter mode: {mode}")

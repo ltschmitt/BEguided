@@ -241,28 +241,28 @@
             <select id="bystanderFilter">
                 <option value="all">all</option>
                 <option value="none">none</option>
-                <option value="synonymous">synonymous</option>
+                <option value="synonymous" selected>synonymous</option>
             </select>
         </div>
         <div class="group">
             <label for="scoreFilter">Guide score</label>
             <select id="scoreFilter">
-                <option value="all" selected>all</option>
-                <option value="acceptable">acceptable (score &gt; 0.5)</option>
+                <option value="all">all</option>
+                <option value="acceptable" selected>acceptable (score &gt; 0.5)</option>
                 <option value="good">good (score &gt; 0.75)</option>
             </select>
         </div>
         <div class="group">
             <label for="gcFilter">GC content</label>
             <select id="gcFilter">
-                <option value="all" selected>all</option>
-                <option value="acceptable">acceptable (30-70%)</option>
+                <option value="all">all</option>
+                <option value="acceptable" selected>acceptable (30-70%)</option>
                 <option value="good">good (40-60%)</option>
             </select>
         </div>
         <div class="group">
             <label for="homopolymerFilter">Exclude homopolymers (&ge;4-mer)</label>
-            <input type="checkbox" id="homopolymerFilter" />
+            <input type="checkbox" id="homopolymerFilter" checked />
         </div>
         <div class="group">
             <label for="trinucFilter">Context edit score</label>
