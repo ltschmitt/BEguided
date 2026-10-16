@@ -503,6 +503,9 @@ class Scheduler:
                 # Clear the per-job log routing before the thread picks up the
                 # next job, then always release the queue slot (even if the job
                 # was cancelled before pickup) so `q.join()` cannot block.
+                # Signal any connected SSE stream that this job is done so the
+                # browser is not left hanging until the keepalive timeout.
+                sse.close_job(job.job_id)
                 current_job_id.reset(ctx_token)
                 self._q.task_done()
 

@@ -54,6 +54,7 @@ from beguided.web.scheduler import (
     install as install_scheduler,
 )
 from beguided.web.safety import (
+    HeadToGetMiddleware,
     MaxBodySizeMiddleware,
     ProxyHeadersMiddleware,
     SecurityHeadersMiddleware,
@@ -62,7 +63,11 @@ from beguided.web.safety import (
     validate_operator_paths,
 )
 from beguided.web.legal_config import LegalConfig, load_legal_config
-from beguided.web.sse_logger import attach_sse_handler_to_beguided_logs, get_sse_handler
+from beguided.web.sse_logger import (
+    SSE_DONE,
+    attach_sse_handler_to_beguided_logs,
+    get_sse_handler,
+)
 from beguided.web.usage_stats import UsageStatsLogger
 
 logger = logging.getLogger("beguided.web.app")
@@ -504,6 +509,10 @@ def create_app() -> FastAPI:
         SelectiveGZipMiddleware,
         paths=("/results", "/download/results"),
     )
+    # Answer HEAD via the GET handlers (FastAPI does not auto-add HEAD to
+    # ``@app.get`` routes). Registered last so it rewrites the method before
+    # any other middleware or the router sees the request.
+    app.add_middleware(HeadToGetMiddleware)
 
     # Static files
     base_dir = Path(__file__).resolve().parent
@@ -1340,14 +1349,32 @@ def create_app() -> FastAPI:
 
         async def event_generator():
             try:
+                # A client that connects after the job already finished (or
+                # with a bogus job_id) should not wait for the keepalive
+                # timeout — close the stream immediately.
+                if current_scheduler().get_status(job_id) in (
+                    "complete",
+                    "error",
+                    "cancelled",
+                    "unknown",
+                ):
+                    return
                 while True:
                     try:
                         msg = await asyncio.wait_for(q.get(), timeout=30.0)
-                        yield f"data: {msg}\n\n"
                     except asyncio.TimeoutError:
+                        # No log line for a while: emit a comment to keep the
+                        # connection alive, and stop once the job is no longer
+                        # running (covers the case where no ``SSE_DONE`` was
+                        # delivered, e.g. the queue was registered late).
                         yield ":keepalive\n\n"
                         if current_scheduler().get_status(job_id) != "running":
                             break
+                        continue
+                    if msg is SSE_DONE:
+                        # Worker signalled completion: end promptly.
+                        break
+                    yield f"data: {msg}\n\n"
             finally:
                 sse.unregister_job(job_id)
 

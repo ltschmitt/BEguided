@@ -14,6 +14,12 @@ current_job_id: contextvars.ContextVar = contextvars.ContextVar(
 )
 
 
+# Terminal marker pushed into a job's SSE queue when the job finishes, so the
+# ``/logs/stream`` generator can close the connection immediately instead of
+# waiting for the next keepalive timeout. Identity-compared, never yielded.
+SSE_DONE = object()
+
+
 class AsyncQueueHandler(logging.Handler):
     """Thread-safe logging handler that puts records into per-job asyncio queues."""
 
@@ -97,6 +103,23 @@ class AsyncQueueHandler(logging.Handler):
         """Remove queue for a completed job."""
         if job_id in self._queues:
             del self._queues[job_id]
+
+    def close_job(self, job_id):
+        """Signal a finished job's SSE stream to end.
+
+        Pushes the ``SSE_DONE`` sentinel into the job's queue, if one is
+        registered (registration is lazy — the browser may never have
+        connected). Safe to call from the worker thread; a no-op otherwise.
+        """
+        q = self._queues.get(job_id)
+        loop = self._loop
+        if q is None or loop is None or loop.is_closed():
+            return False
+        try:
+            loop.call_soon_threadsafe(q.put_nowait, SSE_DONE)
+        except Exception:
+            return False
+        return True
 
 
 # Global handler instance

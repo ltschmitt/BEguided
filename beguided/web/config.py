@@ -152,7 +152,9 @@ class WebConfig:
     )
 
     # Compliance / hardening knobs (see compliance_safety.md)
-    job_retention_hours: int = 24
+    job_retention_hours: int = field(
+        default_factory=lambda: int(os.getenv("BEGUIDED_JOB_RETENTION_HOURS", "24"))
+    )
     trusted_proxy_ips: List[str] = field(
         default_factory=lambda: _csv_env("BEGUIDED_TRUSTED_PROXY_IPS") or ["127.0.0.1", "::1"]
     )

@@ -545,6 +545,22 @@ def test_last_submit_is_ttl_pruned(tmp_path):
         sch.stop()
 
 
+def test_job_retention_hours_env_knob(monkeypatch):
+    """``BEGUIDED_JOB_RETENTION_HOURS`` must override the 24 h default.
+
+    Regression: the field was a plain attribute that ignored the env var
+    (``--job-retention-hours`` was the only working override), so the knob
+    advertised in the CLI help and docs was a silent no-op.
+    """
+    from beguided.web.config import WebConfig
+
+    monkeypatch.setenv("BEGUIDED_JOB_RETENTION_HOURS", "1")
+    assert WebConfig().job_retention_hours == 1
+
+    monkeypatch.delenv("BEGUIDED_JOB_RETENTION_HOURS")
+    assert WebConfig().job_retention_hours == 24
+
+
 # ---------------------------------------------------------------------------
 # Admin purge endpoint
 # ---------------------------------------------------------------------------

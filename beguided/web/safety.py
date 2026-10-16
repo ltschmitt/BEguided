@@ -223,6 +223,46 @@ class ProxyHeadersMiddleware:
         await self.app(scope, receive, send)
 
 
+class HeadToGetMiddleware:
+    """Answer HEAD requests by dispatching them as GET and dropping the body.
+
+    Starlette's plain ``Route`` auto-adds HEAD when GET is registered, but
+    FastAPI's ``APIRoute`` does not, so ``@app.get(...)`` endpoints return
+    405 for HEAD. Uptime monitors and link checkers issue HEAD, so this
+    middleware rewrites the method before routing and strips the response
+    body frames (keeping status line + headers).
+
+    The SSE endpoint (``/logs/stream``) is exempt: rewriting it to GET would
+    open a long-lived stream that the wrapper would then drain.
+    """
+
+    def __init__(self, app, exempt_paths: Iterable[str] = ("/logs/stream",)):
+        self.app = app
+        self.exempt_paths = frozenset(exempt_paths)
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope["type"] != "http"
+            or scope["method"] != "HEAD"
+            or scope.get("path") in self.exempt_paths
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        scope = dict(scope)
+        scope["method"] = "GET"
+
+        async def send_no_body(message):
+            if message["type"] == "http.response.body":
+                # Keep ``more_body`` as-is: responses may arrive in several
+                # frames, and forcing the flag to False makes the client treat
+                # the first frame as terminal (then choke on the real last one).
+                message = {**message, "body": b""}
+            await send(message)
+
+        await self.app(scope, receive, send_no_body)
+
+
 def validate_path(path: Optional[str], label: str, *, must_be_file: bool = True) -> Path:
     """Resolve ``path`` and verify it exists and (optionally) is a file.
 
