@@ -203,6 +203,14 @@ def _validate_offtarget_config(search_offtargets: bool) -> None:
                 "--beguidedoff-index / BEGUIDED_BEGUIDEDOFF_INDEX at it, or "
                 "switch to --beguidedoff-mode extensive (GPU)."
             )
+    genome = Path(cfg.beguidedoff_genome)
+    if "mini_genome" in genome.name or "tests" in genome.parts:
+        logger.warning(
+            "Off-target search is configured against the bundled mini test "
+            "genome (%s), not a real reference. Set BEGUIDED_BEGUIDEDOFF_GENOME "
+            "(and BEGUIDED_BEGUIDEDOFF_INDEX for fast mode) for production use.",
+            genome,
+        )
 
 
 def _df_to_records(path: Path, drop_columns: tuple[str, ...] = ()) -> list[dict]:
