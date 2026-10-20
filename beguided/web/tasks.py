@@ -109,6 +109,10 @@ def _build_config(
     targets_path = Path(work_dir) / "targets.tsv"
     targets_df.to_csv(targets_path, sep="\t", index=False)
 
+    # FM-index for fast mode: explicit config wins, otherwise the .npz
+    # sibling path (same basename, .fmi suffix).
+    bgo_index = cfg.beguidedoff_index_resolved
+
     if merged_profiles_b64:
         profiles_path = Path(work_dir) / "merged_profiles.tsv"
         profiles_path.write_bytes(base64.b64decode(merged_profiles_b64))
@@ -153,8 +157,13 @@ def _build_config(
         "passthrough_extras": passthrough_extras,
         "skip_bystander": skip_bystander,
         "offtargets": {
+            "mode": cfg.beguidedoff_mode,
             "beguidedoff_genome": cfg.beguidedoff_genome,
-            "mismatch_tolerance": cfg.mismatch_tolerance,
+            "index_path": bgo_index,
+            # The pipeline key is max_mismatches; ``mismatch_tolerance`` was
+            # the old web-side name under which the value was silently
+            # ignored by the pipeline.
+            "max_mismatches": cfg.mismatch_tolerance,
             "count_threshold_score": cfg.count_threshold_score,
             "remove_guides_score": cfg.remove_guides_score,
             "remove_guides_n_offtargets": cfg.remove_guides_n_offtargets,
@@ -184,6 +193,16 @@ def _validate_offtarget_config(search_offtargets: bool) -> None:
         raise RuntimeError(
             "Off-target search requires --beguidedoff-genome or BEGUIDED_BEGUIDEDOFF_GENOME."
         )
+    if cfg.beguidedoff_mode == "fast":
+        index = cfg.beguidedoff_index_resolved
+        if not index or not Path(index).exists():
+            raise RuntimeError(
+                "fast-mode off-target search requires an FM-index (.fmi); "
+                f"not found: {index}. Build one with `python -m beguidedoff.cli "
+                "build-index <genome.fa> <genome.fmi>` and point "
+                "--beguidedoff-index / BEGUIDED_BEGUIDEDOFF_INDEX at it, or "
+                "switch to --beguidedoff-mode extensive (GPU)."
+            )
 
 
 def _df_to_records(path: Path, drop_columns: tuple[str, ...] = ()) -> list[dict]:

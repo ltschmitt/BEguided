@@ -1183,6 +1183,31 @@ function formatSequencePropsCell(row, column, value) {
     return null;
 }
 
+// Render the off-target summary columns produced by the BEguidedOFF step.
+// Guides whose worst reported off-target score is empty had no off-target at
+// or below the search cutoff — they pass the off-target filter — so the cell
+// says so instead of rendering a blank (the underlying TSV keeps an empty
+// cell; only the on-screen table shows the label).
+function formatOfftargetCell(row, column, value) {
+    if (column === "worst_offtarget_score") {
+        if (value === undefined || value === null || value === "") {
+            return `<span class="muted">passes filter</span>`;
+        }
+        const num = Number(value);
+        if (Number.isFinite(num)) {
+            return num.toFixed(2).replace(/\.?0+$/, "");
+        }
+        return null;
+    }
+    if (column === "offtarget_count") {
+        if (value === undefined || value === null || value === "") {
+            return `<span class="muted">passes filter</span>`;
+        }
+        return null;
+    }
+    return null;
+}
+
 // Render the sequence-mode preview table. Each row shows the chromosome,
 // 1-based edit position, target/desired bases, and a snippet of the
 // bracketed sequence so the user can spot-check the edit location.
@@ -1231,6 +1256,8 @@ const SEQUENCE_MODE_COLUMN_LABELS = {
 // only the header text shown to the user is remapped.
 const COLUMN_LABELS = {
     trinuc_edit_score: "context edit score",
+    worst_offtarget_score: "worst off-target score",
+    offtarget_count: "off-target count",
 };
 
 // Tooltip text shown on hover for results-table headers. Keyed by the
@@ -1258,6 +1285,20 @@ const RESULTS_COLUMN_TOOLTIPS = {
         "Marquart et al. 2021 normalised ABE8e editing proportion for the local X-A-Y trinucleotide context (the bases immediately before and after the target A). 0-1; NaN for CBE guides.",
     base_editor:
         "Generally, favor SpCas9 over NG/SpG over SpRY. Relaxed PAMs trade activity and specificity for targeting range. Regarding ABEs, ABE8e is most established and a reliable choice.",
+    worst_offtarget_score:
+        "Lowest CCTOP score among the guide's off-targets; lower means more concerning (a perfect-match-like site scores near 1). Empty means no off-target at or below the search cutoff was found: the guide passes the off-target filter. Guides whose worst score falls below the removal threshold are removed from the results.",
+    offtarget_count:
+        "Number of editable off-targets with a CCTOP score at or below the count threshold (fast mode counts at the search cutoff). Guides with more than the allowed maximum are removed from the results.",
+    worst_offtarget_mismatch_pos:
+        "Comma-separated 1-based positions (from the 5' end of the guide) where the worst off-target differs from the guide RNA.",
+    worst_offtarget_chr:
+        "Chromosome of the worst (most concerning) off-target for this guide.",
+    worst_offtarget_pos:
+        "1-based genomic position of the worst off-target (leftmost base for + strand guides, rightmost for - strand guides).",
+    worst_offtarget_strand:
+        "Strand of the worst off-target: '+' if it matches the guide's genomic strand, '-' for the reverse complement.",
+    worst_offtarget_sequence:
+        "Genomic sequence (20 bp spacer) of the worst off-target, oriented to align with the guide RNA.",
 };
 
 // Maps each results-toolbar filter <select>/<input> id to the column whose
@@ -1945,6 +1986,8 @@ function renderResultsTable() {
             (row, column, value) => {
                 const seqProps = formatSequencePropsCell(row, column, value);
                 if (seqProps !== null) return seqProps;
+                const otCell = formatOfftargetCell(row, column, value);
+                if (otCell !== null) return otCell;
                 return formatDnaSequenceCell(row, column, value);
             },
             RESULTS_COLUMN_TOOLTIPS,

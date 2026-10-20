@@ -105,10 +105,17 @@ pysam = ">=0.24.0,<0.25"
 [tool.pixi.feature.cuda.pypi-dependencies]
 beguidedoff = { path = "../BEguidedOFF", editable = true }
 
+# BEguidedOFF fast mode (CPU FM-index off-target search) for GPU-less
+# environments such as the web server. Same sibling-repo editable install as
+# the cuda feature, but without torch/numba — BEguidedOFF's base install is
+# CPU-only by design.
+[tool.pixi.feature.fast.pypi-dependencies]
+beguidedoff = { path = "../BEguidedOFF", editable = true }
+
 # ---------------------------------------------------------------------------
 # Environments
 # ---------------------------------------------------------------------------
 [tool.pixi.environments]
 default = { features = ["test"], solve-group = "default" }
 cuda = { features = ["cuda", "test"], solve-group = "default" }
-web = { features = ["web", "test"], solve-group = "default" }
+web = { features = ["web", "test", "fast"], solve-group = "default" }

@@ -72,8 +72,10 @@ class TestMergeWithInput:
         summary = aggregate_beguidedoff_results(ot)
         merged = merge_with_input(synthetic_bystander_output, summary)
 
-        # NNNNN... guide should get inf (no off-targets) since not in OT output
+        # NNNNN... guide should get NaN (no off-targets) since not in OT
+        # output; NaN keeps the TSV cell empty and the web shows "passes
+        # filter". The step-5 removal rule treats NaN as passing.
         nnn_row = merged[merged["guide_rna_sequence"] == "NNNNNNNNNNNNNNNNNNNN"]
-        assert nnn_row.iloc[0]["worst_offtarget_score"] == float("inf")
+        assert pd.isna(nnn_row.iloc[0]["worst_offtarget_score"])
         assert nnn_row.iloc[0]["offtarget_count"] == 0
         assert nnn_row.iloc[0]["worst_offtarget_strand"] == ""

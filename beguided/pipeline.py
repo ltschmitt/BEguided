@@ -29,6 +29,15 @@ from beguided.models import (
 
 logger = get_logger("pipeline")
 
+# Largest CCTOP score cutoff the fast (FM-index) mode can search soundly.
+# The fast engine anchors on the exact "cold" region — every position whose
+# single-mismatch cost (1.2 ** position, 5'-proximal = position 1) reaches the
+# cutoff. A cutoff of 1.2**9 (~5.16) keeps the 12 bp PAM-proximal anchor
+# (positions 9-20), which occurs a manageable number of times genome-wide.
+# Beyond it the anchor shrinks (9 bp at 7.4, 6 bp at 15), hit counts blow past
+# the engine's per-anchor cap, and results would be silently incomplete.
+FAST_MAX_SEARCH_CUTOFF = 1.2 ** 9
+
 
 class PipelineError(Exception):
     """Custom exception for pipeline errors."""
@@ -195,7 +204,30 @@ def _read_new_style_config(config):
     # --- offtargets block ---
     offtargets = config.get("offtargets", {})
     result["beguidedoff_genome"] = offtargets.get("beguidedoff_genome")
-    result["max_mismatches"] = offtargets.get("max_mismatches", 5)
+
+    # --- offtargets.mode ---
+    # "extensive" (GPU brute force, default) or "fast" (CPU FM-index filter,
+    # sound at the removal score cutoff, no GPU required). The web server
+    # always sends an explicit value; plain CLI configs default to the
+    # historical extensive behaviour.
+    mode = str(offtargets.get("mode", "extensive")).strip().lower()
+    if mode not in ("extensive", "fast"):
+        raise PipelineError(
+            f"offtargets.mode must be 'extensive' or 'fast', "
+            f"got {offtargets.get('mode')!r}"
+        )
+    result["beguidedoff_mode"] = mode
+    # FM-index path for fast mode. Empty means "derive from the .npz path".
+    result["beguidedoff_index"] = offtargets.get("index_path") or ""
+
+    # --- offtargets.max_mismatches ---
+    # Mismatch budget of the extensive (GPU) search; ignored by fast mode,
+    # which is driven by the score cutoff instead. The web UI historically
+    # sent this value under the name ``mismatch_tolerance`` (where it was
+    # silently ignored); accept that key as a fallback alias.
+    result["max_mismatches"] = offtargets.get(
+        "max_mismatches", offtargets.get("mismatch_tolerance", 5)
+    )
     result["count_threshold_score"] = offtargets.get("count_threshold_score", 15.0)
     result["remove_guides_score"] = offtargets.get("remove_guides_score", 5.0)
     result["remove_guides_n_offtargets"] = offtargets.get("remove_guides_n_offtargets", 100)
@@ -357,16 +389,25 @@ def _prepare_beguidedoff_input(df, output_path):
 
 def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
                        count_threshold_score, output_file, batch_size=1500,
-                       cancel_event=None):
+                       cancel_event=None, mode="extensive", index_path="",
+                       search_cutoff=None):
     """Run BEguidedOFF off-target search on the filtered guide file.
 
     Guides are loaded explicitly and processed in batches so the pipeline
     stays within BEguidedOFF's internal limits regardless of input size.
 
     Args:
+        mode: ``"extensive"`` (GPU brute force; searches every site with at
+            most ``max_mismatches`` mismatches) or ``"fast"`` (CPU FM-index;
+            enumerates exactly the sites with CCTOP score <=
+            ``search_cutoff`` — same remove/keep verdicts, no GPU needed).
+        index_path: FM-index path (fast mode only).
+        search_cutoff: CCTOP score cutoff (fast mode only). Must be at least
+            ``remove_guides_score`` so the removal rule sees every site it
+            could act on; the call site enforces this.
         cancel_event: Optional ``threading.Event``. Checked between batches;
             raising ``PipelineCancelled`` exits before the next batch starts.
-            A single batch (and a single GPU kernel) cannot be interrupted.
+            A single batch cannot be interrupted.
 
     Returns:
         The BEguidedOFF result DataFrame.
@@ -383,12 +424,44 @@ def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
 
     _check_cancel(cancel_event)
 
-    finder = beguidedoff(
-        genome_path=genome_npz,
-        max_mismatches=max_mismatches,
-        n_top_offtargets=1,
-        scoring_method="CCTOP",
-    )
+    if mode == "fast":
+        if not index_path:
+            raise PipelineError(
+                "fast mode requires an FM-index path (offtargets.index_path). "
+                "Build one from a reference FASTA with: "
+                "python -m beguidedoff.cli build-index <genome.fa> <genome.fmi>"
+            )
+        finder = beguidedoff(
+            mode="fast",
+            index_path=index_path,
+            search_cutoff=search_cutoff,
+            n_top_offtargets=1,
+            scoring_method="CCTOP",
+        )
+        # Fast mode enumerates exactly the sites with score <= search_cutoff.
+        # Counting at a *higher* threshold would silently widen the search to
+        # a shorter exact anchor whose genome-wide hit count routinely
+        # exceeds the engine's per-anchor cap (incomplete counts); clamp the
+        # count threshold to the search cutoff instead.
+        effective_count_threshold = count_threshold_score
+        if (effective_count_threshold is not None
+                and float(effective_count_threshold) > float(search_cutoff)):
+            logger.warning(
+                "count_threshold_score=%s exceeds the fast-mode search cutoff "
+                "%s; counting off-targets at %s instead.",
+                effective_count_threshold, search_cutoff, search_cutoff,
+            )
+            effective_count_threshold = float(search_cutoff)
+    elif mode == "extensive":
+        finder = beguidedoff(
+            genome_path=genome_npz,
+            max_mismatches=max_mismatches,
+            n_top_offtargets=1,
+            scoring_method="CCTOP",
+        )
+        effective_count_threshold = count_threshold_score
+    else:
+        raise PipelineError(f"Unknown BEguidedOFF mode: {mode!r}")
 
     # Load guides explicitly so we can batch them.
     guides = load_guides_from_tsv(str(filter_file), presets_path=str(presets_file))
@@ -406,7 +479,7 @@ def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
         ot_df = finder.search(
             guides=batch,
             return_all=False,
-            count_score_threshold=count_threshold_score,
+            count_score_threshold=effective_count_threshold,
             verbose=False,
             logger=logger,
         )
@@ -422,6 +495,40 @@ def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
         combined.to_csv(str(output_file), sep="\t", index=False)
 
     return combined
+
+
+def _resolve_fast_search_cutoff(cfg):
+    """Resolve the FM-index search cutoff for fast mode.
+
+    The removal rule drops guides whose worst off-target score is below
+    ``remove_guides_score``; the search must therefore cover every site below
+    that threshold, i.e. the cutoff must be at least the removal threshold.
+    When the removal rule is disabled, fall back to the count threshold
+    (clamped to the largest sound cutoff) so counting stays complete.
+
+    Raises:
+        PipelineError: If the resolved cutoff exceeds
+            :data:`FAST_MAX_SEARCH_CUTOFF` (a shorter exact anchor would
+            routinely overflow the engine's per-anchor hit cap and make
+            results silently incomplete).
+    """
+    remove_thr = cfg.get("remove_guides_score")
+    count_thr = cfg.get("count_threshold_score")
+    if remove_thr is not None:
+        cutoff = float(remove_thr)
+    else:
+        cutoff = float(count_thr) if count_thr is not None else 5.0
+        cutoff = min(cutoff, FAST_MAX_SEARCH_CUTOFF)
+    if cutoff > FAST_MAX_SEARCH_CUTOFF:
+        raise PipelineError(
+            f"fast mode supports search cutoffs up to "
+            f"{FAST_MAX_SEARCH_CUTOFF:.2f} (12 bp exact anchor); "
+            f"the resolved cutoff {cutoff:.2f} would need a shorter anchor "
+            f"whose genome-wide hit count routinely exceeds the engine's "
+            f"per-anchor cap and makes results incomplete. Lower "
+            f"remove_guides_score or use mode='extensive' (GPU)."
+        )
+    return cutoff
 
 
 def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=None,
@@ -723,8 +830,29 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
                 "Provide the path to the encoded .npz genome file."
             )
 
+        mode = cfg["beguidedoff_mode"]
         logger.info(f"BEguidedOFF genome: {genome_npz}")
-        logger.info(f"Max mismatches: {cfg['max_mismatches']}")
+        logger.info(f"BEguidedOFF mode: {mode}")
+
+        index_path = ""
+        search_cutoff = None
+        if mode == "fast":
+            index_path = cfg.get("beguidedoff_index") or ""
+            if not index_path:
+                # Default: FM-index next to the .npz, same basename.
+                index_path = str(Path(str(genome_npz)).with_suffix(".fmi"))
+            if not Path(index_path).exists():
+                raise PipelineError(
+                    f"FM-index not found: {index_path}. Build it from the "
+                    f"reference FASTA with `python -m beguidedoff.cli "
+                    f"build-index <genome.fa> {index_path}` or point "
+                    f"offtargets.index_path at an existing index."
+                )
+            logger.info(f"BEguidedOFF index: {index_path}")
+            search_cutoff = _resolve_fast_search_cutoff(cfg)
+            logger.info(f"Search cutoff (score): {search_cutoff:.2f}")
+        else:
+            logger.info(f"Max mismatches: {cfg['max_mismatches']}")
         logger.info(f"Score threshold (count): {cfg['count_threshold_score']}")
 
         # Prepare input file with guide-start positions for on-target exclusion
@@ -743,6 +871,9 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
             cfg["count_threshold_score"],
             offtarget_output,
             cancel_event=cancel_event,
+            mode=mode,
+            index_path=index_path,
+            search_cutoff=search_cutoff,
         )
         logger.info(
             f"BEguidedOFF complete: {len(ot_df)} off-target rows written to "

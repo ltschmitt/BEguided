@@ -96,8 +96,11 @@ def merge_with_input(input_df, summary_df):
         how="left",
     )
     merged = merged.drop(columns=["guide_seq"])
-    # No off-targets -> score = inf (always passes the "worst_offtarget_score >= X" filter)
-    merged["worst_offtarget_score"] = merged["worst_offtarget_score"].fillna(float("inf"))
+    # Guides with no off-target rows keep ``worst_offtarget_score`` = NaN:
+    # the step-5 removal rule treats NaN explicitly as passing (nothing
+    # concerning was found), the TSV renders it as an empty cell, and the web
+    # UI shows it as "passes filter". (Filling with +inf here would leak
+    # ``Infinity`` into the results JSON, which browsers cannot parse.)
     merged["worst_offtarget_mismatch_pos"] = merged["worst_offtarget_mismatch_pos"].fillna("").astype(str)
     merged["worst_offtarget_strand"] = merged["worst_offtarget_strand"].fillna("").astype(str)
     merged["offtarget_count"] = merged["offtarget_count"].fillna(0).astype(int)

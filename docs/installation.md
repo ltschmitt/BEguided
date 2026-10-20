@@ -51,19 +51,32 @@ The `cuda` feature installs `BEguidedOFF` automatically from the sibling repo at
 
 Off-target search is optional. When `BEguidedOFF` is missing, the pipeline skips step 4 silently and the off-target columns in `beguided_results.tsv` are `NaN`.
 
+BEguidedOFF has two search modes (pipeline config key `offtargets.mode`):
+
+- **`fast`** (default for the web server) — CPU FM-index filter. Enumerates exactly the sites with CCTOP score ≤ the search cutoff (the removal threshold `offtargets.remove_guides_score`), so removal decisions match the GPU mode without a GPU. Needs an `.fmi` index built once per reference genome.
+- **`extensive`** — GPU brute force (≤ `offtargets.max_mismatches` mismatches). Requires CUDA; used via the `cuda` pixi environment or the `web-cuda`/`cli-cuda` images.
+
 ### Via Pixi (recommended)
 
 ```bash
+# GPU-less environments (web server, CPU-only CLI): fast mode
+pixi install -e web
+
+# GPU off-target search: CUDA environment
 pixi install --features cuda
 ```
 
-This installs the `cuda` pixi environment with `BEguidedOFF` editable from `../BEguidedOFF`. Then provide the path to an encoded genome `.npz` via `--beguidedoff-genome` or `BEGUIDED_BEGUIDEDOFF_GENOME`.
+Both install `BEguidedOFF` editable from `../BEguidedOFF`. The `web` environment uses the CPU-only base install (no torch); the `cuda` environment additionally provides the GPU (`extensive`) mode.
+
+Then provide the path to an encoded genome `.npz` via `--beguidedoff-genome` or `BEGUIDED_BEGUIDEDOFF_GENOME`, and — for fast mode — an FM-index via `--beguidedoff-index` or `BEGUIDED_BEGUIDEDOFF_INDEX`. If no index is configured, fast mode derives it from the `.npz` path (same basename, `.fmi` suffix).
 
 ### Manual install
 
 ```bash
 pip install "git+https://github.com/ltschmitt/BEguidedOFF.git"
 ```
+
+The `fast` mode additionally needs the compiled FM-index binding (`beguidedoff._fmindex`), which is built automatically when the sdsl-lite headers/library are available at install time.
 
 ### Encoding a genome
 
@@ -77,7 +90,17 @@ python -m beguidedoff.cli encode-genome \
     --include-n-mask
 ```
 
-Reference the resulting `.npz` in your pipeline config under `offtargets.beguidedoff_genome`, or pass `--beguidedoff-genome /path/to/genome_otbe.npz` on the CLI.
+For fast mode, build the FM-index from the same reference FASTA:
+
+```bash
+python -m beguidedoff.cli build-index \
+    genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa \
+    genome_otbe.fmi
+```
+
+Reference the resulting `.npz` in your pipeline config under `offtargets.beguidedoff_genome`, or pass `--beguidedoff-genome /path/to/genome_otbe.npz` on the CLI. Fast mode reads the `.fmi` (default location: next to the `.npz`); `extensive` mode reads the `.npz`.
+
+Note: in fast mode the off-target count (`offtarget_count`) covers sites with score ≤ the search cutoff. A configured `offtargets.count_threshold_score` above that cutoff is clamped to it (with a warning), because deeper thresholds would need a shorter exact anchor whose genome-wide hit count exceeds the engine's per-anchor cap and would make counts incomplete.
 
 ## Docker
 

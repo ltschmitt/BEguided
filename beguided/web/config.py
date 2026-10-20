@@ -112,6 +112,18 @@ class WebConfig:
             str(Path(__file__).resolve().parents[2] / "mini_genome.npz"),
         )
     )
+    # Search mode for BEguidedOFF: "fast" (CPU FM-index filter; the default —
+    # the web VM has no GPU) or "extensive" (GPU brute force).
+    beguidedoff_mode: str = field(
+        default_factory=lambda: os.getenv(
+            "BEGUIDED_BEGUIDEDOFF_MODE", "fast"
+        ).strip().lower()
+    )
+    # FM-index (.fmi) for fast mode. Empty -> derived from the .npz path
+    # (same basename, .fmi suffix) when the job config is assembled.
+    beguidedoff_index: str = field(
+        default_factory=lambda: os.getenv("BEGUIDED_BEGUIDEDOFF_INDEX", "").strip()
+    )
     count_threshold_score: float = 15.0
     remove_guides_score: float = 5.0
     mismatch_tolerance: int = 5
@@ -223,6 +235,20 @@ class WebConfig:
         if self.default_genome in genomes:
             return genomes[self.default_genome]
         return next(iter(genomes.values()), None)
+
+    @property
+    def beguidedoff_index_resolved(self) -> str:
+        """FM-index path for fast mode.
+
+        Explicit ``beguidedoff_index`` wins; otherwise the ``.npz`` sibling
+        path (same basename, ``.fmi`` suffix) is used. Empty when no genome
+        is configured at all.
+        """
+        if self.beguidedoff_index:
+            return self.beguidedoff_index
+        if self.beguidedoff_genome:
+            return str(Path(self.beguidedoff_genome).with_suffix(".fmi"))
+        return ""
 
     @property
     def has_beguidedoff(self) -> bool:

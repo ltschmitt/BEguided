@@ -320,6 +320,11 @@ def validate_operator_paths(cfg) -> None:
             validate_path(cfg.beguidedoff_genome, "BEguidedOFF genome (.npz)")
         except (FileNotFoundError, PermissionError) as exc:
             logger.warning("BEguidedOFF genome not accessible: %s", exc)
+    if cfg.beguidedoff_mode == "fast" and cfg.beguidedoff_index:
+        try:
+            validate_path(cfg.beguidedoff_index, "BEguidedOFF FM-index (.fmi)")
+        except (FileNotFoundError, PermissionError) as exc:
+            logger.warning("BEguidedOFF FM-index not accessible: %s", exc)
 
 
 def validate_chromosomes(chromosomes: Iterable[str], genome_keys) -> list[str]:

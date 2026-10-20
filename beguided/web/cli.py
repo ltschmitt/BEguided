@@ -70,6 +70,19 @@ def main():
         help="BEguidedOFF encoded genome .npz (default: env BEGUIDED_BEGUIDEDOFF_GENOME)",
     )
     parser.add_argument(
+        "--beguidedoff-mode",
+        default=None,
+        choices=["fast", "extensive"],
+        help="BEguidedOFF search mode: fast (CPU FM-index filter, default) or "
+        "extensive (GPU brute force). Env: BEGUIDED_BEGUIDEDOFF_MODE.",
+    )
+    parser.add_argument(
+        "--beguidedoff-index",
+        default=None,
+        help="BEguidedOFF FM-index .fmi for fast mode (default: env "
+        "BEGUIDED_BEGUIDEDOFF_INDEX, or the .npz path with an .fmi suffix)",
+    )
+    parser.add_argument(
         "--db-path",
         default=None,
         help="SQLite path for the job store (default: env BEGUIDED_DB_PATH or /var/lib/beguided/jobs.db)",
@@ -237,6 +250,10 @@ def main():
         kwargs["default_genome"] = args.default_genome
     if args.beguidedoff_genome is not None:
         kwargs["beguidedoff_genome"] = args.beguidedoff_genome
+    if args.beguidedoff_mode is not None:
+        kwargs["beguidedoff_mode"] = args.beguidedoff_mode
+    if args.beguidedoff_index is not None:
+        kwargs["beguidedoff_index"] = args.beguidedoff_index
     if args.db_path is not None:
         kwargs["db_path"] = args.db_path
     if args.queue_max is not None:

@@ -86,6 +86,8 @@ beguided-web             [--host 0.0.0.0] [--port 8000] [--reload] \
                          [--mouse-gtf-path ...] [--mouse-genome-label ...] \
                          [--default-genome human|mouse] \
                          [--beguidedoff-genome ...] \
+                         [--beguidedoff-mode fast|extensive] \
+                         [--beguidedoff-index ...] \
                          [--preload-genome | --no-preload-genome] \
                          [--preload-gtf | --no-preload-gtf] \
                          [--genome-label ...] \
@@ -328,6 +330,8 @@ picks the matching FASTA + GTF (and tag) via `WebConfig.genomes`.
   - `--genome-label` (human assembly label; default `GRCh38`; UI shows `Homo sapiens (<label>)`)
   - `--default-genome` (`human` | `mouse`; default `human`)
   - `--beguidedoff-genome`
+  - `--beguidedoff-mode` (`fast` | `extensive`; default `fast` — CPU FM-index filter, no GPU needed. `extensive` is the GPU brute-force mode)
+  - `--beguidedoff-index` (FM-index `.fmi` for fast mode; default: the `.npz` path with an `.fmi` suffix)
 - Or via environment variables:
   - `BEGUIDED_BASE_EDITOR_PROFILES_FILE`
   - `BEGUIDED_GENOME_FASTA`
@@ -338,6 +342,8 @@ picks the matching FASTA + GTF (and tag) via `WebConfig.genomes`.
   - `BEGUIDED_GENOME_LABEL`
   - `BEGUIDED_DEFAULT_GENOME`
   - `BEGUIDED_BEGUIDEDOFF_GENOME`
+  - `BEGUIDED_BEGUIDEDOFF_MODE`
+  - `BEGUIDED_BEGUIDEDOFF_INDEX`
 - `BEGUIDED_PRELOAD_GENOME` / `--preload-genome` / `--no-preload-genome` — preload the genome FASTA at startup (default: enabled).
 - `BEGUIDED_PRELOAD_GTF` / `--preload-gtf` / `--no-preload-gtf` — preload the GTF annotation at startup (default: enabled).
 - `BEGUIDED_QUEUE_MAX` / `--queue-max`, `BEGUIDED_COOLDOWN_SECONDS` / `--cooldown-seconds`, `BEGUIDED_MAX_UPLOAD_MB` / `--max-upload-mb`, `BEGUIDED_MAX_INPUT_TARGETS` / `--max-input-targets` — scheduler caps. Deployment (docker-compose) defaults: 16, 15 s, 1 MB, 500; bare-CLI defaults: 8, 60 s, 10 MB, 500.
