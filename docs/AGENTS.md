@@ -281,7 +281,9 @@ carried through the job payload (`genome_key`) into `tasks.execute_job`, which
 picks the matching FASTA + GTF (and tag) via `WebConfig.genomes`, and the
 matching encoded genome/FM-index via `WebConfig.beguidedoff_resolved(key)`
 (per-genome env vars `BEGUIDED_BEGUIDEDOFF_GENOME_<KEY>`/`_INDEX_<KEY>` beat
-the global fallback).
+the global fallback, which applies only to the default genome and to
+single-genome deployments — non-default genomes are never silently screened
+against another species' index).
 
 ### Off-target Screening Jobs (Web)
 

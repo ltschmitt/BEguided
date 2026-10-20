@@ -72,15 +72,15 @@ Then provide the path to an encoded genome `.npz` via `--beguidedoff-genome` or 
 
 ### Per-genome configuration
 
-With several selectable genomes (e.g. human and mouse), each genome can have its own encoded genome and FM-index. The per-genome variables win over the global ones, which remain the fallback for single-genome deployments:
+With several selectable genomes (e.g. human and mouse), each genome can have its own encoded genome and FM-index. The per-genome variables win over the global ones; the global setting is the fallback only for the **default genome** (and for single-genome deployments), so a non-default genome is never silently screened against another species' index:
 
 | Variable | Purpose |
 |---|---|
 | `BEGUIDED_BEGUIDEDOFF_GENOME_HUMAN` / `..._MOUSE` | Encoded `.npz` for that genome key |
 | `BEGUIDED_BEGUIDEDOFF_INDEX_HUMAN` / `..._MOUSE` | FM-index `.fmi` for that genome key (fast mode) |
-| `BEGUIDED_BEGUIDEDOFF_GENOME` / `_INDEX` / `_MODE` | Global fallback (any key without a per-genome variable) |
+| `BEGUIDED_BEGUIDEDOFF_GENOME` / `_INDEX` / `_MODE` | Global fallback (default genome and single-genome deployments only) |
 
-The `/config` endpoint reports per-genome availability (`offtarget.genomes`) so the UI can enable or disable the off-target search button per selected genome.
+The `/config` endpoint reports per-genome availability (`offtarget.genomes`) so the UI can enable or disable the off-target search button per selected genome; a configured genome without its own BEguidedOFF index is reported unavailable with the variables to set.
 
 ### Off-target screening from the web UI
 
@@ -120,7 +120,7 @@ python -m beguidedoff.cli build-index \
     genome_otbe.fmi
 ```
 
-Reference the resulting `.npz` in your pipeline config under `offtargets.beguidedoff_genome`, or pass `--beguidedoff-genome /path/to/genome_otbe.npz` on the CLI. Fast mode reads the `.fmi` (default location: next to the `.npz`); `extensive` mode reads the `.npz`.
+Reference the resulting `.npz` in your pipeline config under `offtargets.beguidedoff_genome`, or pass `--beguidedoff-genome /path/to/genome_otbe.npz` on the CLI. Fast mode reads the `.fmi` (default location: next to the `.npz`; it cannot load without the `.meta` sidecar written next to it — keep the pair together when copying); `extensive` mode reads the `.npz`.
 
 Note: in fast mode the off-target count (`offtarget_count`) covers sites with score ≤ the search cutoff. A configured `offtargets.count_threshold_score` above that cutoff is clamped to it (with a warning), because deeper thresholds would need a shorter exact anchor whose genome-wide hit count exceeds the engine's per-anchor cap and would make counts incomplete.
 

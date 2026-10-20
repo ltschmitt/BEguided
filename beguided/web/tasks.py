@@ -112,7 +112,9 @@ def _build_config(
 
     # BEguidedOFF configuration for the selected genome: per-genome env vars
     # (BEGUIDED_BEGUIDEDOFF_GENOME_<KEY> / ..._INDEX_<KEY>) win over the
-    # global setting, which remains the fallback for single-genome setups.
+    # global setting, which only falls back for the default genome (and for
+    # single-genome setups) so no species is screened against another
+    # species' index.
     bgo = cfg.beguidedoff_resolved(genome_key)
 
     if merged_profiles_b64:

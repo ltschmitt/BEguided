@@ -265,14 +265,32 @@ class WebConfig:
             return str(Path(self.beguidedoff_genome).with_suffix(".fmi"))
         return ""
 
+    def _global_beguidedoff_fallback(self, genome_key: str) -> bool:
+        """Whether the global BEguidedOFF settings may serve ``genome_key``.
+
+        The global ``beguidedoff_genome`` / ``beguidedoff_index`` fields exist
+        for single-genome deployments. On a server with several selectable
+        genomes they apply only to the default genome: a mouse job must never
+        be silently screened against another species' index. Any other
+        genome needs its own ``BEGUIDED_BEGUIDEDOFF_GENOME_<KEY>`` /
+        ``BEGUIDED_BEGUIDEDOFF_INDEX_<KEY>`` variables.
+        """
+        if len(self.genomes) <= 1:
+            return True
+        return (genome_key or "").strip().lower() == self.default_genome
+
     def beguidedoff_for(self, genome_key: str) -> dict:
         """Resolve the BEguidedOFF configuration for one selectable genome.
 
         Per-genome environment variables (``BEGUIDED_BEGUIDEDOFF_GENOME_<KEY>``
-        / ``BEGUIDED_BEGUIDEDOFF_INDEX_<KEY>`` with ``<KEY`` upper-cased, e.g.
+        / ``BEGUIDED_BEGUIDEDOFF_INDEX_<KEY>`` with ``<KEY>`` upper-cased, e.g.
         ``_HUMAN`` / ``_MOUSE``) win over the global ``beguidedoff_genome`` /
-        ``beguidedoff_index`` fields, which act as the fallback for every
-        genome (single-genome deployments only need the global setting).
+        ``beguidedoff_index`` fields. The global fields act as the fallback
+        only for the default genome (and for single-genome deployments) —
+        see :meth:`_global_beguidedoff_fallback`. A per-genome ``_GENOME_<KEY>``
+        fully opts out of the global fallback: a missing ``_INDEX_<KEY>`` is
+        derived from the .npz sibling by :meth:`beguidedoff_resolved` rather
+        than mixing in another genome's index.
 
         Returns:
             dict with ``genome`` (encoded .npz path, possibly empty), ``index``
@@ -284,10 +302,10 @@ class WebConfig:
         if suffix:
             genome = os.getenv(f"BEGUIDED_BEGUIDEDOFF_GENOME_{suffix}", "").strip()
             index = os.getenv(f"BEGUIDED_BEGUIDEDOFF_INDEX_{suffix}", "").strip()
-        if not genome:
+        if not genome and self._global_beguidedoff_fallback(genome_key):
             genome = self.beguidedoff_genome
-        if not index:
-            index = self.beguidedoff_index
+            if not index:
+                index = self.beguidedoff_index
         return {"genome": genome, "index": index, "mode": self.beguidedoff_mode}
 
     def beguidedoff_resolved(self, genome_key: str) -> dict:
@@ -322,6 +340,17 @@ class WebConfig:
                 available, reason = False, "BEguidedOFF is not installed"
             elif not genome:
                 available, reason = False, "no encoded genome configured"
+                if (
+                    self.beguidedoff_genome
+                    and len(self.genomes) > 1
+                    and key != self.default_genome
+                ):
+                    upper = key.upper()
+                    reason = (
+                        "no BEguidedOFF index configured for this genome "
+                        f"(set BEGUIDED_BEGUIDEDOFF_GENOME_{upper} / "
+                        f"BEGUIDED_BEGUIDEDOFF_INDEX_{upper})"
+                    )
             elif mode == "fast" and (not index or not Path(index).exists()):
                 available, reason = False, (
                     f"FM-index not found: {index or '(derived from .npz)'}"

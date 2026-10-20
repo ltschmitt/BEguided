@@ -180,15 +180,49 @@ class TestPerGenomeConfig:
             max_input_targets=10,
         )
 
-    def test_global_fallback_for_any_key(self, tmp_path):
+    def test_global_fallback_default_genome_only(self, tmp_path):
         cfg = self._cfg(tmp_path)
-        for key in ("human", "mouse", "zebrafish"):
+        # Two genomes configured (human + mouse default paths): the global
+        # BEguidedOFF setting applies to the default genome (human) only, so
+        # a mouse job is never silently screened against the human index.
+        assert len(cfg.genomes) == 2
+        human = cfg.beguidedoff_resolved("human")
+        assert human["genome"] == str(tmp_path / "human.npz")
+        assert human["index"] == str(tmp_path / "human.fmi")
+        for key in ("mouse", "zebrafish"):
             resolved = cfg.beguidedoff_resolved(key)
-            # Explicit index wins; here it is empty -> derived sibling.
-            assert resolved["genome"] == str(tmp_path / "human.npz")
-            assert resolved["index"] == str(tmp_path / "human.fmi")
-            # The global mode field is the fallback for every key.
+            assert resolved["genome"] == ""
+            assert resolved["index"] == ""
+            # The global mode field is still shared.
             assert resolved["mode"] == cfg.beguidedoff_mode
+
+    def test_global_fallback_single_genome(self, tmp_path):
+        from beguided.web.config import WebConfig
+
+        # A single-genome deployment keeps the simple global fallback even
+        # when the only key is not the default genome name.
+        cfg = WebConfig(
+            base_editor_profiles_file=str(tmp_path / "p.tsv"),
+            genome_fasta="",
+            mouse_genome_fasta=str(tmp_path / "mouse.fa"),
+            default_genome="mouse",
+            beguidedoff_genome=str(tmp_path / "mouse.npz"),
+            max_input_targets=10,
+        )
+        resolved = cfg.beguidedoff_resolved("mouse")
+        assert resolved["genome"] == str(tmp_path / "mouse.npz")
+        assert resolved["index"] == str(tmp_path / "mouse.fmi")
+
+    def test_keyed_env_opt_out_of_global(self, tmp_path, monkeypatch):
+        cfg = self._cfg(tmp_path)
+        # A per-genome genome path opts out of the global fallback entirely:
+        # a missing per-genome index derives from the .npz sibling instead of
+        # silently mixing in the global (human) index.
+        monkeypatch.setenv("BEGUIDED_BEGUIDEDOFF_GENOME_MOUSE", "/data/mouse.npz")
+        monkeypatch.delenv("BEGUIDED_BEGUIDEDOFF_INDEX_MOUSE", raising=False)
+        mouse = cfg.beguidedoff_resolved("mouse")
+        assert mouse["genome"] == "/data/mouse.npz"
+        assert mouse["index"] == "/data/mouse.fmi"
 
     def test_keyed_env_overrides_global(self, tmp_path, monkeypatch):
         cfg = self._cfg(tmp_path)
