@@ -129,6 +129,20 @@ class WebConfig:
     remove_guides_score: float = 5.0
     mismatch_tolerance: int = 5
     remove_guides_n_offtargets: int = 100
+    # Screening-job limits (user-triggered off-target search on a filtered
+    # result set). The guide cap sits just above the largest legitimate
+    # payload (max_input_targets x profiles) so it only blocks abuse.
+    screen_cooldown_seconds: float = field(
+        default_factory=lambda: float(os.getenv("BEGUIDED_SCREEN_COOLDOWN_SECONDS", "2"))
+    )
+    max_screen_guides: int = field(
+        default_factory=lambda: int(os.getenv("BEGUIDED_MAX_SCREEN_GUIDES", "20000"))
+    )
+    # Load configured FM-index handles once at startup and share them across
+    # screening jobs (the human index is ~1.7 GB of page cache per genome).
+    preload_offtarget_index: bool = field(
+        default_factory=lambda: _env_bool("BEGUIDED_PRELOAD_OFFTARGET_INDEX", True)
+    )
     max_input_targets: int = field(
         default_factory=lambda: int(os.getenv("BEGUIDED_MAX_INPUT_TARGETS", "500"))
     )
@@ -250,6 +264,82 @@ class WebConfig:
         if self.beguidedoff_genome:
             return str(Path(self.beguidedoff_genome).with_suffix(".fmi"))
         return ""
+
+    def beguidedoff_for(self, genome_key: str) -> dict:
+        """Resolve the BEguidedOFF configuration for one selectable genome.
+
+        Per-genome environment variables (``BEGUIDED_BEGUIDEDOFF_GENOME_<KEY>``
+        / ``BEGUIDED_BEGUIDEDOFF_INDEX_<KEY>`` with ``<KEY`` upper-cased, e.g.
+        ``_HUMAN`` / ``_MOUSE``) win over the global ``beguidedoff_genome`` /
+        ``beguidedoff_index`` fields, which act as the fallback for every
+        genome (single-genome deployments only need the global setting).
+
+        Returns:
+            dict with ``genome`` (encoded .npz path, possibly empty), ``index``
+            (raw .fmi path, possibly empty) and ``mode`` (``fast``/``extensive``).
+        """
+        suffix = (genome_key or "").strip().upper()
+        genome = ""
+        index = ""
+        if suffix:
+            genome = os.getenv(f"BEGUIDED_BEGUIDEDOFF_GENOME_{suffix}", "").strip()
+            index = os.getenv(f"BEGUIDED_BEGUIDEDOFF_INDEX_{suffix}", "").strip()
+        if not genome:
+            genome = self.beguidedoff_genome
+        if not index:
+            index = self.beguidedoff_index
+        return {"genome": genome, "index": index, "mode": self.beguidedoff_mode}
+
+    def beguidedoff_resolved(self, genome_key: str) -> dict:
+        """Like :meth:`beguidedoff_for`, with the .fmi path finalised.
+
+        An explicit per-genome/global index wins; otherwise the index is
+        derived as the ``.npz`` sibling (same basename, ``.fmi`` suffix).
+        """
+        resolved = self.beguidedoff_for(genome_key)
+        if not resolved["index"] and resolved["genome"]:
+            resolved["index"] = str(Path(resolved["genome"]).with_suffix(".fmi"))
+        return resolved
+
+    def offtarget_availability(self) -> dict:
+        """Per-genome off-target search availability for ``/config``.
+
+        A genome is available when BEguidedOFF is installed, an encoded
+        genome is configured and — for fast mode — its FM-index exists.
+        Extensive (GPU) mode is reported unavailable on the web server: it
+        needs CUDA and the search would occupy the single worker for minutes.
+        """
+        out: "dict[str, dict]" = {}
+        installed = self.has_beguidedoff
+        for key in self.genomes:
+            resolved = self.beguidedoff_resolved(key)
+            genome = resolved["genome"]
+            index = resolved["index"]
+            mode = resolved["mode"]
+            available = True
+            reason = ""
+            if not installed:
+                available, reason = False, "BEguidedOFF is not installed"
+            elif not genome:
+                available, reason = False, "no encoded genome configured"
+            elif mode == "fast" and (not index or not Path(index).exists()):
+                available, reason = False, (
+                    f"FM-index not found: {index or '(derived from .npz)'}"
+                )
+            elif mode == "extensive":
+                available, reason = False, (
+                    "extensive (GPU) mode is not available on the web server; "
+                    "set BEGUIDED_BEGUIDEDOFF_MODE=fast"
+                )
+            out[key] = {
+                "mode": mode,
+                "available": available,
+                "reason": reason,
+                "genome": genome,
+                "index": index,
+                "is_mini_fixture": bool(genome) and "mini_genome" in Path(genome).name,
+            }
+        return out
 
     @property
     def has_beguidedoff(self) -> bool:

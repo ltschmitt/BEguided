@@ -53,6 +53,7 @@ def _build_config(
     filter_homopolymers: Optional[bool] = None,
     trinuc_edit_score_min: Optional[float] = None,
     keep_targets_without_guides: bool = False,
+    genome_key: str = "human",
 ) -> dict:
     """Build a pipeline config dict from web UI parameters.
 
@@ -109,9 +110,10 @@ def _build_config(
     targets_path = Path(work_dir) / "targets.tsv"
     targets_df.to_csv(targets_path, sep="\t", index=False)
 
-    # FM-index for fast mode: explicit config wins, otherwise the .npz
-    # sibling path (same basename, .fmi suffix).
-    bgo_index = cfg.beguidedoff_index_resolved
+    # BEguidedOFF configuration for the selected genome: per-genome env vars
+    # (BEGUIDED_BEGUIDEDOFF_GENOME_<KEY> / ..._INDEX_<KEY>) win over the
+    # global setting, which remains the fallback for single-genome setups.
+    bgo = cfg.beguidedoff_resolved(genome_key)
 
     if merged_profiles_b64:
         profiles_path = Path(work_dir) / "merged_profiles.tsv"
@@ -157,9 +159,9 @@ def _build_config(
         "passthrough_extras": passthrough_extras,
         "skip_bystander": skip_bystander,
         "offtargets": {
-            "mode": cfg.beguidedoff_mode,
-            "beguidedoff_genome": cfg.beguidedoff_genome,
-            "index_path": bgo_index,
+            "mode": bgo["mode"],
+            "beguidedoff_genome": bgo["genome"],
+            "index_path": bgo["index"],
             # The pipeline key is max_mismatches; ``mismatch_tolerance`` was
             # the old web-side name under which the value was silently
             # ignored by the pipeline.
@@ -171,11 +173,13 @@ def _build_config(
     }
 
 
-def _validate_offtarget_config(search_offtargets: bool) -> None:
+def _validate_offtarget_config(search_offtargets: bool, genome_key: str = "human") -> None:
     """Raise a clear error if off-target search is requested but unavailable.
 
     Args:
         search_offtargets: Whether the UI/user requested off-target search.
+        genome_key: Which selectable genome the search will run against; the
+            encoded genome / FM-index are resolved per genome.
 
     Raises:
         RuntimeError: If BEguidedOFF is not installed or not configured.
@@ -189,12 +193,15 @@ def _validate_offtarget_config(search_offtargets: bool) -> None:
             "Install it from https://github.com/ltschmitt/BEguidedOFF "
             "or uncheck the Off-target option."
         )
-    if not cfg.beguidedoff_genome:
+    bgo = cfg.beguidedoff_resolved(genome_key)
+    if not bgo["genome"]:
         raise RuntimeError(
-            "Off-target search requires --beguidedoff-genome or BEGUIDED_BEGUIDEDOFF_GENOME."
+            "Off-target search requires --beguidedoff-genome or "
+            f"BEGUIDED_BEGUIDEDOFF_GENOME_{genome_key.upper()} "
+            "(or the global BEGUIDED_BEGUIDEDOFF_GENOME)."
         )
-    if cfg.beguidedoff_mode == "fast":
-        index = cfg.beguidedoff_index_resolved
+    if bgo["mode"] == "fast":
+        index = bgo["index"]
         if not index or not Path(index).exists():
             raise RuntimeError(
                 "fast-mode off-target search requires an FM-index (.fmi); "
@@ -203,7 +210,7 @@ def _validate_offtarget_config(search_offtargets: bool) -> None:
                 "--beguidedoff-index / BEGUIDED_BEGUIDEDOFF_INDEX at it, or "
                 "switch to --beguidedoff-mode extensive (GPU)."
             )
-    genome = Path(cfg.beguidedoff_genome)
+    genome = Path(bgo["genome"])
     if "mini_genome" in genome.name or "tests" in genome.parts:
         logger.warning(
             "Off-target search is configured against the bundled mini test "
@@ -346,7 +353,7 @@ def execute_job(
     if sequence_mode:
         search_offtargets = False
 
-    _validate_offtarget_config(search_offtargets)
+    _validate_offtarget_config(search_offtargets, genome_key=genome_key)
 
     # Cheap pre-flight: if the targets DataFrame is empty, fail early without
     # loading the genome.
@@ -514,6 +521,7 @@ def execute_job(
             custom_profiles_b64=custom_profiles_b64,
             merged_profiles_b64=merged_profiles_b64,
             keep_targets_without_guides=keep_targets_without_guides,
+            genome_key=genome_key,
         )
         final_output = Path(work_dir) / "beguided_results.tsv"
 
@@ -548,6 +556,24 @@ def execute_job(
                 "status": "complete",
                 "message": f"Pipeline complete: {len(records)} rows.",
                 "records": records,
+                # Metadata a follow-up off-target screening job needs to
+                # reconstruct this job's inputs (profiles file, genome
+                # selection). Rides along in result_json; never exposed by
+                # the /results endpoint, which returns only ``records``.
+                "_screen_meta": {
+                    "mode": mode,
+                    "genome_key": genome_key,
+                    "genome_fasta": (
+                        genome_option.genome_fasta if genome_option is not None else ""
+                    ),
+                    "gtf_path": (
+                        genome_option.gtf_path if genome_option is not None else ""
+                    ),
+                    "base_editor_names": list(base_editor_names),
+                    "use_custom_profiles": bool(use_custom_profiles),
+                    "custom_profiles_b64": custom_profiles_b64,
+                    "merged_profiles_b64": merged_profiles_b64,
+                },
             }
         except PipelineCancelled:
             return {
@@ -567,6 +593,229 @@ def execute_job(
                 "message": str(exc),
                 "records": [],
             }
+
+
+# Placeholder-row markers mirroring the pipeline's no-guide rows (and the
+# client-side PLACEHOLDER_MARKERS in app.js). Rows like these carry no guide
+# sequence and can never be screened.
+_SCREEN_PLACEHOLDER_MARKERS = (
+    "**No guide possible**",
+    "**Base change incompatible**",
+    "**Guides removed by filter**",
+)
+
+
+def _screen_row_key(record: dict) -> tuple:
+    """Identity key of one result row for screening requests.
+
+    Matches the key the frontend builds per table row: chromosome, position,
+    target_base, desired_base and base_editor uniquely identify a guide row
+    of a completed job.
+    """
+
+    def _norm(value) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, float) and float(value).is_integer():
+            return str(int(value))
+        return str(value)
+
+    return (
+        _norm(record.get("chromosome")),
+        _norm(record.get("position")),
+        _norm(record.get("target_base")),
+        _norm(record.get("desired_base")),
+        _norm(record.get("base_editor")),
+    )
+
+
+def execute_screen_job(
+    job_id: str,
+    parent_job_id: str,
+    rows: list,
+    parent_records: list,
+    screen_meta: dict,
+    cancel_event: Optional[threading.Event] = None,
+) -> dict:
+    """Run BEguidedOFF off-target screening on a filtered subset of a job.
+
+    Called from the scheduler worker thread for jobs whose payload has
+    ``kind="screen"``. The parent job's pipeline results are *immutable*;
+    this job writes its own artifact set (step 4 + merged final TSV) with
+    the removal rule disabled — every screened row is kept and the client
+    renders the off-target verdict from the operator-configured thresholds.
+
+    Args:
+        job_id: This (child) job's id.
+        parent_job_id: The completed pipeline job the rows belong to.
+        rows: List of row-key dicts (chromosome, position, target_base,
+            desired_base, base_editor) as selected by the user.
+        parent_records: The parent job's result records (fetched by the
+            worker from the scheduler's result store).
+        screen_meta: The parent job's ``_screen_meta`` (profiles, genome key).
+        cancel_event: Cooperative cancel event.
+
+    Returns:
+        dict with keys: job_id, status, message, records.
+    """
+    from beguided.web.sse_logger import get_sse_handler
+
+    sse = get_sse_handler()
+    cfg = get_config()
+    meta = screen_meta or {}
+    genome_key = meta.get("genome_key") or "human"
+
+    if not parent_records:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "message": (
+                "Parent job has no stored results to screen; re-run the "
+                "guide search first."
+            ),
+            "records": [],
+        }
+    if not rows:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "message": "No guides selected for off-target screening.",
+            "records": [],
+        }
+
+    try:
+        _validate_offtarget_config(True, genome_key=genome_key)
+    except RuntimeError as exc:
+        return {"job_id": job_id, "status": "error", "message": str(exc), "records": []}
+
+    # Match the requested keys against the parent records. Placeholder rows
+    # (no guide) can never be screened and are ignored even if requested.
+    keyset = {_screen_row_key(r) for r in rows}
+    placeholders = set(_SCREEN_PLACEHOLDER_MARKERS)
+    matched = [
+        r for r in parent_records
+        if _screen_row_key(r) in keyset
+        and str(r.get("guide_rna_sequence") or "") not in placeholders
+    ]
+    matched_keys = {_screen_row_key(r) for r in matched}
+    missing = keyset - matched_keys
+    if missing:
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "message": (
+                f"{len(missing)} of {len(keyset)} requested guides were not "
+                "found in the parent job's results; refresh the results and "
+                "try again."
+            ),
+            "records": [],
+        }
+
+    resolved = cfg.beguidedoff_resolved(genome_key)
+
+    with tempfile.TemporaryDirectory(prefix="beguided_screen_") as work_dir:
+        # The filtered rows are written as the step-3 input the pipeline's
+        # off-target steps expect; column order matches the parent's final
+        # TSV, which is a superset of what steps 4-5 need.
+        step3_path = Path(work_dir) / "step3_filtered.tsv"
+        pd.DataFrame(matched).to_csv(step3_path, sep="\t", index=False)
+
+        # Reconstruct the profiles file the parent job used, so BEguidedOFF
+        # resolves every row's editor (PAM / editing window) identically.
+        if meta.get("merged_profiles_b64"):
+            profiles_path = Path(work_dir) / "merged_profiles.tsv"
+            profiles_path.write_bytes(base64.b64decode(meta["merged_profiles_b64"]))
+            profiles_file = str(profiles_path)
+        elif meta.get("use_custom_profiles") and meta.get("custom_profiles_b64"):
+            profiles_path = Path(work_dir) / "custom_profiles.tsv"
+            profiles_path.write_bytes(base64.b64decode(meta["custom_profiles_b64"]))
+            profiles_file = str(profiles_path)
+        else:
+            profiles_file = cfg.base_editor_profiles_file
+
+        config = {
+            "input": {
+                "targets": str(step3_path),
+                "genome": meta.get("genome_fasta", ""),
+                "base_editor_profiles": profiles_file,
+                "gff_file": meta.get("gtf_path", ""),
+            },
+            "output_prefix": work_dir,
+            "use_base_editors": "all",
+            "keep_bystanders": "all",
+            "search_offtargets": True,
+            "keep_targets_without_guides": False,
+            "offtargets": {
+                "mode": resolved["mode"],
+                "beguidedoff_genome": resolved["genome"],
+                "index_path": resolved["index"],
+                "max_mismatches": cfg.mismatch_tolerance,
+                "count_threshold_score": cfg.count_threshold_score,
+                # Removal disabled: the web UI keeps every screened row and
+                # shows the verdict (None is the pipeline's "rule disabled"
+                # sentinel; the fast search cutoff then falls back to the
+                # count threshold, clamped to the sound maximum).
+                "remove_guides_score": None,
+                "remove_guides_n_offtargets": None,
+            },
+        }
+
+        # Reuse the preloaded FM-index handle when one is cached for this
+        # path (startup preload or an earlier screening job).
+        index_handle = None
+        if resolved["mode"] == "fast":
+            from beguided.web.offtarget_index_cache import get_handle
+
+            index_handle = get_handle(resolved["index"])
+
+        final_output = Path(work_dir) / "beguided_results.tsv"
+        try:
+            run_pipeline(
+                config,
+                start_step=4,
+                end_step=5,
+                cancel_event=cancel_event,
+                offtarget_index_handle=index_handle,
+            )
+        except PipelineCancelled:
+            return {
+                "job_id": job_id,
+                "status": "cancelled",
+                "message": "Cancelled by user.",
+                "records": [],
+            }
+        except Exception as exc:
+            tb = traceback.format_exc()
+            for line in tb.splitlines():
+                sse.push(job_id, line)
+            logger.exception("Screening job %s failed: %s", job_id, exc)
+            return {
+                "job_id": job_id,
+                "status": "error",
+                "message": str(exc),
+                "records": [],
+            }
+
+        records = _df_to_records(final_output)
+        if not records:
+            return {
+                "job_id": job_id,
+                "status": "error",
+                "message": "Screening finished but no output rows were produced.",
+                "records": [],
+            }
+        n_hit = sum(
+            1 for r in records if r.get("worst_offtarget_score") not in (None, "")
+        )
+        return {
+            "job_id": job_id,
+            "status": "complete",
+            "message": (
+                f"Off-target screening complete: {len(records)} guides "
+                f"screened, {n_hit} with reported off-targets."
+            ),
+            "records": records,
+        }
 
 
 def _load_genome_from_string(fasta_text: str, load_genome_fn) -> dict:

@@ -530,17 +530,15 @@ def test_last_submit_is_ttl_pruned(tmp_path):
     sch = Scheduler(db_path=str(db), queue_max=2, cooldown_seconds=1)
     sch.start()
     try:
-        # First submit from IP "x" goes through and seeds the map.
+        # First submit from IP "x" goes through and seeds the map. The map
+        # is nested: cooldown kind -> IP -> last submit time.
         sch.submit("10.0.0.1", {"dummy": True})
-        assert "10.0.0.1" in sch._last_submit
+        assert "10.0.0.1" in sch._last_submit["pipeline"]
         # Roll the monotonic clock back far enough for the prune to
         # consider the entry stale.
-        import beguided.web.scheduler as sched_mod
-
-        original = sch._last_submit.copy()
-        sch._last_submit["10.0.0.1"] = 0.0
+        sch._last_submit["pipeline"]["10.0.0.1"] = 0.0
         sch._prune_last_submit(now=time.monotonic())
-        assert "10.0.0.1" not in sch._last_submit
+        assert "10.0.0.1" not in sch._last_submit.get("pipeline", {})
     finally:
         sch.stop()
 

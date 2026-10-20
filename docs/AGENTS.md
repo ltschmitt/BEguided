@@ -267,12 +267,36 @@ now **keyed registries** (one entry per genome: `human`, `mouse`, …):
   exposes `/gtf/status` (optionally `?genome=<key>`). The CDS `select_tag` is
   per genome (`MANE_Select` for human Ensembl, `Ensembl_canonical` for the EBI
   mouse annotation).
+- `beguided/web/offtarget_index_cache.py` — opens each configured fast-mode
+  FM-index (`.fmi`) once (startup preload when
+  `BEGUIDED_PRELOAD_OFFTARGET_INDEX=1`, else lazily on the first screening
+  job) and shares the read-only handle across jobs. Backs the
+  `run_pipeline(..., offtarget_index_handle=...)` kwarg; the fast finder
+  accepts the handle via `beguidedofffast(index=...)`.
 
 Both back the `run_pipeline(..., genome=..., interval_trees=...)` kwargs in
 `beguided.pipeline`. When `preload_genome=False` or `preload_gtf=False`, the
 pipeline falls back to parsing the file per job. The selected genome key is
 carried through the job payload (`genome_key`) into `tasks.execute_job`, which
-picks the matching FASTA + GTF (and tag) via `WebConfig.genomes`.
+picks the matching FASTA + GTF (and tag) via `WebConfig.genomes`, and the
+matching encoded genome/FM-index via `WebConfig.beguidedoff_resolved(key)`
+(per-genome env vars `BEGUIDED_BEGUIDEDOFF_GENOME_<KEY>`/`_INDEX_<KEY>` beat
+the global fallback).
+
+### Off-target Screening Jobs (Web)
+
+Two-phase flow: `/run` submits the pipeline with `search_offtargets=False`;
+the user filters the Guides table; `POST /offtarget` (body: parent `job_id` +
+`rows` as `(chromosome, position, target_base, desired_base, base_editor)`
+key tuples) queues a child job (`payload.kind == "screen"`) that re-runs only
+steps 4–5 on that subset with `remove_guides_score`/`remove_guides_n_offtargets`
+set to `None` (removal disabled — every screened row is kept; the client
+renders the verdict from `/config`'s `offtarget.thresholds`). The parent
+result stays immutable; the child carries the parent's profiles/genome
+selection via the parent's `_screen_meta` (stored in its result JSON).
+Screening submits use `cooldown_key="screen"` (2 s default,
+`BEGUIDED_SCREEN_COOLDOWN_SECONDS`) and a hard guide cap
+(`BEGUIDED_MAX_SCREEN_GUIDES`, 20 000).
 
 ### Config Keys (offtargets block)
 

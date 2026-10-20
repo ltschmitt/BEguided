@@ -390,7 +390,7 @@ def _prepare_beguidedoff_input(df, output_path):
 def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
                        count_threshold_score, output_file, batch_size=1500,
                        cancel_event=None, mode="extensive", index_path="",
-                       search_cutoff=None):
+                       search_cutoff=None, index_handle=None):
     """Run BEguidedOFF off-target search on the filtered guide file.
 
     Guides are loaded explicitly and processed in batches so the pipeline
@@ -405,6 +405,10 @@ def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
         search_cutoff: CCTOP score cutoff (fast mode only). Must be at least
             ``remove_guides_score`` so the removal rule sees every site it
             could act on; the call site enforces this.
+        index_handle: Optional preloaded FM-index object (fast mode only).
+            When given it is used directly instead of opening ``index_path``,
+            letting long-lived processes (e.g. the web server) share one warm
+            handle across jobs.
         cancel_event: Optional ``threading.Event``. Checked between batches;
             raising ``PipelineCancelled`` exits before the next batch starts.
             A single batch cannot be interrupted.
@@ -437,6 +441,7 @@ def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
             search_cutoff=search_cutoff,
             n_top_offtargets=1,
             scoring_method="CCTOP",
+            index=index_handle,
         )
         # Fast mode enumerates exactly the sites with score <= search_cutoff.
         # Counting at a *higher* threshold would silently widen the search to
@@ -538,7 +543,7 @@ def _resolve_fast_search_cutoff(cfg):
 
 
 def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=None,
-                interval_trees=None):
+                interval_trees=None, offtarget_index_handle=None):
     """Run pipeline steps as direct function calls.
 
     Output layout::
@@ -566,6 +571,11 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
             dict instead of calling ``load_gtf_to_interval_tree()`` on the
             configured GTF. The caller is responsible for loading it (e.g.
             ``beguided.web.gtf_cache``).
+        offtarget_index_handle: Optional pre-loaded FM-index object for
+            fast-mode Step 4 (e.g. from ``beguided.web.offtarget_index_cache``).
+            When supplied it is used instead of opening
+            ``offtargets.index_path``; the path is still required for logging
+            and existence checks.
 
     Returns:
         Path to final output file.
@@ -880,6 +890,7 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
             mode=mode,
             index_path=index_path,
             search_cutoff=search_cutoff,
+            index_handle=offtarget_index_handle,
         )
         logger.info(
             f"BEguidedOFF complete: {len(ot_df)} off-target rows written to "

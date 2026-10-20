@@ -26,6 +26,14 @@ const condenseToggle = document.getElementById("condenseToggle");
 const filterSummary = document.getElementById("filterSummary");
 const downloadResults = document.getElementById("downloadResults");
 const downloadResultsXlsx = document.getElementById("downloadResultsXlsx");
+// Off-target screening (search off-targets for the filtered guide subset).
+const offtargetActions = document.getElementById("offtargetActions");
+const screenOfftargetBtn = document.getElementById("screenOfftargetBtn");
+const offtargetHint = document.getElementById("offtargetHint");
+const offtargetPanel = document.getElementById("offtargetPanel");
+const offtargetPlaceholder = document.getElementById("offtargetPlaceholder");
+const offtargetStatus = document.getElementById("offtargetStatus");
+const downloadOfftargetResults = document.getElementById("downloadOfftargetResults");
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabPanels = document.querySelectorAll(".tab-panel");
 const subtabButtons = document.querySelectorAll(".subtab-button");
@@ -67,6 +75,18 @@ let currentRecords = [];
 // in the results toolbar (default: checked).
 let condenseEnabled = !!(condenseToggle && condenseToggle.checked);
 let matchedBaseEditorCount = 0;
+// Off-target screening state. ``offtargetConfig`` mirrors the /config
+// "offtarget" block (per-genome availability + operator thresholds);
+// ``screenRecords``/``screenJobId`` hold the latest screening snapshot —
+// unlike the Guides tab it is NOT re-filtered live, it shows exactly what
+// was screened.
+let offtargetConfig = null;
+let screenJobId = null;
+let screenRevokeToken = null;
+let screenRecords = [];
+let screening = false;
+let currentFilteredGuideRows = [];
+let currentJobGenomeKey = null;
 let customEditorKey = "custom";
 let customEditorLabel = "Custom (uploaded)";
 let customProfilesLoaded = false;
@@ -132,6 +152,10 @@ const isSpryCas = (cas) => /spry/i.test(cas || "");
             limitsInfo.textContent =
                 `Upload a table of genomic targets below (max. ${data.max_input_targets} targets ` +
                 `and ${data.max_upload_mb} MB)`;
+        }
+        if (data.ok && data.offtarget) {
+            offtargetConfig = data.offtarget;
+            updateScreenButton();
         }
     } catch (err) {
         console.warn("Failed to fetch server config:", err);
@@ -927,6 +951,7 @@ runBtn.addEventListener("click", async () => {
         resultsPlaceholder.textContent = "Waiting for pipeline to complete...";
     }
     resultsToolbar.style.display = "none";
+    if (offtargetActions) offtargetActions.style.display = "none";
     if (resultsSummary) {
         resultsSummary.innerHTML = "";
         resultsSummary.style.display = "none";
@@ -940,6 +965,8 @@ runBtn.addEventListener("click", async () => {
     downloadResults.style.display = "none";
     downloadResultsXlsx.style.display = "none";
     cancelBtn.style.display = "none";
+    // Any previous off-target snapshot belongs to an older parent job.
+    resetScreeningState();
 
     // Switch to Logging tab
     tabButtons.forEach(b => b.classList.remove("active"));
@@ -993,6 +1020,9 @@ runBtn.addEventListener("click", async () => {
 
     currentJobId = data.job_id;
     currentRevokeToken = data.revoke_token;
+    // Remember which genome this job runs against so the off-target
+    // screening button can check availability for the right index.
+    currentJobGenomeKey = selectedGenomeKey();
     cancelBtn.style.display = "inline-flex";
     setStatus("queued");
     startLogStream(currentJobId);
@@ -1023,6 +1053,12 @@ cancelBtn.addEventListener("click", async () => {
 
 // Clear logs
 clearLogsBtn.addEventListener("click", clearLogs);
+
+// Off-target screening: search off-targets for the currently filtered
+// subset of guides (button below the Results-tab filters).
+if (screenOfftargetBtn) {
+    screenOfftargetBtn.addEventListener("click", runScreening);
+}
 
 function clearLogs() {
     logOutput.textContent = "";
@@ -1188,20 +1224,35 @@ function formatSequencePropsCell(row, column, value) {
 // or below the search cutoff — they pass the off-target filter — so the cell
 // says so instead of rendering a blank (the underlying TSV keeps an empty
 // cell; only the on-screen table shows the label).
+//
+// When operator thresholds are known (from /config), values that the
+// pipeline's removal rule would have removed (score below the threshold or
+// too many off-target sites) get an explicit badge. The thresholds are
+// display-only: users never configure them.
 function formatOfftargetCell(row, column, value) {
+    const thresholds = offtargetConfig && offtargetConfig.thresholds;
     if (column === "worst_offtarget_score") {
         if (value === undefined || value === null || value === "") {
             return `<span class="muted">passes filter</span>`;
         }
         const num = Number(value);
         if (Number.isFinite(num)) {
-            return num.toFixed(2).replace(/\.?0+$/, "");
+            let html = num.toFixed(2).replace(/\.?0+$/, "");
+            if (thresholds && num < thresholds.remove_guides_score) {
+                html += ` <span class="ot-badge" title="Score is below the operator's off-target threshold (${thresholds.remove_guides_score}); this guide would be removed by the strict off-target filter.">below threshold</span>`;
+            }
+            return html;
         }
         return null;
     }
     if (column === "offtarget_count") {
         if (value === undefined || value === null || value === "") {
             return `<span class="muted">passes filter</span>`;
+        }
+        const num = Number(value);
+        if (Number.isFinite(num) && thresholds &&
+            num > thresholds.remove_guides_n_offtargets) {
+            return `${num} <span class="ot-badge" title="More off-target sites than the operator's threshold (${thresholds.remove_guides_n_offtargets}); this guide would be removed by the strict off-target filter.">too many</span>`;
         }
         return null;
     }
@@ -1690,6 +1741,7 @@ async function fetchResults(jobId) {
             resultsPlaceholder.textContent = data.message || "No results returned.";
         }
         resultsToolbar.style.display = "none";
+        if (offtargetActions) offtargetActions.style.display = "none";
         if (resultsSummary) {
             resultsSummary.innerHTML = "";
             resultsSummary.style.display = "none";
@@ -1706,6 +1758,7 @@ async function fetchResults(jobId) {
     currentRecords = data.records;
     if (resultsPlaceholder) resultsPlaceholder.style.display = "none";
     resultsToolbar.style.display = "flex";
+    if (offtargetActions) offtargetActions.style.display = "flex";
     if (resultsGuideStatus) {
         const foundTargets = new Set(
             currentRecords.filter(r => !isNoGuideRow(r)).map(targetKey)
@@ -1967,6 +2020,11 @@ function renderResultsTable() {
     // always reflect one editor per row. Filters still apply.
     const summaryFiltered = filterRecords(currentRecords, mode, score, gc, homopolymer, trinuc);
 
+    // Off-target screening counts the real guide rows (not the re-added
+    // "no guide" placeholders) the current filters select.
+    currentFilteredGuideRows = baseFiltered.filter(r => !isNoGuideRow(r));
+    updateScreenButton();
+
     target.classList.toggle("condensed", condenseEnabled && condensed.length < currentRecords.length);
 
     if (filtered.length === 0) {
@@ -2026,6 +2084,232 @@ function formatFilterSummary(shown, afterCondense, total) {
         return `Showing ${shown} of ${total} (condensed: ${total} \u2192 ${afterCondense} guides)`;
     }
     return `Showing ${shown} of ${total}`;
+}
+
+// ----- Off-target screening (filtered subset) ------------------------------
+//
+// Two-phase model: the guide search runs the pipeline without BEguidedOFF;
+// once the user has narrowed the Guides table with the filters above, the
+// "Search off-targets" button screens exactly the visible guide rows. The
+// result is an immutable snapshot shown in the "Off-target results" sub-tab
+// (the Guides tab keeps live-filtering the full parent result).
+
+// Identity of one results row for screening requests. Must match the
+// server-side ``_screen_row_key`` in beguided/web/tasks.py: chromosome,
+// position, target_base, desired_base and base_editor together uniquely
+// identify a guide row of a completed job.
+function screenRowKey(row) {
+    const norm = (v) => (v === undefined || v === null) ? "" : String(v);
+    return {
+        chromosome: norm(row.chromosome),
+        position: norm(row.position),
+        target_base: norm(row.target_base),
+        desired_base: norm(row.desired_base),
+        base_editor: norm(row.base_editor),
+    };
+}
+
+// Expand the currently filtered guide rows into per-guide screening keys.
+// Condensed rows (one row per target, editors newline-joined) expand to one
+// key per editor, so every visible guide is screened exactly once.
+function collectScreeningRows(rows) {
+    const out = [];
+    const seen = new Set();
+    for (const row of rows || []) {
+        if (isNoGuideRow(row)) continue;
+        const editors = String(row.base_editor ?? "")
+            .split("\n").map(s => s.trim()).filter(Boolean);
+        const editorList = editors.length ? editors : [""];
+        for (const editor of editorList) {
+            const key = screenRowKey({ ...row, base_editor: editor });
+            const k = JSON.stringify(key);
+            if (seen.has(k)) continue;
+            seen.add(k);
+            out.push(key);
+        }
+    }
+    return out;
+}
+
+// Reset the screening snapshot (called when a new pipeline run starts — the
+// old snapshot belongs to a different parent job).
+function resetScreeningState() {
+    screenJobId = null;
+    screenRevokeToken = null;
+    screenRecords = [];
+    screening = false;
+    currentFilteredGuideRows = [];
+    if (offtargetPanel) {
+        offtargetPanel.querySelectorAll(".results-table-wrap").forEach(n => n.remove());
+    }
+    if (offtargetPlaceholder) {
+        offtargetPlaceholder.style.display = "block";
+        offtargetPlaceholder.textContent =
+            "Off-target results appear here after you run a search on the filtered guides (button below the filters).";
+    }
+    if (offtargetStatus) {
+        offtargetStatus.style.display = "none";
+        offtargetStatus.textContent = "";
+    }
+    if (downloadOfftargetResults) downloadOfftargetResults.style.display = "none";
+    updateScreenButton();
+}
+
+// Why the screening button cannot be used right now (null = it can).
+function screeningBlockReason(nGuides) {
+    if (!offtargetConfig) return "server configuration unavailable";
+    if (currentMode === "sequence") return "sequence-mode results have no genomic coordinates";
+    const thresholdsAvail = offtargetConfig.genomes || {};
+    const key = currentJobGenomeKey || defaultGenomeKey;
+    const avail = thresholdsAvail[key];
+    if (avail && !avail.available) {
+        return avail.reason || "off-target search not configured for this genome";
+    }
+    const cap = offtargetConfig.max_screen_guides;
+    if (nGuides === 0) return "no guides match the current filters";
+    if (cap && nGuides > cap) {
+        return `too many guides selected (${nGuides}); narrow the filters below ${cap} and retry`;
+    }
+    return null;
+}
+
+// Reflect N = number of filtered guides + all disabled reasons on the button.
+function updateScreenButton() {
+    if (!screenOfftargetBtn) return;
+    if (screening) {
+        screenOfftargetBtn.disabled = true;
+        screenOfftargetBtn.textContent = "Screening\u2026";
+        if (offtargetHint) offtargetHint.textContent = "";
+        return;
+    }
+    const rows = collectScreeningRows(currentFilteredGuideRows);
+    const reason = screeningBlockReason(rows.length);
+    if (reason) {
+        screenOfftargetBtn.disabled = true;
+        screenOfftargetBtn.textContent = `Search off-targets (${rows.length} guides)`;
+    } else {
+        screenOfftargetBtn.disabled = false;
+        screenOfftargetBtn.textContent = `Search off-targets (${rows.length} guides)`;
+    }
+    if (offtargetHint) {
+        offtargetHint.textContent = reason || "";
+    }
+}
+
+// POST /offtarget for the filtered subset and poll the child job.
+async function runScreening() {
+    if (screening || !currentJobId) return;
+    const rows = collectScreeningRows(currentFilteredGuideRows);
+    const reason = screeningBlockReason(rows.length);
+    if (reason) {
+        showToast("warning", `Cannot start off-target search: ${reason}.`);
+        return;
+    }
+    screening = true;
+    updateScreenButton();
+    try {
+        const res = await fetch("/offtarget", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ job_id: currentJobId, rows }),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+            showToast("error", data.error || "Off-target search could not be started.");
+            return;
+        }
+        screenJobId = data.job_id;
+        screenRevokeToken = data.revoke_token;
+        if (offtargetStatus) {
+            showAlert(offtargetStatus, "info",
+                `Off-target search running for ${data.n_guides} guides\u2026`);
+        }
+        logLine(`Off-target screening queued (${data.n_guides} guides, job ${screenJobId.slice(0, 8)}\u2026).`);
+        pollScreenJob(screenJobId);
+    } catch (err) {
+        showToast("error", `Off-target search failed to start: ${err}`);
+    } finally {
+        screening = false;
+        updateScreenButton();
+    }
+}
+
+function pollScreenJob(jobId) {
+    const check = async () => {
+        try {
+            const res = await fetch("/status?job_id=" + encodeURIComponent(jobId));
+            const data = await res.json();
+            if (data.status === "complete" || data.status === "error" || data.status === "cancelled") {
+                if (data.status === "complete") {
+                    await fetchScreenResults(jobId);
+                } else if (data.status === "cancelled") {
+                    if (offtargetStatus) showAlert(offtargetStatus, "warning", "Off-target search was cancelled.");
+                    showToast("info", "Off-target search was cancelled.");
+                } else {
+                    if (offtargetStatus) showAlert(offtargetStatus, "error", "Off-target search failed. Check the Logging tab.");
+                    showToast("error", "Off-target search failed. Check logs for details.");
+                }
+                updateScreenButton();
+                return;
+            }
+            setTimeout(check, 1000);
+        } catch (err) {
+            setTimeout(check, 3000);
+        }
+    };
+    setTimeout(check, 800);
+}
+
+async function fetchScreenResults(jobId) {
+    const res = await fetch("/results?job_id=" + encodeURIComponent(jobId));
+    const data = await res.json();
+    if (!data.ok || !data.records || data.records.length === 0) {
+        if (offtargetStatus) showAlert(offtargetStatus, "error", data.message || "No off-target results returned.");
+        return;
+    }
+    screenRecords = data.records;
+    if (offtargetPlaceholder) offtargetPlaceholder.style.display = "none";
+    if (offtargetStatus) {
+        showAlert(offtargetStatus, "success", data.message || "Off-target screening complete.");
+    }
+    renderOfftargetTable();
+    if (downloadOfftargetResults && screenJobId) {
+        downloadOfftargetResults.href =
+            "/download/results?job_id=" + encodeURIComponent(screenJobId);
+        downloadOfftargetResults.style.display = "inline-flex";
+    }
+    // Bring the result to the user's attention.
+    switchSubTab("offtargetSubtab");
+}
+
+function renderOfftargetTable() {
+    const wrap = offtargetPanel.querySelector(".results-table-wrap");
+    if (!wrap) {
+        const div = document.createElement("div");
+        div.className = "results-table-wrap";
+        offtargetPanel.appendChild(div);
+    }
+    const target = offtargetPanel.querySelector(".results-table-wrap");
+    if (screenRecords.length === 0) {
+        target.innerHTML = `<p style="color:var(--muted);padding:16px;">No off-target results returned.</p>`;
+        return;
+    }
+    const columns = Object.keys(screenRecords[0]);
+    const displayColumns = columns.map(columnLabel);
+    target.innerHTML = renderTable(
+        screenRecords,
+        columns,
+        displayColumns,
+        null,
+        (row, column, value) => {
+            const seqProps = formatSequencePropsCell(row, column, value);
+            if (seqProps !== null) return seqProps;
+            const otCell = formatOfftargetCell(row, column, value);
+            if (otCell !== null) return otCell;
+            return formatDnaSequenceCell(row, column, value);
+        },
+        RESULTS_COLUMN_TOOLTIPS
+    );
 }
 
 // Toggle the Summary sub-tab placeholder text.

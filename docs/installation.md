@@ -70,6 +70,28 @@ Both install `BEguidedOFF` editable from `../BEguidedOFF`. The `web` environment
 
 Then provide the path to an encoded genome `.npz` via `--beguidedoff-genome` or `BEGUIDED_BEGUIDEDOFF_GENOME`, and — for fast mode — an FM-index via `--beguidedoff-index` or `BEGUIDED_BEGUIDEDOFF_INDEX`. If no index is configured, fast mode derives it from the `.npz` path (same basename, `.fmi` suffix).
 
+### Per-genome configuration
+
+With several selectable genomes (e.g. human and mouse), each genome can have its own encoded genome and FM-index. The per-genome variables win over the global ones, which remain the fallback for single-genome deployments:
+
+| Variable | Purpose |
+|---|---|
+| `BEGUIDED_BEGUIDEDOFF_GENOME_HUMAN` / `..._MOUSE` | Encoded `.npz` for that genome key |
+| `BEGUIDED_BEGUIDEDOFF_INDEX_HUMAN` / `..._MOUSE` | FM-index `.fmi` for that genome key (fast mode) |
+| `BEGUIDED_BEGUIDEDOFF_GENOME` / `_INDEX` / `_MODE` | Global fallback (any key without a per-genome variable) |
+
+The `/config` endpoint reports per-genome availability (`offtarget.genomes`) so the UI can enable or disable the off-target search button per selected genome.
+
+### Off-target screening from the web UI
+
+The web UI uses a two-phase flow: a guide search runs the pipeline without BEguidedOFF; the user filters the Guides table; the **Search off-targets** button (below the filters) screens exactly the visible guides. The screening job re-runs only steps 4–5 on that subset, keeps every row (the removal rule is disabled — the UI shows each guide's verdict from the operator thresholds), and displays the snapshot in a separate **Off-target results** tab.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `BEGUIDED_MAX_SCREEN_GUIDES` | `20000` | Hard cap on guides per screening job; at the cap the UI asks the user to filter further. Covers the largest legitimate payload (max targets × profiles). |
+| `BEGUIDED_SCREEN_COOLDOWN_SECONDS` | `2` | Per-IP cooldown between screening submits. Tracked separately from the main submit cooldown (60 s), so a screening submit neither inherits nor suppresses it. |
+| `BEGUIDED_PRELOAD_OFFTARGET_INDEX` | `1` | Open every configured fast-mode FM-index once at startup and share the handle across jobs (mmap-backed, ~1.7 GB page cache per genome; set `0` to load lazily per job). |
+
 ### Manual install
 
 ```bash

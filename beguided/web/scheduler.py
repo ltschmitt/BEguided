@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from beguided.pipeline import PipelineCancelled
-from beguided.web.tasks import execute_job
+from beguided.web.tasks import execute_job, execute_screen_job
 from beguided.web.usage_stats import UsageStatsLogger
 
 logger = logging.getLogger("beguided.web.scheduler")
@@ -144,7 +144,11 @@ class Scheduler:
         self._usage_stats = usage_stats
 
         self._q: "queue.Queue[Job]" = queue.Queue(maxsize=queue_max)
-        self._last_submit: dict[str, float] = {}
+        # Cooldown bookkeeping, keyed first by cooldown kind ("pipeline" for
+        # full submissions, "screen" for cheap off-target screening jobs) and
+        # then by client IP. Separate trackers so a screening submit neither
+        # inherits the 60 s pipeline cooldown nor suppresses it.
+        self._last_submit: "dict[str, dict[str, float]]" = {}
         self._db_lock = threading.Lock()
         self._running: dict[str, Job] = {}
         self._running_lock = threading.Lock()
@@ -198,13 +202,38 @@ class Scheduler:
 
     # ----- public API ------------------------------------------------------
 
-    def submit(self, client_ip: str, payload: dict) -> Job:
-        """Enqueue a new job. Raises ``Cooldown`` or ``QueueFull``."""
+    def submit(
+        self,
+        client_ip: str,
+        payload: dict,
+        cooldown_seconds: Optional[float] = None,
+        cooldown_key: str = "pipeline",
+    ) -> Job:
+        """Enqueue a new job. Raises ``Cooldown`` or ``QueueFull``.
+
+        Args:
+            client_ip: Requesting client IP (for per-IP cooldown tracking).
+            payload: Job payload dict (dispatched by the worker; see
+                ``execute_job`` for pipeline jobs, ``execute_screen_job`` for
+                ``kind="screen"`` payloads).
+            cooldown_seconds: Overrides ``self.cooldown_seconds`` for this
+                submit (screening jobs use a much shorter window).
+            cooldown_key: Which cooldown tracker to use. ``"pipeline"`` and
+                ``"screen"`` are tracked independently: the cheap screening
+                cooldown must not be extended by an expensive pipeline
+                submit, and vice versa.
+        """
         ip = client_ip or "unknown"
+        cooldown = (
+            self.cooldown_seconds
+            if cooldown_seconds is None
+            else max(0.0, float(cooldown_seconds))
+        )
         self._prune_last_submit(now=time.monotonic())
-        last = self._last_submit.get(ip, 0.0)
+        per_ip = self._last_submit.setdefault(cooldown_key, {})
+        last = per_ip.get(ip, 0.0)
         now = time.monotonic()
-        remaining = self.cooldown_seconds - (now - last)
+        remaining = cooldown - (now - last)
         if remaining > 0:
             raise Cooldown(retry_after=remaining)
 
@@ -236,7 +265,7 @@ class Scheduler:
                     (job.job_id,),
                 )
             raise QueueFull(f"queue is full ({self.queue_max} pending jobs)")
-        self._last_submit[ip] = now
+        per_ip[ip] = now
         logger.info(
             "Job queued: %s (%s)",
             job.job_id,
@@ -382,18 +411,22 @@ class Scheduler:
     def _prune_last_submit(self, now: float) -> None:
         """Drop expired entries from ``_last_submit``.
 
-        The dict records the last submit time per client IP for cooldown
-        enforcement. Without pruning it grows unbounded over the lifetime of
-        the process. Entries are dropped once they are 4x the cooldown
-        window old — far enough past the actual cooldown that no client
-        could still be affected.
+        The dict records the last submit time per cooldown kind and client
+        IP for cooldown enforcement. Without pruning it grows unbounded over
+        the lifetime of the process. Entries are dropped once they are 4x the
+        pipeline cooldown window old (floor 60 s, which also covers the much
+        shorter screening cooldown) — far enough past the actual cooldown
+        that no client could still be affected.
         """
         if not self._last_submit:
             return
         cutoff = now - max(4.0 * self.cooldown_seconds, 60.0)
-        stale = [ip for ip, t in self._last_submit.items() if t < cutoff]
-        for ip in stale:
-            self._last_submit.pop(ip, None)
+        for key, per_ip in list(self._last_submit.items()):
+            stale = [ip for ip, t in per_ip.items() if t < cutoff]
+            for ip in stale:
+                per_ip.pop(ip, None)
+            if not per_ip:
+                self._last_submit.pop(key, None)
 
     def _sweeper_loop(self) -> None:
         """Wake every ``sweeper_interval_seconds`` and delete old jobs."""
@@ -444,29 +477,42 @@ class Scheduler:
                 try:
                     if job.cancel.is_set():
                         raise PipelineCancelled("cancelled before start")
-                    result = execute_job(
-                        job_id=job.job_id,
-                        targets_df=job.payload["targets_df"],
-                        base_editor_names=job.payload["base_editor_names"],
-                        filter_mode=job.payload["filter_mode"],
-                        search_offtargets=job.payload.get("search_offtargets", True),
-                        guide_score_threshold=job.payload.get(
-                            "guide_score_threshold", 0.5
-                        ),
-                        passthrough_extras=job.payload.get(
-                            "passthrough_extras", False
-                        ),
-                        keep_targets_without_guides=job.payload.get(
-                            "keep_targets_without_guides", False
-                        ),
-                        genome_key=job.payload.get("genome_key", "human"),
-                        mode=job.payload.get("mode", "spreadsheet"),
-                        custom_genome_b64=job.payload.get("custom_genome_b64"),
-                        use_custom_profiles=job.payload.get("use_custom_profiles", False),
-                        custom_profiles_b64=job.payload.get("custom_profiles_b64"),
-                        merged_profiles_b64=job.payload.get("merged_profiles_b64"),
-                        cancel_event=job.cancel,
-                    )
+                    if job.payload.get("kind") == "screen":
+                        # Off-target screening job: run the search on the
+                        # filtered subset of a completed parent pipeline job.
+                        result = self._execute_screen(job)
+                    else:
+                        result = execute_job(
+                            job_id=job.job_id,
+                            targets_df=job.payload["targets_df"],
+                            base_editor_names=job.payload["base_editor_names"],
+                            filter_mode=job.payload["filter_mode"],
+                            search_offtargets=job.payload.get(
+                                "search_offtargets", True
+                            ),
+                            guide_score_threshold=job.payload.get(
+                                "guide_score_threshold", 0.5
+                            ),
+                            passthrough_extras=job.payload.get(
+                                "passthrough_extras", False
+                            ),
+                            keep_targets_without_guides=job.payload.get(
+                                "keep_targets_without_guides", False
+                            ),
+                            genome_key=job.payload.get("genome_key", "human"),
+                            mode=job.payload.get("mode", "spreadsheet"),
+                            custom_genome_b64=job.payload.get("custom_genome_b64"),
+                            use_custom_profiles=job.payload.get(
+                                "use_custom_profiles", False
+                            ),
+                            custom_profiles_b64=job.payload.get(
+                                "custom_profiles_b64"
+                            ),
+                            merged_profiles_b64=job.payload.get(
+                                "merged_profiles_b64"
+                            ),
+                            cancel_event=job.cancel,
+                        )
                     status = result.get("status", "error")
                 except PipelineCancelled:
                     status = "cancelled"
@@ -490,9 +536,14 @@ class Scheduler:
                             (status, time.time(), json.dumps(result), job.job_id),
                         )
                     if self._usage_stats is not None:
+                        is_screen = job.payload.get("kind") == "screen"
                         self._usage_stats.record(
                             mode=job.payload.get("mode", "spreadsheet"),
-                            n_targets=_payload_size(job.payload.get("targets_df")),
+                            n_targets=(
+                                len(job.payload.get("rows") or [])
+                                if is_screen
+                                else _payload_size(job.payload.get("targets_df"))
+                            ),
                             n_base_editors=len(
                                 job.payload.get("base_editor_names") or []
                             ),
@@ -508,6 +559,26 @@ class Scheduler:
                 sse.close_job(job.job_id)
                 current_job_id.reset(ctx_token)
                 self._q.task_done()
+
+    def _execute_screen(self, job: Job) -> dict:
+        """Dispatch a ``kind="screen"`` payload to the screening worker.
+
+        The parent job's records and ``_screen_meta`` (profiles / genome
+        selection the parent ran with) are read from the result store here
+        so the tasks layer never needs to reach back into the scheduler.
+        """
+        parent_id = job.payload.get("parent_job_id") or ""
+        parent_result = self.get_result(parent_id) if parent_id else None
+        parent_records = (parent_result or {}).get("records") or []
+        screen_meta = (parent_result or {}).get("_screen_meta") or {}
+        return execute_screen_job(
+            job_id=job.job_id,
+            parent_job_id=parent_id,
+            rows=job.payload.get("rows") or [],
+            parent_records=parent_records,
+            screen_meta=screen_meta,
+            cancel_event=job.cancel,
+        )
 
 
 def _payload_to_jsonable(payload: dict) -> dict:

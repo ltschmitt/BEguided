@@ -549,6 +549,35 @@ tr.no-guide td code {
     width: 100%;
 }
 
+/* Off-target screening action row: sits directly below the results
+   filter toolbar (the search acts on exactly the filtered subset). */
+.offtarget-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin: -6px 0 12px;
+}
+
+.offtarget-actions .muted {
+    font-size: 13px;
+}
+
+/* Badge marking off-target values the operator's removal rule would
+   reject (score below threshold / too many sites). Display-only: the
+   screening result always keeps every row. */
+.ot-badge {
+    display: inline-block;
+    padding: 1px 7px;
+    margin-left: 4px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(217, 119, 6, 0.14);
+    color: var(--warning);
+    white-space: nowrap;
+}
+
 /* Scroll wrapper for the results table only — toolbar above stays static */
 .results-table-scroll {
     max-height: 800px;

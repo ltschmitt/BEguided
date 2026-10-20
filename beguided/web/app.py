@@ -587,6 +587,20 @@ def create_app() -> FastAPI:
                     cfg.preload_gtf,
                     opt.gtf_path,
                 )
+        # Warm the BEguidedOFF FM-index handles (fast mode) once so
+        # screening jobs search through a shared, already-open index
+        # instead of re-opening the multi-GB file per job. Load is cheap
+        # (~1 s, mmap-backed) so this runs synchronously.
+        if cfg.preload_offtarget_index and cfg.has_beguidedoff:
+            from beguided.web.offtarget_index_cache import preload as preload_indexes
+
+            try:
+                preload_indexes(cfg)
+            except Exception:
+                logger.exception(
+                    "Off-target index preload failed; screening falls back "
+                    "to lazy per-job loading."
+                )
         # Install and start the scheduler.
         usage_stats = (
             UsageStatsLogger(cfg.usage_stats_path, enabled=True)
@@ -719,6 +733,21 @@ def create_app() -> FastAPI:
             "preload_gtf": cfg.preload_gtf,
             "genomes": _genome_options_for_ui(cfg),
             "default_genome": cfg.default_genome,
+            # Off-target screening: per-genome availability plus the
+            # operator's thresholds so the client can render the verdict
+            # (concerning / passes) the same way the pipeline's removal
+            # rule would. Thresholds are display-only: users never set them.
+            "offtarget": {
+                "genomes": cfg.offtarget_availability(),
+                "max_screen_guides": cfg.max_screen_guides,
+                "screen_cooldown_seconds": cfg.screen_cooldown_seconds,
+                "thresholds": {
+                    "remove_guides_score": cfg.remove_guides_score,
+                    "remove_guides_n_offtargets": cfg.remove_guides_n_offtargets,
+                    "count_threshold_score": cfg.count_threshold_score,
+                    "mismatch_tolerance": cfg.mismatch_tolerance,
+                },
+            },
         }
 
     @app.get("/genome/status")
@@ -1321,6 +1350,222 @@ def create_app() -> FastAPI:
         )
         # The SSE queue is registered lazily by the /logs/stream endpoint on
         # first connect (which is fine — it's idempotent).
+
+    @app.post("/offtarget")
+    async def offtarget_screen(request: Request) -> JSONResponse:
+        """Start off-target screening for a filtered subset of a finished job.
+
+        Body (JSON)::
+
+            {
+              "job_id": "<parent job id>",
+              "rows": [
+                {"chromosome": "chr1", "position": 50, "target_base": "T",
+                 "desired_base": "C", "base_editor": "ABE8e"},
+                ...
+              ]
+        }
+
+        The rows are the user-filtered guide rows of the *parent* job (as
+        shown in the Guides table). The child job re-runs only the off-target
+        steps (4-5) on exactly those rows, with the removal rule disabled —
+        every screened row is kept and the UI renders the verdict from the
+        operator's thresholds. The parent job's results stay immutable.
+        """
+        cfg = get_config()
+        scheduler = current_scheduler()
+
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse(
+                {"ok": False, "error": "Request body must be JSON."},
+                status_code=400,
+            )
+        if not isinstance(body, dict):
+            return JSONResponse(
+                {"ok": False, "error": "Request body must be a JSON object."},
+                status_code=400,
+            )
+
+        parent_job_id = str(body.get("job_id") or "").strip()
+        if not parent_job_id:
+            return JSONResponse(
+                {"ok": False, "error": "Missing job_id (parent job)."},
+                status_code=400,
+            )
+
+        status = scheduler.get_status(parent_job_id)
+        if status == "unknown":
+            return JSONResponse(
+                {"ok": False, "error": "Unknown job_id."},
+                status_code=404,
+            )
+        if status != "complete":
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "Off-target screening needs a completed guide search; "
+                        f"parent job status is {status!r}."
+                    ),
+                    "parent_status": status,
+                },
+                status_code=409,
+            )
+
+        parent_result = scheduler.get_result(parent_job_id) or {}
+        screen_meta = parent_result.get("_screen_meta") or {}
+        if not screen_meta:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "This job cannot be screened (no screening metadata); "
+                        "run a new guide search."
+                    ),
+                },
+                status_code=409,
+            )
+        if screen_meta.get("mode") == "sequence":
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "Off-target screening is only available for spreadsheet "
+                        "jobs with genomic coordinates."
+                    ),
+                },
+                status_code=400,
+            )
+
+        rows = body.get("rows")
+        if not isinstance(rows, list) or not rows:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": "Select at least one guide row to screen.",
+                },
+                status_code=400,
+            )
+        key_fields = ("chromosome", "position", "target_base", "desired_base",
+                      "base_editor")
+        normalized: list[dict] = []
+        for i, row in enumerate(rows):
+            if not isinstance(row, dict):
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": f"Row {i} is not an object.",
+                    },
+                    status_code=400,
+                )
+            entry = {}
+            for field in key_fields:
+                if field not in row:
+                    return JSONResponse(
+                        {
+                            "ok": False,
+                            "error": f"Row {i} is missing '{field}'.",
+                        },
+                        status_code=400,
+                    )
+                entry[field] = row[field]
+            normalized.append(entry)
+
+        # Hard cap: screening is cheap per guide but not free; the cap sits
+        # above the largest legitimate payload (max targets x profiles), so
+        # hitting it means the user should narrow the selection first.
+        cap = cfg.max_screen_guides
+        if len(normalized) > cap:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"Too many guides selected: {len(normalized)} "
+                        f"(max {cap}). Filter the table further and retry."
+                    ),
+                    "max_screen_guides": cap,
+                },
+                status_code=400,
+            )
+
+        genome_key = screen_meta.get("genome_key") or cfg.default_genome
+        availability = cfg.offtarget_availability().get(genome_key)
+        if availability is None:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "Off-target search is not available for genome "
+                        f"{genome_key!r}: genome is not configured."
+                    ),
+                    "reason": "not_configured",
+                },
+                status_code=409,
+            )
+        if not availability.get("available"):
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "Off-target search is not available for genome "
+                        f"{genome_key!r}: {availability.get('reason') or 'not configured'}"
+                    ),
+                    "reason": availability.get("reason") or "not_configured",
+                },
+                status_code=409,
+            )
+
+        client_ip = request.client.host if request.client else "unknown"
+        payload = {
+            "kind": "screen",
+            "mode": "screen",
+            "parent_job_id": parent_job_id,
+            "rows": normalized,
+            "genome_key": genome_key,
+        }
+        try:
+            job = scheduler.submit(
+                client_ip,
+                payload,
+                cooldown_seconds=cfg.screen_cooldown_seconds,
+                cooldown_key="screen",
+            )
+        except Cooldown as exc:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "Please wait a moment between off-target searches "
+                        f"({exc.retry_after:.0f}s)."
+                    ),
+                    "reason": "cooldown",
+                },
+                status_code=429,
+                headers={"Retry-After": str(int(exc.retry_after) + 1)},
+            )
+        except QueueFull as exc:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": str(exc),
+                    "reason": "queue_full",
+                },
+                status_code=503,
+                headers={"Retry-After": "30"},
+            )
+
+        return JSONResponse(
+            {
+                "ok": True,
+                "job_id": job.job_id,
+                "parent_job_id": parent_job_id,
+                "revoke_token": job.revoke_token,
+                "status": "queued",
+                "n_guides": len(normalized),
+            }
+        )
 
     @app.post("/cancel")
     async def cancel(

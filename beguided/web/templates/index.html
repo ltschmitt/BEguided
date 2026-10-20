@@ -279,8 +279,15 @@
         </div>
         <span id="filterSummary" class="muted" aria-live="polite">Showing 0 of 0</span>
     </div>
+    <div id="offtargetActions" class="offtarget-actions" style="display:none;">
+        <button id="screenOfftargetBtn" class="btn btn-primary" type="button" disabled>
+            Search off-targets (0 guides)
+        </button>
+        <span id="offtargetHint" class="muted" aria-live="polite"></span>
+    </div>
     <div class="subtabs" role="tablist" aria-label="Results view">
         <button id="guidesSubtabBtn" class="subtab-button active" data-subtab="guidesSubtab" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="guidesSubtab">Guides</button>
+        <button id="offtargetSubtabBtn" class="subtab-button" data-subtab="offtargetSubtab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="offtargetSubtab">Off-target results</button>
         <button id="summarySubtabBtn" class="subtab-button" data-subtab="summarySubtab" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="summarySubtab">Summary</button>
     </div>
     <div id="guidesSubtab" class="subtab-panel active" role="tabpanel" aria-labelledby="guidesSubtabBtn">
@@ -295,6 +302,15 @@
     <div id="summarySubtab" class="subtab-panel" role="tabpanel" aria-labelledby="summarySubtabBtn">
         <div id="resultsSummary" class="results-summary" style="display:none;"></div>
         <p id="summaryPlaceholder" style="color: var(--muted); padding:16px;">Summary will appear here after the pipeline completes.</p>
+    </div>
+    <div id="offtargetSubtab" class="subtab-panel" role="tabpanel" aria-labelledby="offtargetSubtabBtn">
+        <div id="offtargetStatus" class="results-guide-status" style="display:none;"></div>
+        <div class="results-table-scroll" id="offtargetPanel">
+            <p style="color: var(--muted); padding:16px;" id="offtargetPlaceholder">Off-target results appear here after you run a search on the filtered guides (button below the filters).</p>
+        </div>
+        <div style="margin-top:8px;">
+            <a id="downloadOfftargetResults" class="btn btn-secondary" href="#" style="display:none;">Download TSV</a>
+        </div>
     </div>
 </div>
 {% endblock %}
