@@ -109,7 +109,8 @@ class WebConfig:
     beguidedoff_genome: str = field(
         default_factory=lambda: os.getenv(
             "BEGUIDED_BEGUIDEDOFF_GENOME",
-            str(Path(__file__).resolve().parents[2] / "mini_genome.npz"),
+            str(Path(__file__).resolve().parents[2]
+                / "tests" / "fixtures" / "mini_genome.npz"),
         )
     )
     # Search mode for BEguidedOFF: "fast" (CPU FM-index filter; the default —

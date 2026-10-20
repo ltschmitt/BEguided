@@ -519,6 +519,12 @@ def _resolve_fast_search_cutoff(cfg):
     else:
         cutoff = float(count_thr) if count_thr is not None else 5.0
         cutoff = min(cutoff, FAST_MAX_SEARCH_CUTOFF)
+    if cutoff < 0:
+        raise PipelineError(
+            "fast mode requires a non-negative search cutoff; "
+            f"the resolved cutoff is {cutoff}. Check remove_guides_score / "
+            "count_threshold_score in the offtargets config."
+        )
     if cutoff > FAST_MAX_SEARCH_CUTOFF:
         raise PipelineError(
             f"fast mode supports search cutoffs up to "

@@ -233,7 +233,7 @@ python -m pytest tests/test_editing/test_presets.py::TestPAMToRegex -v
 ### Test Fixtures
 - `tests/fixtures/sample_targets.tsv`: Small test input
 - `tests/fixtures/sample_genome.fasta`: Test genome
-- `tests/fixtures/mini_genome.npz`: BEguidedOFF-encoded mini genome for off-target tests
+- `tests/fixtures/mini_genome.npz`: BEguidedOFF-encoded mini genome for off-target tests; `tests/fixtures/mini_genome.fmi` (+`.meta`, source `mini_genome.fa`) is the matching fast-mode FM-index, which the web server's default config resolves too
 - `configs/base_editor_profiles.tsv`: Bundled base editor profile configurations (20-nt guides)
 
 ## Important Implementation Details

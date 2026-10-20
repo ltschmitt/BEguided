@@ -381,6 +381,7 @@ class TestPipelineWithBEguidedOFF:
     ):
         """Test BEguidedOFF integration (steps 4-6) with a pre-built step3 file."""
         from beguidedoff.genome_converter import convert
+        from beguidedoff.fast.fmindex import build_index
         from beguided.pipeline import run_pipeline
         import pandas as pd
 
@@ -393,6 +394,7 @@ class TestPipelineWithBEguidedOFF:
         )
         npz = tmp_path / "mini.npz"
         convert(str(fasta), str(npz), verbose=False)
+        build_index(str(fasta), str(tmp_path / "mini.fmi"))
 
         presets_path = tmp_path / "test_presets.tsv"
         presets_path.write_text(valid_preset_tsv)
@@ -437,6 +439,7 @@ class TestPipelineWithBEguidedOFF:
             "search_offtargets": True,
             "offtargets": {
                 "beguidedoff_genome": str(npz),
+                "mode": "fast",
                 "max_mismatches": 5,
                 "count_threshold_score": 15.0,
                 "remove_guides_score": 5.0,
@@ -460,6 +463,7 @@ class TestPipelineWithBEguidedOFF:
     ):
         """Verify on-target exclusion via step4 with a known guide-start pos."""
         from beguidedoff.genome_converter import convert
+        from beguidedoff.fast.fmindex import build_index
         from beguided.pipeline import run_pipeline
         import pandas as pd
 
@@ -473,6 +477,7 @@ class TestPipelineWithBEguidedOFF:
         )
         npz = tmp_path / "mini.npz"
         convert(str(fasta), str(npz), verbose=False)
+        build_index(str(fasta), str(tmp_path / "mini.fmi"))
 
         presets_path = tmp_path / "test_presets.tsv"
         presets_path.write_text(valid_preset_tsv)
@@ -515,6 +520,7 @@ class TestPipelineWithBEguidedOFF:
             "search_offtargets": True,
             "offtargets": {
                 "beguidedoff_genome": str(npz),
+                "mode": "fast",
                 "max_mismatches": 5,
                 "count_threshold_score": 100.0,
                 "remove_guides_score": 0.0,
@@ -538,6 +544,7 @@ class TestPipelineWithBEguidedOFF:
         """Verify on-target locations are excluded (no crash = success)."""
         pytest.importorskip("beguidedoff", reason="BEguidedOFF not installed")
         from beguidedoff.genome_converter import convert
+        from beguidedoff.fast.fmindex import build_index
         from beguided.pipeline import run_pipeline
         import pandas as pd
 
@@ -553,6 +560,7 @@ class TestPipelineWithBEguidedOFF:
         )
         npz = tmp_path / "mini.npz"
         convert(str(fasta), str(npz), verbose=False)
+        build_index(str(fasta), str(tmp_path / "mini.fmi"))
 
         targets_path = tmp_path / "targets.tsv"
         targets_path.write_text(
@@ -580,6 +588,7 @@ class TestPipelineWithBEguidedOFF:
             "search_offtargets": True,
             "offtargets": {
                 "beguidedoff_genome": str(npz),
+                "mode": "fast",
                 "max_mismatches": 5,
                 "count_threshold_score": 100.0,
                 "remove_guides_score": 0.0,
