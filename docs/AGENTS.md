@@ -306,16 +306,16 @@ picks the matching FASTA + GTF (and tag) via `WebConfig.genomes`.
 
 ### Output Column Names (final TSV)
 
-- `worst_offtarget_score` — lowest CCTOP score (most dangerous; `inf` if none)
+- `worst_offtarget_score` — lowest CCTOP score (most dangerous; blank/`NaN` if none)
 - `offtarget_count` — number of off-targets ≤ `count_threshold_score`
 - `worst_offtarget_chr`, `worst_offtarget_pos`, `worst_offtarget_sequence`
 - `trinuc_edit_score` — Marquart et al. 2021 normalised ABE8e proportion for the local `X-A-Y` trinucleotide context (0..1, `NaN` for CBE guides). Bundled table at `beguided/editing/data/edit_context_norm_proportion.tsv`; override with `input.edit_context_table`. Filterable via `trinuc_edit_score_min`.
 
 ### CCTOP Score Semantics
-- **Lower = more concerning** (mismatches near PAM)
-- **Higher = less concerning** (mismatches far from PAM)
+- **Lower = more concerning** (fewer mismatches, or mismatches far from the PAM)
+- **Higher = less concerning** (PAM-proximal mismatches are penalized most)
 - Perfect match = 0.0
-- No off-targets = `inf` (always passes `worst_offtarget_score >= X` filter)
+- No off-targets = blank (`NaN`; always passes the `worst_offtarget_score >= X` filter)
 
 ### Web Interface
 
