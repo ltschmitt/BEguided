@@ -549,23 +549,39 @@ tr.no-guide td code {
     width: 100%;
 }
 
-/* Off-target screening action row: sits directly below the results
-   filter toolbar (the search acts on exactly the filtered subset). */
-.offtarget-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 12px;
-    margin: -6px 0 12px;
-}
-
-.offtarget-actions .muted {
+/* Off-target screening controls live in the results filter toolbar
+   (the search acts on exactly the filtered subset). The hint sits next
+   to the button and is clamped so long reasons don't stretch the row. */
+.results-toolbar .ot-hint {
+    margin-left: 0;
     font-size: 13px;
+    max-width: 320px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-/* Badge marking off-target values the operator's removal rule would
-   reject (score below threshold / too many sites). Display-only: the
-   screening result always keeps every row. */
+/* Spinner shown on the screening button while its job is running. */
+.btn-loading::before {
+    content: "";
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    margin-right: 6px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    vertical-align: -2px;
+    animation: ot-spin 0.8s linear infinite;
+}
+
+@keyframes ot-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Badges marking off-target values the operator's removal rule would
+   reject, plus the pass/fail verdict of the off-target check.
+   Display-only: the screening result always keeps every row. */
 .ot-badge {
     display: inline-block;
     padding: 1px 7px;
@@ -576,6 +592,16 @@ tr.no-guide td code {
     background: rgba(217, 119, 6, 0.14);
     color: var(--warning);
     white-space: nowrap;
+}
+
+.ot-badge-danger {
+    background: rgba(220, 38, 38, 0.12);
+    color: var(--danger);
+}
+
+.ot-badge-pass {
+    background: rgba(22, 163, 74, 0.12);
+    color: var(--success);
 }
 
 /* Scroll wrapper for the results table only — toolbar above stays static */

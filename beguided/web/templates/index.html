@@ -277,13 +277,18 @@
             <label for="condenseToggle">Condense results</label>
             <input type="checkbox" id="condenseToggle" checked />
         </div>
+        <div class="group">
+            <label for="screenOfftargetBtn">Off-targets</label>
+            <button id="screenOfftargetBtn" class="btn btn-primary" type="button" disabled>
+                Check severe off-targets (0)
+            </button>
+            <span id="offtargetHint" class="muted ot-hint" aria-live="polite"></span>
+        </div>
+        <div class="group">
+            <label for="otHideFailedToggle" title="Enabled after the off-target check has run for this job; hides guides that failed it.">Hide failing guides</label>
+            <input type="checkbox" id="otHideFailedToggle" disabled />
+        </div>
         <span id="filterSummary" class="muted" aria-live="polite">Showing 0 of 0</span>
-    </div>
-    <div id="offtargetActions" class="offtarget-actions" style="display:none;">
-        <button id="screenOfftargetBtn" class="btn btn-primary" type="button" disabled>
-            Search off-targets (0 guides)
-        </button>
-        <span id="offtargetHint" class="muted" aria-live="polite"></span>
     </div>
     <div class="subtabs" role="tablist" aria-label="Results view">
         <button id="guidesSubtabBtn" class="subtab-button active" data-subtab="guidesSubtab" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="guidesSubtab">Guides</button>
@@ -306,7 +311,7 @@
     <div id="offtargetSubtab" class="subtab-panel" role="tabpanel" aria-labelledby="offtargetSubtabBtn">
         <div id="offtargetStatus" class="results-guide-status" style="display:none;"></div>
         <div class="results-table-scroll" id="offtargetPanel">
-            <p style="color: var(--muted); padding:16px;" id="offtargetPlaceholder">Off-target results appear here after you run a search on the filtered guides (button below the filters).</p>
+            <p style="color: var(--muted); padding:16px;" id="offtargetPlaceholder">Off-target results appear here after you run the off-target check on the filtered guides (button in the filter bar above the results).</p>
         </div>
         <div style="margin-top:8px;">
             <a id="downloadOfftargetResults" class="btn btn-secondary" href="#" style="display:none;">Download TSV</a>

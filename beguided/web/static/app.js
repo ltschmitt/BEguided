@@ -27,9 +27,9 @@ const filterSummary = document.getElementById("filterSummary");
 const downloadResults = document.getElementById("downloadResults");
 const downloadResultsXlsx = document.getElementById("downloadResultsXlsx");
 // Off-target screening (search off-targets for the filtered guide subset).
-const offtargetActions = document.getElementById("offtargetActions");
 const screenOfftargetBtn = document.getElementById("screenOfftargetBtn");
 const offtargetHint = document.getElementById("offtargetHint");
+const otHideFailedToggle = document.getElementById("otHideFailedToggle");
 const offtargetPanel = document.getElementById("offtargetPanel");
 const offtargetPlaceholder = document.getElementById("offtargetPlaceholder");
 const offtargetStatus = document.getElementById("offtargetStatus");
@@ -87,6 +87,11 @@ let screenRecords = [];
 let screening = false;
 let currentFilteredGuideRows = [];
 let currentJobGenomeKey = null;
+// Keys (screenRowKey JSON) of guides that failed the latest off-target
+// check, plus the user's "hide failing guides" choice. Both are cleared
+// when a new pipeline run starts.
+let otFailedKeys = new Set();
+let otHideFailed = false;
 let customEditorKey = "custom";
 let customEditorLabel = "Custom (uploaded)";
 let customProfilesLoaded = false;
@@ -951,7 +956,6 @@ runBtn.addEventListener("click", async () => {
         resultsPlaceholder.textContent = "Waiting for pipeline to complete...";
     }
     resultsToolbar.style.display = "none";
-    if (offtargetActions) offtargetActions.style.display = "none";
     if (resultsSummary) {
         resultsSummary.innerHTML = "";
         resultsSummary.style.display = "none";
@@ -1055,7 +1059,7 @@ cancelBtn.addEventListener("click", async () => {
 clearLogsBtn.addEventListener("click", clearLogs);
 
 // Off-target screening: search off-targets for the currently filtered
-// subset of guides (button below the Results-tab filters).
+// subset of guides (button in the Results-tab filter bar).
 if (screenOfftargetBtn) {
     screenOfftargetBtn.addEventListener("click", runScreening);
 }
@@ -1229,17 +1233,66 @@ function formatSequencePropsCell(row, column, value) {
 // pipeline's removal rule would have removed (score below the threshold or
 // too many off-target sites) get an explicit badge. The thresholds are
 // display-only: users never configure them.
+// Evaluate one screened guide row against the operator's off-target
+// thresholds (the same rule the strict pipeline filter applies). Returns
+// null when the row carries no screening result, otherwise
+// {verdict: "pass"|"fail", reason: "<human-readable why>"}.
+function offtargetVerdict(row) {
+    const thresholds = offtargetConfig && offtargetConfig.thresholds;
+    if (!thresholds) return null;
+    const has = (v) => v !== undefined && v !== null && v !== "";
+    const scoreRaw = row.worst_offtarget_score;
+    const countRaw = row.offtarget_count;
+    if (!has(scoreRaw) && !has(countRaw)) return null;
+    if (has(scoreRaw)) {
+        const num = Number(scoreRaw);
+        if (Number.isFinite(num) && num < thresholds.remove_guides_score) {
+            return {
+                verdict: "fail",
+                reason: `severe off-target: worst score ${num.toFixed(2)} is below ` +
+                    `the operator threshold (${thresholds.remove_guides_score})`,
+            };
+        }
+    }
+    if (has(countRaw)) {
+        const num = Number(countRaw);
+        if (Number.isFinite(num) && num > thresholds.remove_guides_n_offtargets) {
+            return {
+                verdict: "fail",
+                reason: `too many off-targets: ${num} sites exceed the ` +
+                    `operator threshold (${thresholds.remove_guides_n_offtargets})`,
+            };
+        }
+    }
+    return {
+        verdict: "pass",
+        reason: "no severe off-target within the search limit; " +
+            "milder off-targets may exist",
+    };
+}
+
+// First column of the off-target results table: pass/fail badge whose
+// tooltip carries the specific reason.
+function formatVerdictCell(row) {
+    const v = offtargetVerdict(row);
+    if (!v) return `<span class="muted">&mdash;</span>`;
+    if (v.verdict === "fail") {
+        return `<span class="ot-badge ot-badge-danger" title="${escapeHtml(v.reason)}">fail</span>`;
+    }
+    return `<span class="ot-badge ot-badge-pass" title="${escapeHtml(v.reason)}">pass</span>`;
+}
+
 function formatOfftargetCell(row, column, value) {
     const thresholds = offtargetConfig && offtargetConfig.thresholds;
     if (column === "worst_offtarget_score") {
         if (value === undefined || value === null || value === "") {
-            return `<span class="muted">passes filter</span>`;
+            return `<span class="muted">none within search limit</span>`;
         }
         const num = Number(value);
         if (Number.isFinite(num)) {
             let html = num.toFixed(2).replace(/\.?0+$/, "");
             if (thresholds && num < thresholds.remove_guides_score) {
-                html += ` <span class="ot-badge" title="Score is below the operator's off-target threshold (${thresholds.remove_guides_score}); this guide would be removed by the strict off-target filter.">below threshold</span>`;
+                html += ` <span class="ot-badge ot-badge-danger" title="Worst off-target score is below the operator's off-target threshold (${thresholds.remove_guides_score}): this guide would be removed by the strict off-target filter. Lower CCTOP score = more severe.">severe off-target</span>`;
             }
             return html;
         }
@@ -1247,12 +1300,12 @@ function formatOfftargetCell(row, column, value) {
     }
     if (column === "offtarget_count") {
         if (value === undefined || value === null || value === "") {
-            return `<span class="muted">passes filter</span>`;
+            return `<span class="muted">none within search limit</span>`;
         }
         const num = Number(value);
         if (Number.isFinite(num) && thresholds &&
             num > thresholds.remove_guides_n_offtargets) {
-            return `${num} <span class="ot-badge" title="More off-target sites than the operator's threshold (${thresholds.remove_guides_n_offtargets}); this guide would be removed by the strict off-target filter.">too many</span>`;
+            return `${num} <span class="ot-badge ot-badge-danger" title="More off-target sites than the operator's threshold (${thresholds.remove_guides_n_offtargets}); this guide would be removed by the strict off-target filter.">too many</span>`;
         }
         return null;
     }
@@ -1306,6 +1359,7 @@ const SEQUENCE_MODE_COLUMN_LABELS = {
 // The underlying data column name stays unchanged (e.g. ``trinuc_edit_score``);
 // only the header text shown to the user is remapped.
 const COLUMN_LABELS = {
+    offtarget_verdict: "Off-target check",
     trinuc_edit_score: "context edit score",
     worst_offtarget_score: "worst off-target score",
     offtarget_count: "off-target count",
@@ -1336,8 +1390,10 @@ const RESULTS_COLUMN_TOOLTIPS = {
         "Marquart et al. 2021 normalised ABE8e editing proportion for the local X-A-Y trinucleotide context (the bases immediately before and after the target A). 0-1; NaN for CBE guides.",
     base_editor:
         "Generally, favor SpCas9 over NG/SpG over SpRY. Relaxed PAMs trade activity and specificity for targeting range. Regarding ABEs, ABE8e is most established and a reliable choice.",
+    offtarget_verdict:
+        "Verdict of the off-target check against the operator's thresholds. The search enumerates only the most severe off-targets (CCTOP score at or below the operator's score threshold), so 'pass' means none that severe were found \u2014 guides can still have milder off-targets. Hover a badge for the specific reason.",
     worst_offtarget_score:
-        "Lowest CCTOP score among the guide's off-targets; lower means more concerning (a perfect-match-like site scores near 1). Empty means no off-target at or below the search cutoff was found: the guide passes the off-target filter. Guides whose worst score falls below the removal threshold are removed from the results.",
+        "Lowest CCTOP score among the guide's off-targets; lower means more concerning (a perfect-match site scores 0.0). Empty means no off-target at or below the search cutoff was found. Guides whose worst score falls below the removal threshold are removed by the strict off-target filter.",
     offtarget_count:
         "Number of editable off-targets with a CCTOP score at or below the count threshold (fast mode counts at the search cutoff). Guides with more than the allowed maximum are removed from the results.",
     worst_offtarget_mismatch_pos:
@@ -1741,7 +1797,6 @@ async function fetchResults(jobId) {
             resultsPlaceholder.textContent = data.message || "No results returned.";
         }
         resultsToolbar.style.display = "none";
-        if (offtargetActions) offtargetActions.style.display = "none";
         if (resultsSummary) {
             resultsSummary.innerHTML = "";
             resultsSummary.style.display = "none";
@@ -1758,7 +1813,6 @@ async function fetchResults(jobId) {
     currentRecords = data.records;
     if (resultsPlaceholder) resultsPlaceholder.style.display = "none";
     resultsToolbar.style.display = "flex";
-    if (offtargetActions) offtargetActions.style.display = "flex";
     if (resultsGuideStatus) {
         const foundTargets = new Set(
             currentRecords.filter(r => !isNoGuideRow(r)).map(targetKey)
@@ -2011,18 +2065,35 @@ function renderResultsTable() {
     // download endpoint will return. When the toggle is off this is a no-op
     // (condenseRecords passes records through unchanged).
     const condensed = condenseEnabled ? condenseRecords(currentRecords) : currentRecords;
-    const baseFiltered = filterRecords(condensed, mode, score, gc, homopolymer, trinuc);
+    const attributeFiltered = filterRecords(condensed, mode, score, gc, homopolymer, trinuc);
     // Re-add one placeholder row per target whose guides were all removed by
     // the active filters (mirrors the server-side download fill).
-    const filtered = fillMissingTargets(baseFiltered, currentRecords);
+    const placeholderFilled = fillMissingTargets(attributeFiltered, currentRecords);
+    // Optional client-side "Hide failing guides" filter: hides guides that
+    // failed the latest off-target check. Applied AFTER the placeholder fill
+    // (so it never re-adds misleading "**No guide possible**" placeholders for
+    // targets whose guides all failed — those guides exist, they just failed)
+    // and never hides the placeholder rows themselves. Nothing is deleted:
+    // untick the box to see every guide again.
+    const hideFailed = otHideFailed && otFailedKeys.size > 0;
+    const filtered = hideFailed
+        ? placeholderFilled.filter(r =>
+            isNoGuideRow(r) || !otFailedKeys.has(JSON.stringify(screenRowKey(r))))
+        : placeholderFilled;
     // Summary is intentionally NOT affected by the condense toggle: compute a
     // separate filtered view from the uncondensed records so per-editor counts
-    // always reflect one editor per row. Filters still apply.
-    const summaryFiltered = filterRecords(currentRecords, mode, score, gc, homopolymer, trinuc);
+    // always reflect one editor per row. Filters still apply, including the
+    // off-target "hide failing guides" filter.
+    const summaryUnfiltered = filterRecords(currentRecords, mode, score, gc, homopolymer, trinuc);
+    const summaryFiltered = hideFailed
+        ? summaryUnfiltered.filter(r =>
+            isNoGuideRow(r) || !otFailedKeys.has(JSON.stringify(screenRowKey(r))))
+        : summaryUnfiltered;
 
     // Off-target screening counts the real guide rows (not the re-added
-    // "no guide" placeholders) the current filters select.
-    currentFilteredGuideRows = baseFiltered.filter(r => !isNoGuideRow(r));
+    // "no guide" placeholders) the current filters select — including the
+    // hide-failing filter, so the button count matches the visible guides.
+    currentFilteredGuideRows = filtered.filter(r => !isNoGuideRow(r));
     updateScreenButton();
 
     target.classList.toggle("condensed", condenseEnabled && condensed.length < currentRecords.length);
@@ -2139,13 +2210,20 @@ function resetScreeningState() {
     screenRecords = [];
     screening = false;
     currentFilteredGuideRows = [];
+    otFailedKeys = new Set();
+    otHideFailed = false;
+    if (otHideFailedToggle) {
+        otHideFailedToggle.checked = false;
+        otHideFailedToggle.disabled = true;
+        otHideFailedToggle.title = "";
+    }
     if (offtargetPanel) {
         offtargetPanel.querySelectorAll(".results-table-wrap").forEach(n => n.remove());
     }
     if (offtargetPlaceholder) {
         offtargetPlaceholder.style.display = "block";
         offtargetPlaceholder.textContent =
-            "Off-target results appear here after you run a search on the filtered guides (button below the filters).";
+            "Off-target results appear here after you run the off-target check on the filtered guides (button in the filter bar above the results).";
     }
     if (offtargetStatus) {
         offtargetStatus.style.display = "none";
@@ -2178,25 +2256,36 @@ function updateScreenButton() {
     if (!screenOfftargetBtn) return;
     if (screening) {
         screenOfftargetBtn.disabled = true;
+        screenOfftargetBtn.classList.add("btn-loading");
+        screenOfftargetBtn.setAttribute("aria-busy", "true");
         screenOfftargetBtn.textContent = "Screening\u2026";
+        screenOfftargetBtn.title = "Off-target check is running.";
         if (offtargetHint) offtargetHint.textContent = "";
         return;
     }
+    screenOfftargetBtn.classList.remove("btn-loading");
+    screenOfftargetBtn.removeAttribute("aria-busy");
     const rows = collectScreeningRows(currentFilteredGuideRows);
     const reason = screeningBlockReason(rows.length);
+    screenOfftargetBtn.textContent = `Check severe off-targets (${rows.length})`;
+    screenOfftargetBtn.disabled = Boolean(reason);
+    if (offtargetHint) offtargetHint.textContent = reason || "";
     if (reason) {
-        screenOfftargetBtn.disabled = true;
-        screenOfftargetBtn.textContent = `Search off-targets (${rows.length} guides)`;
+        screenOfftargetBtn.title = reason;
     } else {
-        screenOfftargetBtn.disabled = false;
-        screenOfftargetBtn.textContent = `Search off-targets (${rows.length} guides)`;
-    }
-    if (offtargetHint) {
-        offtargetHint.textContent = reason || "";
+        // Short always-available explainer: the search is deliberately
+        // limited to the most severe off-targets.
+        screenOfftargetBtn.title =
+            "Runs on the currently filtered guides. Only the most severe " +
+            "off-targets are enumerated (CCTOP score at or below the " +
+            "operator's threshold); guides without hits here can still " +
+            "have milder off-targets.";
     }
 }
 
 // POST /offtarget for the filtered subset and poll the child job.
+// The button stays blocked (spinner) until the screening job reaches a
+// terminal state — ``screening`` is cleared in pollScreenJob, not here.
 async function runScreening() {
     if (screening || !currentJobId) return;
     const rows = collectScreeningRows(currentFilteredGuideRows);
@@ -2216,6 +2305,8 @@ async function runScreening() {
         const data = await res.json();
         if (!data.ok) {
             showToast("error", data.error || "Off-target search could not be started.");
+            screening = false;
+            updateScreenButton();
             return;
         }
         screenJobId = data.job_id;
@@ -2228,7 +2319,6 @@ async function runScreening() {
         pollScreenJob(screenJobId);
     } catch (err) {
         showToast("error", `Off-target search failed to start: ${err}`);
-    } finally {
         screening = false;
         updateScreenButton();
     }
@@ -2240,6 +2330,8 @@ function pollScreenJob(jobId) {
             const res = await fetch("/status?job_id=" + encodeURIComponent(jobId));
             const data = await res.json();
             if (data.status === "complete" || data.status === "error" || data.status === "cancelled") {
+                // The screening job is done either way — release the button.
+                screening = false;
                 if (data.status === "complete") {
                     await fetchScreenResults(jobId);
                 } else if (data.status === "cancelled") {
@@ -2268,6 +2360,22 @@ async function fetchScreenResults(jobId) {
         return;
     }
     screenRecords = data.records;
+    // Derive the set of failing guides for the "Hide failing guides"
+    // filter, and enable the toggle now that a snapshot exists.
+    otFailedKeys = new Set();
+    for (const rec of screenRecords) {
+        const v = offtargetVerdict(rec);
+        if (v && v.verdict === "fail") {
+            otFailedKeys.add(JSON.stringify(screenRowKey(rec)));
+        }
+    }
+    if (otHideFailedToggle) {
+        otHideFailedToggle.disabled = false;
+        otHideFailedToggle.title = otFailedKeys.size > 0
+            ? `${otFailedKeys.size} of ${screenRecords.length} screened guides failed the off-target check.`
+            : "No screened guide failed the off-target check.";
+        renderResultsTable();
+    }
     if (offtargetPlaceholder) offtargetPlaceholder.style.display = "none";
     if (offtargetStatus) {
         showAlert(offtargetStatus, "success", data.message || "Off-target screening complete.");
@@ -2294,7 +2402,10 @@ function renderOfftargetTable() {
         target.innerHTML = `<p style="color:var(--muted);padding:16px;">No off-target results returned.</p>`;
         return;
     }
-    const columns = Object.keys(screenRecords[0]);
+    // The verdict column is synthetic (derived from the operator's
+    // thresholds client-side); it is prepended so pass/fail is the first
+    // thing the user sees. The download endpoint is unaffected.
+    const columns = ["offtarget_verdict", ...Object.keys(screenRecords[0])];
     const displayColumns = columns.map(columnLabel);
     target.innerHTML = renderTable(
         screenRecords,
@@ -2302,6 +2413,7 @@ function renderOfftargetTable() {
         displayColumns,
         null,
         (row, column, value) => {
+            if (column === "offtarget_verdict") return formatVerdictCell(row);
             const seqProps = formatSequencePropsCell(row, column, value);
             if (seqProps !== null) return seqProps;
             const otCell = formatOfftargetCell(row, column, value);
@@ -2504,6 +2616,16 @@ if (trinucFilter) {
 if (condenseToggle) {
     condenseToggle.addEventListener("change", () => {
         condenseEnabled = condenseToggle.checked;
+        if (currentRecords.length > 0) renderResultsTable();
+    });
+}
+
+// "Hide failing guides": re-render the guides table with the off-target
+// verdict filter applied/removed. Only meaningful once a screening
+// snapshot exists for the current job (the checkbox is disabled before).
+if (otHideFailedToggle) {
+    otHideFailedToggle.addEventListener("change", () => {
+        otHideFailed = otHideFailedToggle.checked;
         if (currentRecords.length > 0) renderResultsTable();
     });
 }

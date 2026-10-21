@@ -84,7 +84,7 @@ The `/config` endpoint reports per-genome availability (`offtarget.genomes`) so 
 
 ### Off-target screening from the web UI
 
-The web UI uses a two-phase flow: a guide search runs the pipeline without BEguidedOFF; the user filters the Guides table; the **Search off-targets** button (below the filters) screens exactly the visible guides. The screening job re-runs only steps 4–5 on that subset, keeps every row (the removal rule is disabled — the UI shows each guide's verdict from the operator thresholds), and displays the snapshot in a separate **Off-target results** tab.
+The web UI uses a two-phase flow: a guide search runs the pipeline without BEguidedOFF; the user filters the Guides table; the **Check severe off-targets** button (in the filter bar above the results) screens exactly the visible guides. The screening job re-runs only steps 4–5 on that subset, keeps every row (the removal rule is disabled — the UI shows each guide's verdict from the operator thresholds), and displays the snapshot in a separate **Off-target results** tab whose first column is a pass/fail verdict. The **Hide failing guides** checkbox in the filter bar hides guides that failed the check (display-only; nothing is deleted and downloads are unaffected). The search enumerates only the most severe off-targets (CCTOP score at or below the operator's score threshold): "pass" means none that severe were found, not that the guide has no off-targets.
 
 | Variable | Default | Purpose |
 |---|---|---|
