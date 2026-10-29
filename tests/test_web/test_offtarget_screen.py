@@ -281,6 +281,64 @@ class TestPerGenomeConfig:
         assert avail["mode"] == "fast"
         assert avail["is_mini_fixture"] is True
 
+    def test_fast_search_summary_fast_mode(self, tmp_path):
+        from beguided.web.config import WebConfig
+
+        cfg = WebConfig(
+            base_editor_profiles_file=str(tmp_path / "p.tsv"),
+            genome_fasta="/nonexistent",
+            gtf_path="/nonexistent",
+            beguidedoff_genome=str(tmp_path / "g.npz"),
+            beguidedoff_mode="fast",
+            max_input_targets=10,
+        )
+        info = cfg.fast_search_summary()
+        assert info is not None
+        # Screening disables the removal rule, so the cutoff falls back to
+        # the count threshold clamped to FAST_MAX_SEARCH_CUTOFF (1.2**9).
+        from beguided.pipeline import FAST_MAX_SEARCH_CUTOFF
+
+        assert info["cutoff"] == pytest.approx(FAST_MAX_SEARCH_CUTOFF)
+        assert info["seed_bp"] == 12
+        assert info["seed_span"] == "9-20"
+        assert info["hot_bp"] == 8
+        assert info["hot_mismatches"] == 3
+
+    def test_fast_search_summary_lower_count_threshold(self, tmp_path):
+        from beguided.web.config import WebConfig
+
+        cfg = WebConfig(
+            base_editor_profiles_file=str(tmp_path / "p.tsv"),
+            genome_fasta="/nonexistent",
+            gtf_path="/nonexistent",
+            beguidedoff_genome=str(tmp_path / "g.npz"),
+            beguidedoff_mode="fast",
+            max_input_targets=10,
+            count_threshold_score=3.0,
+        )
+        # A lower cutoff tolerates fewer mismatches -> a longer exact seed.
+        info = cfg.fast_search_summary()
+        assert info is not None
+        assert info["cutoff"] == pytest.approx(3.0)
+        assert info["seed_bp"] > 12
+
+    def test_fast_search_summary_hidden_without_beguidedoff(self, tmp_path, monkeypatch):
+        from beguided.web import config as web_config
+
+        cfg = web_config.WebConfig(
+            base_editor_profiles_file=str(tmp_path / "p.tsv"),
+            genome_fasta="/nonexistent",
+            gtf_path="/nonexistent",
+            beguidedoff_genome=str(tmp_path / "g.npz"),
+            beguidedoff_mode="fast",
+            max_input_targets=10,
+        )
+        monkeypatch.setattr(
+            web_config.WebConfig, "has_beguidedoff",
+            property(lambda self: False),
+        )
+        assert cfg.fast_search_summary() is None
+
 
 # ---------------------------------------------------------------------------
 # FM-index handle cache

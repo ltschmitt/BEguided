@@ -741,6 +741,11 @@ def create_app() -> FastAPI:
                 "genomes": cfg.offtarget_availability(),
                 "max_screen_guides": cfg.max_screen_guides,
                 "screen_cooldown_seconds": cfg.screen_cooldown_seconds,
+                # Plain-language facts about the fast-mode search window
+                # (exact PAM-proximal seed + tolerated PAM-distal mismatches)
+                # so the UI's explainer line matches the engine. Null when
+                # the fast engine is unavailable.
+                "fast_search": cfg.fast_search_summary(),
                 "thresholds": {
                     "remove_guides_score": cfg.remove_guides_score,
                     "remove_guides_n_offtargets": cfg.remove_guides_n_offtargets,

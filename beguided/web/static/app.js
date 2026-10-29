@@ -30,6 +30,7 @@ const downloadResultsXlsx = document.getElementById("downloadResultsXlsx");
 const screenOfftargetBtn = document.getElementById("screenOfftargetBtn");
 const offtargetHint = document.getElementById("offtargetHint");
 const otHideFailedToggle = document.getElementById("otHideFailedToggle");
+const otSearchNote = document.getElementById("otSearchNote");
 const offtargetPanel = document.getElementById("offtargetPanel");
 const offtargetPlaceholder = document.getElementById("offtargetPlaceholder");
 const offtargetStatus = document.getElementById("offtargetStatus");
@@ -163,6 +164,7 @@ const isSpryCas = (cas) => /spry/i.test(cas || "");
         if (data.ok && data.offtarget) {
             offtargetConfig = data.offtarget;
             updateScreenButton();
+            updateSearchNote();
         }
     } catch (err) {
         console.warn("Failed to fetch server config:", err);
@@ -1029,6 +1031,7 @@ runBtn.addEventListener("click", async () => {
     // Remember which genome this job runs against so the off-target
     // screening button can check availability for the right index.
     currentJobGenomeKey = selectedGenomeKey();
+    updateSearchNote();
     cancelBtn.style.display = "inline-flex";
     setStatus("queued");
     startLogStream(currentJobId);
@@ -2293,6 +2296,32 @@ function resetScreeningState() {
     }
     if (downloadOfftargetResults) downloadOfftargetResults.style.display = "none";
     updateScreenButton();
+}
+
+// Plain-language note about the fast-mode search window: the FM-index
+// search only enumerates off-targets whose PAM-proximal seed matches the
+// guide exactly. The numbers come from /config (derived from the same
+// cutoff the screening uses) so the text always matches the engine; the
+// note is hidden for non-fast modes rather than guessing.
+function updateSearchNote() {
+    if (!otSearchNote) return;
+    const fs = offtargetConfig && offtargetConfig.fast_search;
+    const genomes = (offtargetConfig && offtargetConfig.genomes) || {};
+    const key = currentJobGenomeKey || defaultGenomeKey;
+    const mode = genomes[key] && genomes[key].mode;
+    if (!fs || mode !== "fast") {
+        otSearchNote.style.display = "none";
+        otSearchNote.textContent = "";
+        return;
+    }
+    otSearchNote.textContent =
+        `The search enumerates only off-targets that match the guide exactly ` +
+        `over the ${fs.seed_bp} guide bases closest to the PAM (positions ` +
+        `${fs.seed_span}); mismatches are tolerated only in the PAM-distal ` +
+        `${fs.hot_bp} bases (up to ${fs.hot_mismatches}). Sites with a ` +
+        `mismatch inside that region score above the search cutoff and are ` +
+        `not enumerated.`;
+    otSearchNote.style.display = "";
 }
 
 // Why the screening button cannot be used right now (null = it can).

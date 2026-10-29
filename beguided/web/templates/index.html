@@ -277,8 +277,9 @@
             <label for="condenseToggle">Condense results</label>
             <input type="checkbox" id="condenseToggle" checked />
         </div>
+        <span id="filterSummary" class="muted" aria-live="polite">Showing 0 of 0</span>
+        <div class="results-toolbar-title results-toolbar-title-section">Off-target check</div>
         <div class="group">
-            <label for="screenOfftargetBtn">Off-targets</label>
             <button id="screenOfftargetBtn" class="btn btn-primary" type="button" disabled>
                 Check severe off-targets (0)
             </button>
@@ -288,7 +289,7 @@
             <label for="otHideFailedToggle" title="Enabled after the off-target check has run for this job; hides guides that failed it.">Hide failing guides</label>
             <input type="checkbox" id="otHideFailedToggle" disabled />
         </div>
-        <span id="filterSummary" class="muted" aria-live="polite">Showing 0 of 0</span>
+        <div id="otSearchNote" class="ot-search-note" style="display:none;"></div>
     </div>
     <div class="subtabs" role="tablist" aria-label="Results view">
         <button id="guidesSubtabBtn" class="subtab-button active" data-subtab="guidesSubtab" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="guidesSubtab">Guides</button>

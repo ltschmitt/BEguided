@@ -80,7 +80,7 @@ With several selectable genomes (e.g. human and mouse), each genome can have its
 | `BEGUIDED_BEGUIDEDOFF_INDEX_HUMAN` / `..._MOUSE` | FM-index `.fmi` for that genome key (fast mode) |
 | `BEGUIDED_BEGUIDEDOFF_GENOME` / `_INDEX` / `_MODE` | Global fallback (default genome and single-genome deployments only) |
 
-The `/config` endpoint reports per-genome availability (`offtarget.genomes`) so the UI can enable or disable the off-target search button per selected genome; a configured genome without its own BEguidedOFF index is reported unavailable with the variables to set.
+The `/config` endpoint reports per-genome availability (`offtarget.genomes`) so the UI can enable or disable the off-target search button per selected genome; a configured genome without its own BEguidedOFF index is reported unavailable with the variables to set. For fast mode it also reports the search window (`offtarget.fast_search`) — the exact PAM-proximal seed length and the tolerated PAM-distal mismatches, derived from the effective search cutoff — which the UI shows as a plain-language note in the results toolbar.
 
 ### Off-target screening from the web UI
 

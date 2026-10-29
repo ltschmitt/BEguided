@@ -370,6 +370,44 @@ class WebConfig:
             }
         return out
 
+    def fast_search_summary(self) -> "dict | None":
+        """Describe the fast-mode (FM-index) search window for ``/config``.
+
+        Web screening disables the removal rule, so the pipeline's fast
+        search cutoff falls back to the count threshold, clamped to the
+        sound maximum (``beguided.pipeline.FAST_MAX_SEARCH_CUTOFF``). The
+        cutoff splits the 20 bp guide into a PAM-proximal "cold" region
+        that must match exactly and a PAM-distal "hot" region with a
+        bounded mismatch budget. The UI renders this as a plain-language
+        note so the numbers it shows always match the engine. Returns
+        ``None`` when BEguidedOFF is unavailable or the regions cannot be
+        derived (the UI hides the note instead of guessing).
+        """
+        if not self.has_beguidedoff:
+            return None
+        try:
+            from beguided.pipeline import FAST_MAX_SEARCH_CUTOFF
+            from beguidedoff.regions import derive_regions
+
+            # Mirror the screening payload: remove_guides_score is None, so
+            # the pipeline resolves the cutoff to the clamped count
+            # threshold (see beguided.pipeline._resolve_fast_search_cutoff).
+            cutoff = min(
+                float(self.count_threshold_score), float(FAST_MAX_SEARCH_CUTOFF)
+            )
+            regions = derive_regions(cutoff)
+        except Exception:  # pragma: no cover - defensive: hide the note
+            return None
+        if not regions.cold:
+            return None
+        return {
+            "cutoff": cutoff,
+            "seed_bp": len(regions.cold),
+            "seed_span": regions.cold_anchor,
+            "hot_bp": len(regions.hot),
+            "hot_mismatches": regions.budget,
+        }
+
     @property
     def has_beguidedoff(self) -> bool:
         """Return True if BEguidedOFF appears to be installed/configured."""

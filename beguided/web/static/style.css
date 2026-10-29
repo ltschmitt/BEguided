@@ -558,6 +558,24 @@ tr.no-guide td code {
     width: 100%;
 }
 
+/* Second section title ("Off-target check") inside the same toolbar box;
+   the top divider separates it from the Filters row above. */
+.results-toolbar .results-toolbar-title-section {
+    margin-top: 4px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+/* Plain-language note about the fast-mode search window (exact
+   PAM-proximal seed, tolerated PAM-distal mismatches), rendered from the
+   /config fast_search block below the off-target controls. */
+.results-toolbar .ot-search-note {
+    width: 100%;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--muted);
+}
+
 /* Off-target screening controls live in the results filter toolbar
    (the search acts on exactly the filtered subset). The hint sits next
    to the button and is clamped so long reasons don't stretch the row. */
