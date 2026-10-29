@@ -566,14 +566,19 @@ tr.no-guide td code {
     border-top: 1px solid var(--border);
 }
 
-/* Plain-language note about the fast-mode search window (exact
-   PAM-proximal seed, tolerated PAM-distal mismatches), rendered from the
-   /config fast_search block below the off-target controls. */
-.results-toolbar .ot-search-note {
-    width: 100%;
-    font-size: 12px;
-    line-height: 1.45;
+/* Info glyph after the "Off-target check" section title: carries the
+   plain-language search-window note (exact PAM-proximal seed, tolerated
+   PAM-distal mismatches) as a native tooltip on the title, set from the
+   /config fast_search block. Hidden when the fast engine is absent. */
+.results-toolbar .results-toolbar-title .th-info {
     color: var(--muted);
+    opacity: 0.6;
+    font-size: 11px;
+    margin-left: 6px;
+}
+
+.results-toolbar .results-toolbar-title[title] {
+    cursor: help;
 }
 
 /* Off-target screening controls live in the results filter toolbar
