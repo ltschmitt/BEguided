@@ -87,10 +87,12 @@ let screenRecords = [];
 let screening = false;
 let currentFilteredGuideRows = [];
 let currentJobGenomeKey = null;
-// Keys (screenRowKey JSON) of guides that failed the latest off-target
-// check, plus the user's "hide failing guides" choice. Both are cleared
-// when a new pipeline run starts.
-let otFailedKeys = new Set();
+// Verdicts of the latest off-target check: JSON screenRowKey ->
+// {verdict: "pass"|"fail", reason}. Drives the Guides-table verdict column,
+// the "hide failing guides" filter and the toggle title. Cleared together
+// with the user's "hide failing guides" choice when a new pipeline run
+// starts.
+let otVerdictMap = new Map();
 let otHideFailed = false;
 let customEditorKey = "custom";
 let customEditorLabel = "Custom (uploaded)";
@@ -1271,15 +1273,46 @@ function offtargetVerdict(row) {
     };
 }
 
-// First column of the off-target results table: pass/fail badge whose
-// tooltip carries the specific reason.
-function formatVerdictCell(row) {
-    const v = offtargetVerdict(row);
+// Pass/fail badge with the reason as tooltip; shared by the Guides-table
+// verdict column and the compact report tab.
+function verdictBadgeHtml(v) {
     if (!v) return `<span class="muted">&mdash;</span>`;
     if (v.verdict === "fail") {
         return `<span class="ot-badge ot-badge-danger" title="${escapeHtml(v.reason)}">fail</span>`;
     }
     return `<span class="ot-badge ot-badge-pass" title="${escapeHtml(v.reason)}">pass</span>`;
+}
+
+// Verdict cell for the compact report tab: one row per screened guide, so
+// the verdict comes straight from the row's own screening columns.
+function formatReportVerdictCell(row) {
+    return verdictBadgeHtml(offtargetVerdict(row));
+}
+
+// Verdict cell for the Guides table. Rows carry an attached
+// `offtarget_verdict` value ("" = not part of the screened subset); the
+// tooltip lists the per-editor detail, which matters for condensed rows
+// whose editors share one verdict.
+function formatVerdictCell(row) {
+    if (!screenRecords.length) return `<span class="muted">&mdash;</span>`;
+    const v = row.offtarget_verdict;
+    if (v === undefined || v === null || v === "") {
+        if (isNoGuideRow(row)) return `<span class="muted">&mdash;</span>`;
+        return `<span class="muted" title="This guide was not part of the last off-target check.">not screened</span>`;
+    }
+    const editors = String(row.base_editor ?? "")
+        .split("\n").map(s => s.trim()).filter(Boolean);
+    const parts = [];
+    for (const ed of editors) {
+        const res = otVerdictMap.get(JSON.stringify(screenRowKey({ ...row, base_editor: ed })));
+        parts.push(`${ed || "(editor)"}: ` +
+            (res ? `${res.verdict} \u2014 ${res.reason}` : "not screened"));
+    }
+    const tip = parts.join("\n") || v;
+    const badge = v === "fail"
+        ? `<span class="ot-badge ot-badge-danger" title="${escapeHtml(tip)}">fail</span>`
+        : `<span class="ot-badge ot-badge-pass" title="${escapeHtml(tip)}">pass</span>`;
+    return badge;
 }
 
 function formatOfftargetCell(row, column, value) {
@@ -2051,6 +2084,22 @@ function fillMissingTargets(filtered, preFilter) {
     return out;
 }
 
+// Attach the screening verdict to every results row before rendering and
+// condensing. Returns new row objects (the shared currentRecords stay
+// untouched); "" marks guides that were not part of the screened subset.
+// The verdict is attached BEFORE condensing so it becomes part of the
+// condense group key: a target whose editors disagree then splits into a
+// failing row and a passing row, each listing only same-verdict editors.
+// With no snapshot the records pass through unchanged and the Guides table
+// shows no verdict column at all.
+function attachVerdicts(records) {
+    if (!screenRecords.length || !otVerdictMap.size) return records;
+    return records.map(r => {
+        const v = otVerdictMap.get(JSON.stringify(screenRowKey(r)));
+        return { offtarget_verdict: v ? v.verdict : "", ...r };
+    });
+}
+
 function renderResultsTable() {
     const wrap = resultsPanel.querySelector(".results-table-wrap");
     if (!wrap) {
@@ -2061,34 +2110,36 @@ function renderResultsTable() {
     const target = resultsPanel.querySelector(".results-table-wrap");
 
     const { mode, score, gc, homopolymer, trinuc } = getActiveFilters();
-    // Condense BEFORE filtering so the filter sees the same row shape the
-    // download endpoint will return. When the toggle is off this is a no-op
-    // (condenseRecords passes records through unchanged).
-    const condensed = condenseEnabled ? condenseRecords(currentRecords) : currentRecords;
+    // Attach the screening verdict (if a snapshot exists) before condensing
+    // so same-verdict rows merge and mixed targets split into separate
+    // pass/fail rows; then condense BEFORE filtering so the filter sees the
+    // same row shape the download endpoint will return. When there is no
+    // snapshot and the toggle is off both steps pass records through
+    // unchanged.
+    const annotated = attachVerdicts(currentRecords);
+    const condensed = condenseEnabled ? condenseRecords(annotated) : annotated;
     const attributeFiltered = filterRecords(condensed, mode, score, gc, homopolymer, trinuc);
     // Re-add one placeholder row per target whose guides were all removed by
     // the active filters (mirrors the server-side download fill).
     const placeholderFilled = fillMissingTargets(attributeFiltered, currentRecords);
-    // Optional client-side "Hide failing guides" filter: hides guides that
-    // failed the latest off-target check. Applied AFTER the placeholder fill
-    // (so it never re-adds misleading "**No guide possible**" placeholders for
-    // targets whose guides all failed — those guides exist, they just failed)
-    // and never hides the placeholder rows themselves. Nothing is deleted:
+    // Optional client-side "Hide failing guides" filter: removes rows whose
+    // verdict is fail. One rule serves both table modes because condensed
+    // rows are verdict-homogeneous — hiding a failing condensed row removes
+    // only the failing editors while the target stays visible through its
+    // passing sub-row. Applied AFTER the placeholder fill (so it never
+    // re-adds misleading "**No guide possible**" placeholders for targets
+    // whose guides all failed — those guides exist, they just failed) and
+    // never hides the placeholder rows themselves. Nothing is deleted:
     // untick the box to see every guide again.
-    const hideFailed = otHideFailed && otFailedKeys.size > 0;
-    const filtered = hideFailed
-        ? placeholderFilled.filter(r =>
-            isNoGuideRow(r) || !otFailedKeys.has(JSON.stringify(screenRowKey(r))))
-        : placeholderFilled;
+    const hideFailed = otHideFailed && otVerdictMap.size > 0;
+    const keepRow = (r) => isNoGuideRow(r) || r.offtarget_verdict !== "fail";
+    const filtered = hideFailed ? placeholderFilled.filter(keepRow) : placeholderFilled;
     // Summary is intentionally NOT affected by the condense toggle: compute a
     // separate filtered view from the uncondensed records so per-editor counts
     // always reflect one editor per row. Filters still apply, including the
     // off-target "hide failing guides" filter.
-    const summaryUnfiltered = filterRecords(currentRecords, mode, score, gc, homopolymer, trinuc);
-    const summaryFiltered = hideFailed
-        ? summaryUnfiltered.filter(r =>
-            isNoGuideRow(r) || !otFailedKeys.has(JSON.stringify(screenRowKey(r))))
-        : summaryUnfiltered;
+    const summaryUnfiltered = filterRecords(annotated, mode, score, gc, homopolymer, trinuc);
+    const summaryFiltered = hideFailed ? summaryUnfiltered.filter(keepRow) : summaryUnfiltered;
 
     // Off-target screening counts the real guide rows (not the re-added
     // "no guide" placeholders) the current filters select — including the
@@ -2102,6 +2153,12 @@ function renderResultsTable() {
         target.innerHTML = `<p style="color:var(--muted);padding:16px;">No guides match the current filters.</p>`;
     } else {
         const columns = Object.keys(filtered[0]);
+        // With a screening snapshot every annotated row carries the verdict,
+        // but re-added placeholder rows may lack the key; keep the column
+        // when the first visible row happens to be a placeholder.
+        if (screenRecords.length && !columns.includes("offtarget_verdict")) {
+            columns.unshift("offtarget_verdict");
+        }
         // Move 'sequence' column to the front in sequence mode
         const finalColumns = currentMode === "sequence"
             ? reorderColumns(columns, "sequence")
@@ -2113,6 +2170,7 @@ function renderResultsTable() {
             displayColumns,
             targetKey,
             (row, column, value) => {
+                if (column === "offtarget_verdict") return formatVerdictCell(row);
                 const seqProps = formatSequencePropsCell(row, column, value);
                 if (seqProps !== null) return seqProps;
                 const otCell = formatOfftargetCell(row, column, value);
@@ -2161,9 +2219,11 @@ function formatFilterSummary(shown, afterCondense, total) {
 //
 // Two-phase model: the guide search runs the pipeline without BEguidedOFF;
 // once the user has narrowed the Guides table with the filters above, the
-// "Search off-targets" button screens exactly the visible guide rows. The
-// result is an immutable snapshot shown in the "Off-target results" sub-tab
-// (the Guides tab keeps live-filtering the full parent result).
+// "Check severe off-targets" button screens exactly the visible guide rows.
+// The verdict lands as an extra first column in the Guides table itself
+// (joined client-side from the immutable snapshot), and the "Off-target
+// report" sub-tab holds a compact per-guide specificity report with the
+// worst-site details.
 
 // Identity of one results row for screening requests. Must match the
 // server-side ``_screen_row_key`` in beguided/web/tasks.py: chromosome,
@@ -2210,20 +2270,22 @@ function resetScreeningState() {
     screenRecords = [];
     screening = false;
     currentFilteredGuideRows = [];
-    otFailedKeys = new Set();
+    otVerdictMap = new Map();
     otHideFailed = false;
     if (otHideFailedToggle) {
         otHideFailedToggle.checked = false;
         otHideFailedToggle.disabled = true;
         otHideFailedToggle.title = "";
     }
+    const checkLine = document.getElementById("otCheckStatus");
+    if (checkLine) checkLine.remove();
     if (offtargetPanel) {
         offtargetPanel.querySelectorAll(".results-table-wrap").forEach(n => n.remove());
     }
     if (offtargetPlaceholder) {
         offtargetPlaceholder.style.display = "block";
         offtargetPlaceholder.textContent =
-            "Off-target results appear here after you run the off-target check on the filtered guides (button in the filter bar above the results).";
+            "The off-target report appears here after you run the off-target check on the filtered guides (button in the filter bar above the results).";
     }
     if (offtargetStatus) {
         offtargetStatus.style.display = "none";
@@ -2360,21 +2422,21 @@ async function fetchScreenResults(jobId) {
         return;
     }
     screenRecords = data.records;
-    // Derive the set of failing guides for the "Hide failing guides"
-    // filter, and enable the toggle now that a snapshot exists.
-    otFailedKeys = new Set();
+    // Build the verdict lookup used by the Guides-table verdict column, the
+    // "hide failing guides" filter and the toggle title.
+    otVerdictMap = new Map();
+    let nFail = 0;
     for (const rec of screenRecords) {
         const v = offtargetVerdict(rec);
-        if (v && v.verdict === "fail") {
-            otFailedKeys.add(JSON.stringify(screenRowKey(rec)));
-        }
+        if (!v) continue;
+        otVerdictMap.set(JSON.stringify(screenRowKey(rec)), v);
+        if (v.verdict === "fail") nFail++;
     }
     if (otHideFailedToggle) {
         otHideFailedToggle.disabled = false;
-        otHideFailedToggle.title = otFailedKeys.size > 0
-            ? `${otFailedKeys.size} of ${screenRecords.length} screened guides failed the off-target check.`
+        otHideFailedToggle.title = nFail > 0
+            ? `${nFail} of ${screenRecords.length} screened guides failed the off-target check.`
             : "No screened guide failed the off-target check.";
-        renderResultsTable();
     }
     if (offtargetPlaceholder) offtargetPlaceholder.style.display = "none";
     if (offtargetStatus) {
@@ -2386,9 +2448,40 @@ async function fetchScreenResults(jobId) {
             "/download/results?job_id=" + encodeURIComponent(screenJobId);
         downloadOfftargetResults.style.display = "inline-flex";
     }
-    // Bring the result to the user's attention.
-    switchSubTab("offtargetSubtab");
+    // Stay on the Guides tab: the verdict column just appeared there. Add a
+    // status line next to the guide counts and toast the outcome; the
+    // report tab keeps its own banner for when the user visits it.
+    renderResultsTable();
+    const summary = `Off-target check: ${screenRecords.length} screened, ` +
+        `${nFail} fail, ${screenRecords.length - nFail} pass.`;
+    if (resultsGuideStatus) {
+        let line = document.getElementById("otCheckStatus");
+        if (!line) {
+            line = document.createElement("div");
+            line.id = "otCheckStatus";
+            line.className = "ot-check-status";
+            resultsGuideStatus.appendChild(line);
+        }
+        line.textContent = summary;
+    }
+    showToast("info", summary);
 }
+
+// Columns of the compact off-target report: the verdict plus the
+// screening-relevant columns only — not a copy of the Guides table. The
+// full screened records remain available via the TSV download.
+const OFFTARGET_REPORT_COLUMNS = [
+    "offtarget_verdict",
+    "guide_rna_sequence",
+    "base_editor",
+    "worst_offtarget_score",
+    "offtarget_count",
+    "worst_offtarget_mismatch_pos",
+    "worst_offtarget_chr",
+    "worst_offtarget_pos",
+    "worst_offtarget_strand",
+    "worst_offtarget_sequence",
+];
 
 function renderOfftargetTable() {
     const wrap = offtargetPanel.querySelector(".results-table-wrap");
@@ -2402,10 +2495,11 @@ function renderOfftargetTable() {
         target.innerHTML = `<p style="color:var(--muted);padding:16px;">No off-target results returned.</p>`;
         return;
     }
-    // The verdict column is synthetic (derived from the operator's
-    // thresholds client-side); it is prepended so pass/fail is the first
-    // thing the user sees. The download endpoint is unaffected.
-    const columns = ["offtarget_verdict", ...Object.keys(screenRecords[0])];
+    // Show only the report columns that the records actually carry (the
+    // verdict column is always first and always shown).
+    const present = new Set(Object.keys(screenRecords[0]));
+    const columns = OFFTARGET_REPORT_COLUMNS.filter(
+        c => c === "offtarget_verdict" || present.has(c));
     const displayColumns = columns.map(columnLabel);
     target.innerHTML = renderTable(
         screenRecords,
@@ -2413,7 +2507,7 @@ function renderOfftargetTable() {
         displayColumns,
         null,
         (row, column, value) => {
-            if (column === "offtarget_verdict") return formatVerdictCell(row);
+            if (column === "offtarget_verdict") return formatReportVerdictCell(row);
             const seqProps = formatSequencePropsCell(row, column, value);
             if (seqProps !== null) return seqProps;
             const otCell = formatOfftargetCell(row, column, value);

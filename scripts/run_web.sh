@@ -20,7 +20,10 @@
 
 set -euo pipefail
 
-cd "$(dirname "$0")"
+# Repo root (the script lives in scripts/): all default paths below are
+# relative to the checkout, and the FM-index readability checks must resolve
+# them the same way the server does.
+cd "$(dirname "$0")/.."
 
 # ---------------------------------------------------------------------------
 # Scheduler / safety knobs (override via env vars)

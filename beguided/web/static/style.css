@@ -485,6 +485,15 @@ body {
     letter-spacing: 0.02em;
 }
 
+/* Outcome line of the off-target check, appended to the guide-count status
+   box on the Guides tab. Lighter than the headline counts. */
+.results-guide-status .ot-check-status {
+    margin-top: 4px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: #334155;
+}
+
 /* Rows for targets without a usable guide RNA ("**No guide possible**",
    "**Base change incompatible**", "**Guides removed by filter**"). Muted so
    placeholder rows recede behind real guides while staying distinguishable. */
