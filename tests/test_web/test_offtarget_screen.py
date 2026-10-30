@@ -902,3 +902,76 @@ def test_config_advertises_offtarget_block(screening_cfg):
     thresholds = ot["thresholds"]
     assert thresholds["remove_guides_score"] > 0
     assert thresholds["remove_guides_n_offtargets"] > 0
+
+
+# ---------------------------------------------------------------------------
+# _validate_offtarget_config: index-first fast mode
+# ---------------------------------------------------------------------------
+
+
+class TestValidateOfftargetConfig:
+    """The screen-job gate must accept an FM-index without an encoded .npz."""
+
+    def _install_cfg(self, tmp_path, **kw):
+        from beguided.web.config import WebConfig, set_config
+
+        kw.setdefault("beguidedoff_mode", "fast")
+        set_config(WebConfig(
+            base_editor_profiles_file=str(tmp_path / "p.tsv"),
+            genome_fasta="/nonexistent",
+            gtf_path="/nonexistent",
+            max_input_targets=10,
+            **kw,
+        ))
+
+    def test_disabled_is_noop(self, tmp_path):
+        from beguided.web.tasks import _validate_offtarget_config
+
+        self._install_cfg(tmp_path, beguidedoff_genome="")
+        _validate_offtarget_config(False, "human")
+
+    def test_index_only_fast_passes(self, tmp_path):
+        from beguided.web.tasks import _validate_offtarget_config
+
+        fmi = tmp_path / "hg38_beguidedoff.fmi"
+        fmi.write_bytes(b"x")
+        self._install_cfg(tmp_path, beguidedoff_genome="", beguidedoff_index=str(fmi))
+        _validate_offtarget_config(True, "human")
+
+    def test_genome_only_fast_passes(self, tmp_path):
+        from beguided.web.tasks import _validate_offtarget_config
+
+        # npz-only setup (legacy): the derived sibling .fmi must exist.
+        npz = tmp_path / "g.npz"
+        npz.write_bytes(b"x")
+        fmi = tmp_path / "g.fmi"
+        fmi.write_bytes(b"x")
+        self._install_cfg(tmp_path, beguidedoff_genome=str(npz))
+        _validate_offtarget_config(True, "human")
+
+    def test_fast_without_index_or_genome_raises(self, tmp_path):
+        from beguided.web.tasks import _validate_offtarget_config
+
+        self._install_cfg(tmp_path, beguidedoff_genome="")
+        with pytest.raises(
+            RuntimeError, match="fast-mode off-target search requires an FM-index"
+        ):
+            _validate_offtarget_config(True, "human")
+
+    def test_fast_with_missing_index_file_raises(self, tmp_path):
+        from beguided.web.tasks import _validate_offtarget_config
+
+        self._install_cfg(
+            tmp_path,
+            beguidedoff_genome="",
+            beguidedoff_index=str(tmp_path / "missing.fmi"),
+        )
+        with pytest.raises(RuntimeError, match="requires an FM-index"):
+            _validate_offtarget_config(True, "human")
+
+    def test_extensive_without_genome_raises(self, tmp_path):
+        from beguided.web.tasks import _validate_offtarget_config
+
+        self._install_cfg(tmp_path, beguidedoff_genome="", beguidedoff_mode="extensive")
+        with pytest.raises(RuntimeError, match="beguidedoff-genome"):
+            _validate_offtarget_config(True, "human")

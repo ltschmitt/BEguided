@@ -196,7 +196,7 @@ def _validate_offtarget_config(search_offtargets: bool, genome_key: str = "human
             "or uncheck the Off-target option."
         )
     bgo = cfg.beguidedoff_resolved(genome_key)
-    if not bgo["genome"]:
+    if bgo["mode"] == "extensive" and not bgo["genome"]:
         raise RuntimeError(
             "Off-target search requires --beguidedoff-genome or "
             f"BEGUIDED_BEGUIDEDOFF_GENOME_{genome_key.upper()} "
@@ -204,7 +204,14 @@ def _validate_offtarget_config(search_offtargets: bool, genome_key: str = "human
         )
     if bgo["mode"] == "fast":
         index = bgo["index"]
-        if not index or not Path(index).exists():
+        if not index:
+            raise RuntimeError(
+                "fast-mode off-target search requires an FM-index: set "
+                "--beguidedoff-index / BEGUIDED_BEGUIDEDOFF_INDEX (or "
+                "--beguidedoff-genome / BEGUIDED_BEGUIDEDOFF_GENOME to "
+                "derive the index path from the encoded .npz)."
+            )
+        if not Path(index).exists():
             raise RuntimeError(
                 "fast-mode off-target search requires an FM-index (.fmi); "
                 f"not found: {index}. Build one with `python -m beguidedoff.cli "
@@ -212,14 +219,18 @@ def _validate_offtarget_config(search_offtargets: bool, genome_key: str = "human
                 "--beguidedoff-index / BEGUIDED_BEGUIDEDOFF_INDEX at it, or "
                 "switch to --beguidedoff-mode extensive (GPU)."
             )
-    genome = Path(bgo["genome"])
-    if "mini_genome" in genome.name or "tests" in genome.parts:
-        logger.warning(
-            "Off-target search is configured against the bundled mini test "
-            "genome (%s), not a real reference. Set BEGUIDED_BEGUIDEDOFF_GENOME "
-            "(and BEGUIDED_BEGUIDEDOFF_INDEX for fast mode) for production use.",
-            genome,
-        )
+    for name in (bgo["genome"], bgo["index"]):
+        p = Path(name) if name else None
+        if p is not None and ("mini_genome" in p.name or "tests" in p.parts):
+            logger.warning(
+                "Off-target search is configured against the bundled mini "
+                "test genome (%s), not a real reference. Set "
+                "BEGUIDED_BEGUIDEDOFF_INDEX (fast mode) or "
+                "BEGUIDED_BEGUIDEDOFF_GENOME (extensive mode) for "
+                "production use.",
+                p,
+            )
+            break
 
 
 def _df_to_records(path: Path, drop_columns: tuple[str, ...] = ()) -> list[dict]:
