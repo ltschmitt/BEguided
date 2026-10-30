@@ -54,7 +54,7 @@ Off-target search is optional. When `BEguidedOFF` is missing, the pipeline skips
 BEguidedOFF has two search modes (pipeline config key `offtargets.mode`):
 
 - **`fast`** (default for the web server) — CPU FM-index filter. Enumerates exactly the sites with CCTOP score ≤ the search cutoff (the removal threshold `offtargets.remove_guides_score`), so removal decisions match the GPU mode without a GPU. Needs an `.fmi` index built once per reference genome.
-- **`extensive`** — GPU brute force (≤ `offtargets.max_mismatches` mismatches). Requires CUDA; used via the `cuda` pixi environment or the `web-cuda`/`cli-cuda` images.
+- **`extensive`** — GPU brute force (≤ `offtargets.max_mismatches` mismatches). Requires CUDA; used via the `cuda` pixi environment (not available in docker).
 
 ### Via Pixi (recommended)
 
@@ -126,22 +126,20 @@ Note: in fast mode the off-target count (`offtarget_count`) covers sites with sc
 
 ## Docker
 
-The repo ships a multi-stage `Dockerfile` that produces four images:
+The repo ships a multi-stage `Dockerfile` that produces two images:
 
 | Target | Tag | CUDA | Web | Use case |
 |---|---|---|---|---|
 | `base` | `beguided:cli` | No | No | CLI / pipeline |
 | `web` (default) | `beguided:web` | No | Yes | Web interface |
-| `cli-cuda` | `beguided:cli-cuda` | Yes | No | CLI + GPU off-target search |
-| `web-cuda` | `beguided:web-cuda` | Yes | Yes | Web + GPU off-target search |
+
+The `web` image also installs [BEguidedOFF](https://github.com/ltschmitt/BEguidedOFF) (CPU fast mode) with its FM-index binding, so off-target screening works out of the box once the index files are provided — see [Off-target screening in docker](#off-target-screening-in-docker) below. There are no GPU docker targets: web screening is fast/CPU-only, and GPU off-target search runs from a pixi environment (see the manual install section).
 
 ### Build
 
 ```bash
-docker build --target base     -t beguided:cli     .
-docker build --target web      -t beguided:web     .
-docker build --target cli-cuda -t beguided:cli-cuda .
-docker build --target web-cuda -t beguided:web-cuda .
+docker build --target base -t beguided:cli .
+docker build --target web  -t beguided:web .
 ```
 
 ### Run CPU CLI
@@ -160,14 +158,30 @@ docker run -p 8000:8000 \
   beguided:web
 ```
 
-### Run GPU web server (requires NVIDIA Container Toolkit)
+### Off-target screening in docker
 
-```bash
-docker run --gpus all -p 8000:8000 \
-  -v $(pwd)/configs/base_editor_profiles.tsv:/app/configs/base_editor_profiles.tsv:ro \
-  -v $(pwd)/genome:/app/genome:ro \
-  beguided:web-cuda
+The `web` image ships BEguidedOFF (fast/CPU mode) from
+`github.com/ltschmitt/BEguidedOFF`, but **not** the genome index files —
+they are operator data (~2 GB for human) and are mounted at `/app/genome`.
+For each genome you want to screen, place the encoded `.npz` and the
+FM-index pair (`.fmi` + `.fmi.meta`) in the mounted genome directory, e.g.
+for human:
+
 ```
+genome/hg38_beguidedoff.npz        # encoded 2-bit genome (extensive mode)
+genome/hg38_beguidedoff.fmi        # FM-index (fast mode)
+genome/hg38_beguidedoff.fmi.meta   # sidecar, must stay next to the .fmi
+```
+
+Build them once from the reference FASTA with BEguidedOFF's CLI (see
+"Encoding a genome" above), or copy an existing trio from a workstation
+that already built it. `docker-compose.yml` defaults
+`BEGUIDED_BEGUIDEDOFF_GENOME` to `/app/genome/hg38_beguidedoff.npz`; the
+matching `.fmi` is derived from the same basename. Until the files exist,
+`/config` reports the genome as unavailable and the UI's off-target
+controls show a clear error — the rest of the pipeline is unaffected.
+Mouse stays disabled until an equivalent `*_beguidedoff.npz/.fmi` trio and
+`BEGUIDED_BEGUIDEDOFF_GENOME_MOUSE`/`_INDEX_MOUSE` are configured.
 
 ## Verifying the install
 

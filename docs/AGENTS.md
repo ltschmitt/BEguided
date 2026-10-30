@@ -159,10 +159,7 @@ Dependency sources:
 | Target | Base image | CUDA | Web |
 |---|---|---|---|
 | `base` | `python:3.12-slim-bookworm` | No | No |
-| `web` | extends `base` | No | Yes |
-| `base-gpu` | `nvidia/cuda:12.4.1-runtime-ubuntu22.04` | Yes | No |
-| `cli-cuda` | extends `base-gpu` | Yes | No |
-| `web-cuda` | extends `base-gpu` | Yes | Yes |
+| `web` | extends `base` | No | Yes; installs BEguidedOFF (CPU fast mode) from GitHub |
 
 Pixi resolves the environment by combining `[project.dependencies]` + `[tool.pixi.dependencies]`, locking the result in `pixi.lock`.
 

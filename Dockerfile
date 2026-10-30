@@ -1,24 +1,25 @@
 # BEguided Docker image
-# Multi-stage build with CPU and GPU variants.
 #
 # Targets:
 #   base      – CLI-only, CPU (python:3.12-slim)
 #   web       – Web server, CPU (default)
-#   base-gpu  – CLI-capable, CUDA 12.4 runtime
-#   cli-cuda  – CLI-only with GPU support
-#   web-cuda  – Web server with GPU support
+#
+# The `web` target additionally installs BEguidedOFF
+# (https://github.com/ltschmitt/BEguidedOFF) for off-target screening,
+# CPU fast mode only (FM-index) — the web server never uses the GPU. The
+# FM-index binding is a native extension built against sdsl-lite at image
+# build time (libsdsl-dev) and forced on with BEGUIDEDOFF_FAST=1 so a
+# missing sdsl-lite fails the build instead of silently shipping without
+# it. The .npz/.fmi index files are operator-provided data, not part of
+# the image (mounted at /app/genome; see docker-compose.yml and
+# docs/installation.md).
 #
 # Build examples:
-#   docker build --target base     -t beguided:cli     .
-#   docker build --target web      -t beguided:web     .
-#   docker build --target cli-cuda -t beguided:cli-cuda .
-#   docker build --target web-cuda -t beguided:web-cuda .
+#   docker build --target base -t beguided:cli     .
+#   docker build --target web  -t beguided:web     .
 #
-# Run GPU targets (requires NVIDIA Container Toolkit):
-#   docker run --gpus all beguided:cli-cuda --help
-#   docker run --gpus all -p 8000:8000 beguided:web-cuda
-#
-# Off-target search via BEguidedOFF is optional — install it manually if needed.
+# GPU off-target search (BEguidedOFF extensive mode) is not available in
+# docker; run the CLI from a pixi environment with the `cuda` feature.
 #
 # Package installs use uv (https://docs.astral.sh/uv/) pulled from its
 # official image — a single static binary, no wheel cache to clean up.
@@ -64,74 +65,20 @@ CMD ["--help"]
 # ============================================================================
 FROM base AS web
 
-RUN uv pip install --system --no-cache -e ".[web]"
-RUN mkdir -p /var/lib/beguided
-
-ENV PYTHONUNBUFFERED=1
-ENV BEGUIDED_BASE_EDITOR_PROFILES_FILE=/app/configs/base_editor_profiles.tsv
-
-EXPOSE 8000
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/config', timeout=5)" || exit 1
-
-ENTRYPOINT []
-
-CMD ["beguided-web", "--host", "0.0.0.0", "--port", "8000"]
-
-# ============================================================================
-# 3. GPU BASE — CUDA 12.4 runtime, CLI-capable
-# ============================================================================
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04 AS base-gpu
-
-WORKDIR /app
-
-# Prevent interactive prompts (e.g. tzdata) during package installation
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install uv (single static binary) from the official image
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
-# Install Python 3.12 and build dependencies
+# sdsl-lite for the BEguidedOFF FM-index binding, and git for uv's
+# git+https dependency fetch. Debian's libsdsl-dev puts the library in the
+# multiarch directory, which BEguidedOFF's setup.py does not search by
+# default, so SDSL_LIB_DIR is set explicitly.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    && add-apt-repository -y ppa:deadsnakes/ppa \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 \
-    python3.12-venv \
-    python3.12-dev \
-    gcc \
-    g++ \
-    libz-dev \
+    git \
+    libsdsl-dev \
     && rm -rf /var/lib/apt/lists/*
+ENV SDSL_INCLUDE_DIR=/usr/include \
+    SDSL_LIB_DIR=/usr/lib/x86_64-linux-gnu \
+    BEGUIDEDOFF_FAST=1
 
-# Create an isolated virtual environment
-RUN python3.12 -m venv /opt/venv
-
-COPY pyproject.toml README.md ./
-COPY beguided/ ./beguided/
-RUN uv pip install --python /opt/venv/bin/python --no-cache -e "."
-
-# Create directories for user-provided data
-RUN mkdir -p /app/genome /app/data
-
-# Default entrypoint for CLI usage
-ENTRYPOINT ["beguided"]
-CMD ["--help"]
-
-# ============================================================================
-# 4. GPU CLI — CUDA-enabled CLI image
-# ============================================================================
-FROM base-gpu AS cli-cuda
-
-# Inherits base-gpu configuration
-
-# ============================================================================
-# 5. GPU WEB — CUDA-enabled web server
-# ============================================================================
-FROM base-gpu AS web-cuda
-
-RUN uv pip install --python /opt/venv/bin/python --no-cache -e ".[web]"
+RUN uv pip install --system --no-cache -e ".[web]" \
+    && uv pip install --system --no-cache git+https://github.com/ltschmitt/BEguidedOFF.git
 RUN mkdir -p /var/lib/beguided
 
 ENV PYTHONUNBUFFERED=1

@@ -59,7 +59,7 @@ See [`docs/web-deployment.md`](docs/web-deployment.md) for public deployment (Ca
 
 ### Docker
 
-The repo ships four image targets: `beguided:cli`, `beguided:cli-cuda`, `beguided:web`, `beguided:web-cuda`. See [`docs/installation.md#docker`](docs/installation.md#docker).
+The repo ships two image targets: `beguided:cli` and `beguided:web`. The `web` image includes BEguidedOFF (CPU fast mode) for off-target screening — only the genome index files are operator-provided. See [`docs/installation.md#docker`](docs/installation.md#docker).
 
 ## Get the reference genome
 
