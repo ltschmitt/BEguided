@@ -322,10 +322,13 @@ class WebConfig:
     def offtarget_availability(self) -> dict:
         """Per-genome off-target search availability for ``/config``.
 
-        A genome is available when BEguidedOFF is installed, an encoded
-        genome is configured and — for fast mode — its FM-index exists.
-        Extensive (GPU) mode is reported unavailable on the web server: it
-        needs CUDA and the search would occupy the single worker for minutes.
+        A genome is available when BEguidedOFF is installed and its search
+        inputs are configured: **fast** mode (the web default) needs the
+        FM-index — either an explicit ``BEGUIDED_BEGUIDEDOFF_INDEX`` or one
+        derived from the encoded ``.npz`` — and that file must exist; the
+        ``.npz`` itself is only read by extensive mode. Extensive (GPU) mode
+        is reported unavailable on the web server: it needs CUDA and the
+        search would occupy the single worker for minutes.
         """
         out: "dict[str, dict]" = {}
         installed = self.has_beguidedoff
@@ -338,35 +341,36 @@ class WebConfig:
             reason = ""
             if not installed:
                 available, reason = False, "BEguidedOFF is not installed"
-            elif not genome:
-                available, reason = False, "no encoded genome configured"
-                if (
-                    self.beguidedoff_genome
-                    and len(self.genomes) > 1
-                    and key != self.default_genome
-                ):
-                    upper = key.upper()
-                    reason = (
-                        "no BEguidedOFF index configured for this genome "
-                        f"(set BEGUIDED_BEGUIDEDOFF_GENOME_{upper} / "
-                        f"BEGUIDED_BEGUIDEDOFF_INDEX_{upper})"
+            elif mode == "fast":
+                if not index:
+                    available, reason = False, (
+                        "no FM-index configured (set "
+                        "BEGUIDED_BEGUIDEDOFF_INDEX"
+                        + (f"_{key.upper()}" if len(self.genomes) > 1 else "")
+                        + ", or BEGUIDED_BEGUIDEDOFF_GENOME"
+                        + (f"_{key.upper()}" if len(self.genomes) > 1 else "")
+                        + " to derive it from the encoded .npz)"
                     )
-            elif mode == "fast" and (not index or not Path(index).exists()):
-                available, reason = False, (
-                    f"FM-index not found: {index or '(derived from .npz)'}"
-                )
+                elif not Path(index).exists():
+                    available, reason = False, f"FM-index not found: {index}"
             elif mode == "extensive":
-                available, reason = False, (
-                    "extensive (GPU) mode is not available on the web server; "
-                    "set BEGUIDED_BEGUIDEDOFF_MODE=fast"
-                )
+                if not genome:
+                    available, reason = False, "no encoded genome configured"
+                else:
+                    available, reason = False, (
+                        "extensive (GPU) mode is not available on the web "
+                        "server; set BEGUIDED_BEGUIDEDOFF_MODE=fast"
+                    )
             out[key] = {
                 "mode": mode,
                 "available": available,
                 "reason": reason,
                 "genome": genome,
                 "index": index,
-                "is_mini_fixture": bool(genome) and "mini_genome" in Path(genome).name,
+                "is_mini_fixture": (
+                    bool(genome) and "mini_genome" in Path(genome).name
+                )
+                or (bool(index) and "mini_genome" in Path(index).name),
             }
         return out
 

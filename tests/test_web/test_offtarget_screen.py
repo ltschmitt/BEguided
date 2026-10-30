@@ -274,6 +274,117 @@ class TestPerGenomeConfig:
         assert avail["available"] is False
         assert "extensive" in avail["reason"]
 
+    def test_availability_extensive_missing_genome(self, tmp_path):
+        from beguided.web.config import WebConfig
+
+        # Extensive mode reads the encoded .npz, so it stays unavailable
+        # without one (with its own reason, distinct from fast mode's).
+        cfg = WebConfig(
+            base_editor_profiles_file=str(tmp_path / "p.tsv"),
+            genome_fasta="/nonexistent",
+            gtf_path="/nonexistent",
+            beguidedoff_genome="",
+            beguidedoff_mode="extensive",
+            max_input_targets=10,
+        )
+        avail = cfg.offtarget_availability().get("human")
+        assert avail["available"] is False
+        assert "no encoded genome configured" in avail["reason"]
+
+    def test_availability_index_only_fast(self, tmp_path):
+        from beguided.web.config import WebConfig
+
+        # Index-only fast config: the FM-index is the only search input
+        # fast mode needs; no encoded .npz is required.
+        fmi = tmp_path / "hg38_beguidedoff.fmi"
+        fmi.write_bytes(b"x")
+        cfg = WebConfig(
+            base_editor_profiles_file=str(tmp_path / "p.tsv"),
+            genome_fasta="/nonexistent",
+            gtf_path="/nonexistent",
+            beguidedoff_genome="",
+            beguidedoff_index=str(fmi),
+            beguidedoff_mode="fast",
+            max_input_targets=10,
+        )
+        avail = cfg.offtarget_availability().get("human")
+        assert avail is not None
+        assert avail["available"] is True
+        assert avail["index"] == str(fmi)
+        assert avail["genome"] == ""
+
+    def test_availability_index_only_missing_file(self, tmp_path):
+        from beguided.web.config import WebConfig
+
+        cfg = WebConfig(
+            base_editor_profiles_file=str(tmp_path / "p.tsv"),
+            genome_fasta="/nonexistent",
+            gtf_path="/nonexistent",
+            beguidedoff_genome="",
+            beguidedoff_index=str(tmp_path / "missing.fmi"),
+            beguidedoff_mode="fast",
+            max_input_targets=10,
+        )
+        avail = cfg.offtarget_availability().get("human")
+        assert avail["available"] is False
+        assert "FM-index not found" in avail["reason"]
+
+    def test_availability_nothing_configured(self, tmp_path):
+        from beguided.web.config import WebConfig
+
+        # Fast mode with neither an index nor an .npz: unavailable, and the
+        # reason names the variables to set.
+        cfg = WebConfig(
+            base_editor_profiles_file=str(tmp_path / "p.tsv"),
+            genome_fasta="/nonexistent",
+            gtf_path="/nonexistent",
+            beguidedoff_genome="",
+            beguidedoff_mode="fast",
+            max_input_targets=10,
+        )
+        avail = cfg.offtarget_availability().get("human")
+        assert avail["available"] is False
+        assert "no FM-index configured" in avail["reason"]
+        assert "BEGUIDED_BEGUIDEDOFF_INDEX" in avail["reason"]
+
+    def test_availability_index_wins_over_genome(self, tmp_path):
+        from beguided.web.config import WebConfig
+
+        # Both configured: fast mode uses the explicit index even when the
+        # .npz does not exist (the .npz only matters for extensive mode).
+        fmi = tmp_path / "hg38_beguidedoff.fmi"
+        fmi.write_bytes(b"x")
+        cfg = WebConfig(
+            base_editor_profiles_file=str(tmp_path / "p.tsv"),
+            genome_fasta="/nonexistent",
+            gtf_path="/nonexistent",
+            beguidedoff_genome=str(tmp_path / "absent.npz"),
+            beguidedoff_index=str(fmi),
+            beguidedoff_mode="fast",
+            max_input_targets=10,
+        )
+        avail = cfg.offtarget_availability().get("human")
+        assert avail["available"] is True
+        assert avail["index"] == str(fmi)
+
+    def test_is_mini_fixture_from_index_name(self, tmp_path):
+        from beguided.web.config import WebConfig
+
+        # Index-only configs are mini-fixture-checked via the index name.
+        fmi = tmp_path / "mini_genome.fmi"
+        fmi.write_bytes(b"x")
+        cfg = WebConfig(
+            base_editor_profiles_file=str(tmp_path / "p.tsv"),
+            genome_fasta="/nonexistent",
+            gtf_path="/nonexistent",
+            beguidedoff_genome="",
+            beguidedoff_index=str(fmi),
+            beguidedoff_mode="fast",
+            max_input_targets=10,
+        )
+        avail = cfg.offtarget_availability().get("human")
+        assert avail["is_mini_fixture"] is True
+
     def test_availability_ok_with_real_index(self, screening_cfg):
         cfg = screening_cfg.cfg
         avail = cfg.offtarget_availability().get("human")

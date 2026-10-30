@@ -68,7 +68,7 @@ pixi install --features cuda
 
 Both install `BEguidedOFF` editable from `../BEguidedOFF`. The `web` environment uses the CPU-only base install (no torch); the `cuda` environment additionally provides the GPU (`extensive`) mode.
 
-Then provide the path to an encoded genome `.npz` via `--beguidedoff-genome` or `BEGUIDED_BEGUIDEDOFF_GENOME`, and — for fast mode — an FM-index via `--beguidedoff-index` or `BEGUIDED_BEGUIDEDOFF_INDEX`. If no index is configured, fast mode derives it from the `.npz` path (same basename, `.fmi` suffix).
+Then provide an FM-index for fast mode via `--beguidedoff-index` or `BEGUIDED_BEGUIDEDOFF_INDEX` — the FM-index is the only search input fast mode needs. Alternatively, set `--beguidedoff-genome` / `BEGUIDED_BEGUIDEDOFF_GENOME` to the encoded genome `.npz`: fast mode then derives the index path from the `.npz` sibling (same basename, `.fmi` suffix). The `.npz` itself is only read by extensive (GPU) mode, which requires it.
 
 ### Per-genome configuration
 
@@ -76,9 +76,9 @@ With several selectable genomes (e.g. human and mouse), each genome can have its
 
 | Variable | Purpose |
 |---|---|
-| `BEGUIDED_BEGUIDEDOFF_GENOME_HUMAN` / `..._MOUSE` | Encoded `.npz` for that genome key |
-| `BEGUIDED_BEGUIDEDOFF_INDEX_HUMAN` / `..._MOUSE` | FM-index `.fmi` for that genome key (fast mode) |
-| `BEGUIDED_BEGUIDEDOFF_GENOME` / `_INDEX` / `_MODE` | Global fallback (default genome and single-genome deployments only) |
+| `BEGUIDED_BEGUIDEDOFF_INDEX_HUMAN` / `..._MOUSE` | FM-index `.fmi` for that genome key (fast mode; primary) |
+| `BEGUIDED_BEGUIDEDOFF_GENOME_HUMAN` / `..._MOUSE` | Encoded `.npz` for that genome key — optional in fast mode (index is derived from its sibling), required for extensive mode |
+| `BEGUIDED_BEGUIDEDOFF_INDEX` / `_GENOME` / `_MODE` | Global fallback (default genome and single-genome deployments only) |
 
 The `/config` endpoint reports per-genome availability (`offtarget.genomes`) so the UI can enable or disable the off-target search button per selected genome; a configured genome without its own BEguidedOFF index is reported unavailable with the variables to set. For fast mode it also reports the search window (`offtarget.fast_search`) — the exact PAM-proximal seed length and the tolerated PAM-distal mismatches, derived from the effective search cutoff — which the UI shows as a plain-language note in the results toolbar.
 
@@ -162,26 +162,25 @@ docker run -p 8000:8000 \
 
 The `web` image ships BEguidedOFF (fast/CPU mode) from
 `github.com/ltschmitt/BEguidedOFF`, but **not** the genome index files —
-they are operator data (~2 GB for human) and are mounted at `/app/genome`.
-For each genome you want to screen, place the encoded `.npz` and the
-FM-index pair (`.fmi` + `.fmi.meta`) in the mounted genome directory, e.g.
-for human:
+they are operator data (the human FM-index alone is ~2 GB) and are mounted
+at `/app/genome`. Fast mode is configured with the FM-index alone: place
+the `.fmi` and its `.fmi.meta` sidecar (which must stay next to it) in the
+mounted genome directory, e.g. for human:
 
 ```
-genome/hg38_beguidedoff.npz        # encoded 2-bit genome (extensive mode)
 genome/hg38_beguidedoff.fmi        # FM-index (fast mode)
 genome/hg38_beguidedoff.fmi.meta   # sidecar, must stay next to the .fmi
 ```
 
 Build them once from the reference FASTA with BEguidedOFF's CLI (see
-"Encoding a genome" above), or copy an existing trio from a workstation
-that already built it. `docker-compose.yml` defaults
-`BEGUIDED_BEGUIDEDOFF_GENOME` to `/app/genome/hg38_beguidedoff.npz`; the
-matching `.fmi` is derived from the same basename. Until the files exist,
-`/config` reports the genome as unavailable and the UI's off-target
-controls show a clear error — the rest of the pipeline is unaffected.
-Mouse stays disabled until an equivalent `*_beguidedoff.npz/.fmi` trio and
-`BEGUIDED_BEGUIDEDOFF_GENOME_MOUSE`/`_INDEX_MOUSE` are configured.
+"Encoding a genome" above — the `.npz` is only needed for extensive GPU
+mode), or copy an existing pair from a workstation that already built it.
+`docker-compose.yml` defaults `BEGUIDED_BEGUIDEDOFF_INDEX` to
+`/app/genome/hg38_beguidedoff.fmi`. Until the files exist, `/config`
+reports the genome as unavailable and the UI's off-target controls show a
+clear error — the rest of the pipeline is unaffected. Mouse stays disabled
+until an equivalent `*.fmi` pair and `BEGUIDED_BEGUIDEDOFF_INDEX_MOUSE`
+are configured.
 
 ## Verifying the install
 

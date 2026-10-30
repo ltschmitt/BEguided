@@ -458,6 +458,106 @@ class TestPipelineWithBEguidedOFF:
         assert "offtarget_count" in df.columns
         assert (base_dir / "step4_offtarget.tsv").exists()
 
+    def test_beguidedoff_fast_index_only(self, tmp_path, valid_preset_tsv):
+        """Fast mode runs with an explicit FM-index and no encoded .npz.
+
+        The FM-index is the only search input fast mode needs; the .npz is
+        only read by extensive (GPU) mode.
+        """
+        from beguidedoff.fast.fmindex import build_index
+        from beguided.pipeline import run_pipeline
+        import pandas as pd
+
+        # Same genome/guide setup as test_beguidedoff_pipeline_steps_4_6.
+        fasta = tmp_path / "mini.fa"
+        fasta.write_text(
+            ">chr1\n"
+            "ACGTACGTACCCCCCCCCCCCCCCCCCCCTGGACGTACGT\n"
+        )
+        build_index(str(fasta), str(tmp_path / "mini.fmi"))
+
+        presets_path = tmp_path / "test_presets.tsv"
+        presets_path.write_text(valid_preset_tsv)
+
+        base_dir = tmp_path / "out"
+        base_dir.mkdir()
+
+        filtered = pd.DataFrame({
+            "chromosome": ["chr1"],
+            "position": [10],
+            "target_base": ["A"],
+            "desired_base": ["G"],
+            "genome_base": ["A"],
+            "strand_used": ["+"],
+            "editing_position": [10],
+            "guide_rna_sequence": ["CCCCCCCCCCCCCCCCCCCC"],
+            "pam_sequence": ["TGG"],
+            "base_editor": ["ABE8e"],
+            "bystander_effect": ["none"],
+            "simulated_outcome": ["CCCCCCCCCCCCCCCCCCCC"],
+            "aa_wanted": ["P"],
+            "aa_bystander": ["P"],
+            "genomic_context_upstream": ["ACGT"],
+            "genomic_context_downstream": ["ACGT"],
+        })
+        filtered.to_csv(base_dir / "step3_filtered.tsv", sep="\t", index=False)
+
+        config = {
+            "input": {
+                "targets": str(tmp_path / "targets.tsv"),
+                "genome": str(fasta),
+                "base_editor_profiles": str(presets_path),
+            },
+            "output_prefix": str(base_dir),
+            "use_base_editors": "all",
+            "keep_bystanders": "all",
+            "search_offtargets": True,
+            "offtargets": {
+                "index_path": str(tmp_path / "mini.fmi"),
+                "mode": "fast",
+                "max_mismatches": 5,
+                "count_threshold_score": 15.0,
+                "remove_guides_score": 5.0,
+                "remove_guides_n_offtargets": 100,
+            },
+        }
+
+        run_pipeline(config, start_step=4, end_step=5)
+
+        assert (base_dir / "step4_offtarget.tsv").exists()
+        df = pd.read_csv(base_dir / "beguided_results.tsv", sep="\t")
+        assert "worst_offtarget_score" in df.columns
+
+    def test_fast_mode_requires_index_or_genome(self, tmp_path, valid_preset_tsv):
+        """Fast mode without an index and without an encoded .npz fails clearly."""
+        from beguided.pipeline import PipelineError, run_pipeline
+
+        presets_path = tmp_path / "test_presets.tsv"
+        presets_path.write_text(valid_preset_tsv)
+        base_dir = tmp_path / "out"
+        base_dir.mkdir()
+
+        config = {
+            "input": {
+                "targets": str(tmp_path / "targets.tsv"),
+                "genome": str(tmp_path / "g.fa"),
+                "base_editor_profiles": str(presets_path),
+            },
+            "output_prefix": str(base_dir),
+            "use_base_editors": "all",
+            "keep_bystanders": "all",
+            "search_offtargets": True,
+            "offtargets": {
+                "mode": "fast",
+                "max_mismatches": 5,
+                "count_threshold_score": 15.0,
+                "remove_guides_score": 5.0,
+                "remove_guides_n_offtargets": 100,
+            },
+        }
+        with pytest.raises(PipelineError, match="fast mode requires an FM-index"):
+            run_pipeline(config, start_step=4, end_step=5)
+
     def test_beguidedoff_on_target_excluded_plus_strand(
         self, tmp_path, valid_preset_tsv
     ):

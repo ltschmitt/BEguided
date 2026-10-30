@@ -29,12 +29,14 @@
 #                              from ./legal.yaml if present).
 #
 # Off-target screening: the image installs BEguidedOFF from GitHub
-# (https://github.com/ltschmitt/BEguidedOFF, CPU fast mode only). Screening
-# activates per genome once the index files exist under /app/genome —
-# default below expects hg38_beguidedoff.{npz,fmi,fmi.meta}; until then
+# (https://github.com/ltschmitt/BEguidedOFF, CPU fast mode only). Fast mode
+# is configured with the FM-index alone (default below expects
+# hg38_beguidedoff.fmi next to its .fmi.meta sidecar under /app/genome);
+# the encoded .npz (BEGUIDED_BEGUIDEDOFF_GENOME) is only read by extensive
+# GPU mode, which the web server does not run. Until the index files exist
 # /config reports the genome as unavailable and the UI's off-target
-# controls show a clear error. Override with BEGUIDED_BEGUIDEDOFF_GENOME /
-# _INDEX (or the per-genome _HUMAN/_MOUSE variants; see docs/installation.md).
+# controls show a clear error. Per-genome variants:
+# BEGUIDED_BEGUIDEDOFF_INDEX_<KEY> / _GENOME_<KEY> (see docs/installation.md).
 
 services:
   web:
@@ -64,7 +66,8 @@ services:
       BEGUIDED_GTF_PATH: "${BEGUIDED_GTF_PATH:-/app/genome/Homo_sapiens.GRCh38.116.gtf}"
       BEGUIDED_MOUSE_GENOME_FASTA: "${BEGUIDED_MOUSE_GENOME_FASTA:-/app/genome/Mus_musculus.GRCm39.2026_04.fa}"
       BEGUIDED_MOUSE_GTF_PATH: "${BEGUIDED_MOUSE_GTF_PATH:-/app/genome/Mus_musculus.GRCm39.2026_04.gtf}"
-      BEGUIDED_BEGUIDEDOFF_GENOME: "${BEGUIDED_BEGUIDEDOFF_GENOME:-/app/genome/hg38_beguidedoff.npz}"
+      BEGUIDED_BEGUIDEDOFF_INDEX: "${BEGUIDED_BEGUIDEDOFF_INDEX:-/app/genome/hg38_beguidedoff.fmi}"
+      BEGUIDED_BEGUIDEDOFF_GENOME: "${BEGUIDED_BEGUIDEDOFF_GENOME:-}"
       BEGUIDED_DB_PATH: "${BEGUIDED_DB_PATH:-/var/lib/beguided/jobs.db}"
       BEGUIDED_PRELOAD_GENOME: "${BEGUIDED_PRELOAD_GENOME:-true}"
       BEGUIDED_PRELOAD_GTF: "${BEGUIDED_PRELOAD_GTF:-true}"

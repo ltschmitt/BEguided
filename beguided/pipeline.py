@@ -840,14 +840,14 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
         logger.info("=" * 60)
 
         genome_npz = cfg["beguidedoff_genome"]
-        if not genome_npz:
+        mode = cfg["beguidedoff_mode"]
+        if mode == "extensive" and not genome_npz:
             raise PipelineError(
-                "beguidedoff_genome is required when search_offtargets=true. "
+                "beguidedoff_genome is required for extensive (GPU) mode. "
                 "Provide the path to the encoded .npz genome file."
             )
 
-        mode = cfg["beguidedoff_mode"]
-        logger.info(f"BEguidedOFF genome: {genome_npz}")
+        logger.info(f"BEguidedOFF genome: {genome_npz or '(not used in fast mode)'}")
         logger.info(f"BEguidedOFF mode: {mode}")
 
         index_path = ""
@@ -855,6 +855,14 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
         if mode == "fast":
             index_path = cfg.get("beguidedoff_index") or ""
             if not index_path:
+                if not genome_npz:
+                    raise PipelineError(
+                        "fast mode requires an FM-index: set "
+                        "BEGUIDED_BEGUIDEDOFF_INDEX (or offtargets.index_path), "
+                        "or BEGUIDED_BEGUIDEDOFF_GENOME (or "
+                        "offtargets.beguidedoff_genome) to derive the index "
+                        "path from the encoded .npz."
+                    )
                 # Default: FM-index next to the .npz, same basename.
                 index_path = str(Path(str(genome_npz)).with_suffix(".fmi"))
             if not Path(index_path).exists():
