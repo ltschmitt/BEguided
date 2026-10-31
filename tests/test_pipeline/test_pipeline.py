@@ -1277,3 +1277,111 @@ class TestKeepTargetsWithoutGuides:
         ph = final[final["guide_rna_sequence"] == BASE_CHANGE_INCOMPATIBLE]
         assert len(ph) == 1
         assert ph.iloc[0]["gene"] == "TP53"
+
+
+class TestFinalOutputInputOrder:
+    """The final results table follows the input file's target order instead
+    of the lexicographic chromosome/position order the pipeline computes in
+    (``chr10`` would otherwise sort before ``chr2``). Rows of one target stay
+    grouped; guides within a target keep their internal order."""
+
+    def _build_config(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv, targets_content,
+        keep_targets_without_guides=True,
+    ):
+        presets_path = tmp_path / "presets.tsv"
+        presets_path.write_text(valid_preset_tsv)
+        targets_path = tmp_path / "targets.tsv"
+        targets_path.write_text(targets_content)
+        config = {
+            "input": {
+                "targets": str(targets_path),
+                "genome": sample_fasta_file,
+                "base_editor_profiles": str(presets_path),
+                "gff_file": str(tmp_path / "nonexistent.gtf"),
+            },
+            "output_prefix": str(tmp_path / "out"),
+            # Only ABE editors: A>G targets are compatible, others are not.
+            "use_base_editors": "ABE8e",
+            # Keep every designed guide so target presence doesn't depend on
+            # guide scores.
+            "guide_score_threshold": 0.0,
+            "keep_bystanders": "all",
+            "search_offtargets": False,
+            "skip_bystander": True,
+            "keep_targets_without_guides": keep_targets_without_guides,
+        }
+        return config
+
+    def _run(self, config):
+        from beguided.pipeline import run_pipeline
+        import pandas as pd
+
+        run_pipeline(config, start_step=1, end_step=5)
+        return pd.read_csv(
+            Path(config["output_prefix"]) / "beguided_results.tsv", sep="\t"
+        )
+
+    # Input order: chr2 first, then chr1 — deliberately scrambled relative to
+    # both the lexicographic chromosome order and the position order. chr2:92
+    # and chr1:5 yield real guides; chr2:14 yields a "**No guide possible**"
+    # placeholder.
+    SCRAMBLED_TARGETS = (
+        "chromosome\tposition\ttarget_base\tdesired_base\n"
+        "chr2\t92\tA\tG\n"
+        "chr1\t5\tA\tG\n"
+        "chr2\t14\tA\tG\n"
+    )
+    INPUT_PAIR_ORDER = [("chr2", 92), ("chr1", 5), ("chr2", 14)]
+
+    @staticmethod
+    def _pair_order(final):
+        """Unique (chromosome, position) pairs in row order."""
+        return list(dict.fromkeys(zip(final["chromosome"], final["position"])))
+
+    def test_flag_on_follows_input_order(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            self.SCRAMBLED_TARGETS,
+        )
+        final = self._run(config)
+        # Every input target appears (flag on) and in input order.
+        assert self._pair_order(final) == self.INPUT_PAIR_ORDER
+
+    def test_flag_off_follows_input_order(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """Flag off: targets without guides are dropped, but the surviving
+        targets still appear in input order (chr2 before chr1)."""
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            self.SCRAMBLED_TARGETS,
+            keep_targets_without_guides=False,
+        )
+        final = self._run(config)
+        pairs = self._pair_order(final)
+        # chr2:14 has no guide, so it is absent with the flag off.
+        assert ("chr2", 14) not in pairs
+        assert pairs == [("chr2", 92), ("chr1", 5)]
+
+    def test_guides_of_one_target_stay_grouped(
+        self, tmp_path, sample_fasta_file, valid_preset_tsv
+    ):
+        """The reorder is a stable group sort: guides of one target keep
+        their internal order (editors alphabetical, editing position)."""
+        config = self._build_config(
+            tmp_path, sample_fasta_file, valid_preset_tsv,
+            "chromosome\tposition\ttarget_base\tdesired_base\n"
+            "chr2\t92\tA\tG\n"
+            "chr1\t5\tA\tG\n",
+        )
+        final = self._run(config)
+        chr1_rows = final[final["chromosome"] == "chr1"]
+        assert len(chr1_rows) >= 1
+        # All chr1 rows are contiguous in the output.
+        chroms = list(final["chromosome"])
+        first = chroms.index("chr1")
+        last = len(chroms) - 1 - chroms[::-1].index("chr1")
+        assert all(c == "chr1" for c in chroms[first:last + 1])

@@ -49,7 +49,6 @@
             aria-label="Choose file" class="visually-hidden-file" />
         <label class="btn btn-secondary" for="fileInput">Choose file</label>
         <a href="/download/template" class="btn btn-secondary" download>Template</a>
-        <button id="loadSpreadsheetExampleBtn" class="btn btn-secondary" type="button">Load example</button>
         <div class="genome-select-group">
             <label for="genomeSelect">Genome reference</label>
             <select id="genomeSelect" aria-label="Genome reference">
@@ -58,7 +57,10 @@
                 {% endfor %}
             </select>
         </div>
-        <button id="runBtn" class="btn btn-primary right" disabled>Run</button>
+        <div id="spreadsheetRunGroup" class="input-actions-run-group">
+            <button id="loadSpreadsheetExampleBtn" class="btn btn-secondary" type="button">Load example</button>
+            <button id="runBtn" class="btn btn-primary" disabled>Run</button>
+        </div>
     </div>
 </div>
 
@@ -128,9 +130,13 @@
         </ul>
         <p>
             The tool picks a base editor profile that supports the
-            <code>target_base &rarr; desired_base</code> change. If no profile
-            in the selected group supports it, that target is skipped with a
-            warning.
+            <code>target_base &rarr; desired_base</code> change. If some
+            targets have a change that no profile in the selected group
+            supports, they are removed from the input with a warning and the
+            run only processes the remaining targets. Selecting a broader
+            base editor group brings removed targets back &mdash; the check
+            always re-runs on the original file. If no target at all is
+            compatible, nothing is run.
         </p>
 
         <h3>Sequence input</h3>

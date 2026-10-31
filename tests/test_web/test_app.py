@@ -340,6 +340,143 @@ def test_upload_sara_csv_runs_check(cfg_and_db):
     assert body["mismatched"] == 0
 
 
+def test_check_mixed_compatibility_returns_filtered_payload(cfg_and_db):
+    """A file with a mix of supported and unsupported base changes must not
+    block the run: /check reports both counts, can_run is True as long as at
+    least one target matches, and the filtered payload contains only the
+    acceptable rows in the original input order.
+    """
+    client = _client(cfg_and_db)
+    tsv_bytes = (
+        b"chromosome\tposition\ttarget_base\tdesired_base\n"
+        b"chr1\t100\tA\tG\n"  # supported by ABE8e
+        b"chr2\t200\tC\tG\n"  # NOT supported by ABE8e
+        b"chr3\t300\tT\tC\n"  # supported (antisense complement of A>G)
+        b"chr4\t400\tG\tT\n"  # NOT supported
+    )
+    up = client.post(
+        "/upload",
+        files={"file": (
+            "targets.tsv", io.BytesIO(tsv_bytes), "text/tab-separated-values",
+        )},
+    ).json()
+    assert up["ok"] is True
+
+    res = client.post(
+        "/check",
+        data={"raw_b64": up["raw_b64"], "base_editor": "ABE8e"},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["total"] == 4
+    assert body["matched"] == 2
+    assert body["mismatched"] == 2
+    # At least one acceptable target remains -> the run is allowed.
+    assert body["can_run"] is True
+
+    filtered = pd.read_csv(
+        io.StringIO(base64.b64decode(body["filtered_raw_b64"]).decode()),
+        sep="\t",
+    )
+    assert list(filtered.columns) == [
+        "chromosome", "position", "target_base", "desired_base",
+    ]
+    # Only the acceptable rows, in the original input order.
+    assert filtered["chromosome"].tolist() == ["chr1", "chr3"]
+    assert body["filtered_row_count"] == 2
+    assert [r["chromosome"] for r in body["filtered_preview"]] == ["chr1", "chr3"]
+
+
+def test_check_all_mismatched_blocks_run(cfg_and_db):
+    """When no target at all is compatible, can_run stays False and the
+    filtered payload is empty."""
+    client = _client(cfg_and_db)
+    tsv_bytes = (
+        b"chromosome\tposition\ttarget_base\tdesired_base\n"
+        b"chr1\t100\tC\tG\n"
+        b"chr2\t200\tG\tT\n"
+    )
+    up = client.post(
+        "/upload",
+        files={"file": (
+            "targets.tsv", io.BytesIO(tsv_bytes), "text/tab-separated-values",
+        )},
+    ).json()
+    assert up["ok"] is True
+
+    res = client.post(
+        "/check",
+        data={"raw_b64": up["raw_b64"], "base_editor": "ABE8e"},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["matched"] == 0
+    assert body["mismatched"] == 2
+    assert body["can_run"] is False
+    filtered = pd.read_csv(
+        io.StringIO(base64.b64decode(body["filtered_raw_b64"]).decode()),
+        sep="\t",
+    )
+    assert len(filtered) == 0
+    assert body["filtered_row_count"] == 0
+
+
+def test_run_with_filtered_payload_processes_only_acceptable(cfg_and_db):
+    """Full mixed flow: /check -> /run with the filtered payload must hand
+    only the acceptable rows to the pipeline."""
+    import beguided.web.scheduler as sched_mod
+
+    captured = {}
+
+    def fake_execute_job(**kw):
+        captured["targets_df"] = kw["targets_df"]
+        return {
+            "job_id": kw["job_id"], "status": "complete",
+            "message": "ok", "records": [],
+        }
+
+    sched_mod.execute_job = fake_execute_job
+
+    client = _client(cfg_and_db)
+    tsv_bytes = (
+        b"chromosome\tposition\ttarget_base\tdesired_base\n"
+        b"chr1\t100\tA\tG\n"
+        b"chr2\t200\tC\tG\n"
+        b"chr3\t300\tT\tC\n"
+    )
+    up = client.post(
+        "/upload",
+        files={"file": (
+            "targets.tsv", io.BytesIO(tsv_bytes), "text/tab-separated-values",
+        )},
+    ).json()
+    assert up["ok"] is True
+
+    check = client.post(
+        "/check",
+        data={"raw_b64": up["raw_b64"], "base_editor": "ABE8e"},
+    ).json()
+    assert check["can_run"] is True
+
+    res = client.post(
+        "/run",
+        data={"raw_b64": check["filtered_raw_b64"], "base_editor": "ABE8e"},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+
+    deadline = time.time() + 10.0
+    while "targets_df" not in captured and time.time() < deadline:
+        time.sleep(0.05)
+    assert "targets_df" in captured, "execute_job was not called in time"
+
+    df = captured["targets_df"]
+    # Only the acceptable targets reached the pipeline, in input order.
+    assert df["chromosome"].tolist() == ["chr1", "chr3"]
+
+
 def test_run_rejects_unknown_base_editor(cfg_and_db):
     client = _client(cfg_and_db)
     res = client.post(

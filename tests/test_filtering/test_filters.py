@@ -599,3 +599,39 @@ class TestFillMissingTargets:
         )
         assert len(result) == 0
 
+    def test_placeholders_interleave_in_input_order(self):
+        """Placeholder rows appear at each target's input position instead of
+        being appended at the end, so a download matches the on-screen table."""
+        df = pd.DataFrame(
+            {
+                "chromosome": ["chr1", "chr2", "chr3"],
+                "position": [20, 300, 30],
+                "target_base": ["A", "A", "A"],
+                "desired_base": ["G", "G", "G"],
+                "guide_rna_sequence": [
+                    "AAAAAAAAAAAAAAAAAAAA",  # removed by the score filter
+                    "CCCCCCCCCCCCCCCCCCCC",  # survives
+                    "GGGGGGGGGGGGGGGGGGGG",  # survives
+                ],
+                "guide_score": [0.1, 0.9, 0.9],
+            }
+        )
+        result = filter_guides(
+            df, {"mode": "all", "guide_score_threshold": 0.5},
+            fill_missing_targets=True,
+        )
+        assert list(zip(result["chromosome"], result["position"])) == [
+            ("chr1", 20),   # placeholder at its input position, not at the end
+            ("chr2", 300),
+            ("chr3", 30),
+        ]
+        assert result.iloc[0]["guide_rna_sequence"] == "**Guides removed by filter**"
+        # Identity/base columns are copied onto the placeholder.
+        assert result.iloc[0]["target_base"] == "A"
+        assert result.iloc[0]["desired_base"] == "G"
+        # Surviving rows keep their guide sequences and order within targets.
+        assert list(result["guide_rna_sequence"].iloc[1:]) == [
+            "CCCCCCCCCCCCCCCCCCCC",
+            "GGGGGGGGGGGGGGGGGGGG",
+        ]
+

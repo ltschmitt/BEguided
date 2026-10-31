@@ -61,6 +61,16 @@ if (toastContainer) {
 
 let currentMode = "sequence";
 let uploadedRawB64 = null;
+// The target set actually shown in the Input table and submitted to /run:
+// the full upload when every target matches the selected editors, otherwise
+// the filtered subset returned by /check (mismatching targets removed).
+// Always re-derived from uploadedRawB64, which stays the untouched original
+// so switching to a broader editor selection restores removed targets.
+let activeRawB64 = null;
+// Preview rows/columns of the ORIGINAL upload (before any compatibility
+// filtering), kept so broadening the editor selection can restore the table.
+let uploadedPreview = null;
+let uploadedPreviewColumns = null;
 let customGenomeB64 = null;
 let currentJobId = null;
 let currentRevokeToken = null;
@@ -680,16 +690,16 @@ function setMode(mode) {
     sequencePanel.style.display = mode === "sequence" ? "" : "none";
 
     // Move the shared Run button into the active input panel's action row so
-    // it stays visually anchored next to the input controls. The 'right' class
-    // pushes it to the far edge of the row in spreadsheet mode; in sequence
-    // mode it sits next to the Load example button, so we strip it.
+    // it stays visually anchored next to the input controls. In spreadsheet
+    // mode it lives in the right-aligned run group next to Load example; in
+    // sequence mode it sits next to the Load example button, whose 'right'
+    // class pushes the pair to the far edge of the row.
     const targetRow = mode === "spreadsheet"
-        ? spreadsheetPanel.querySelector(".input-actions-row")
+        ? document.getElementById("spreadsheetRunGroup")
         : sequencePanel.querySelector(".input-meta-row");
     if (targetRow) {
         targetRow.appendChild(runBtn);
     }
-    runBtn.classList.toggle("right", mode === "spreadsheet");
 
     // Reset state when switching modes: a previously uploaded file is
     // irrelevant for sequence input and vice-versa. In sequence mode the Run
@@ -697,6 +707,9 @@ function setMode(mode) {
     // run flow itself; in spreadsheet mode it stays disabled until a file is
     // uploaded (handled by uploadTargetsFile → runCompatibilityCheck).
     uploadedRawB64 = null;
+    activeRawB64 = null;
+    uploadedPreview = null;
+    uploadedPreviewColumns = null;
     customGenomeB64 = null;
     matchedBaseEditorCount = 0;
     runBtn.disabled = (mode === "spreadsheet");
@@ -724,6 +737,8 @@ async function runCompatibilityCheck() {
         return;
     }
     const form = new FormData();
+    // Always check the ORIGINAL upload, never a previously filtered subset,
+    // so switching to a broader editor selection brings removed targets back.
     form.append("raw_b64", uploadedRawB64);
     form.append("base_editor", baseEditorSelectionValue());
     try {
@@ -731,23 +746,56 @@ async function runCompatibilityCheck() {
         const data = await res.json();
         if (!data.ok) return;
 
-        if (data.can_run) {
-            checkAlert.style.display = "none";
-            compatibilityInfo.textContent = `${data.matched}/${data.total} targets match the selected base editor profile(s)`;
-            compatibilityInfo.style.color = "var(--success)";
-            matchedBaseEditorCount = data.matched;
-            runBtn.disabled = false;
-        } else {
+        if (data.matched === 0) {
+            // No target can be processed: keep the hard error and the full
+            // preview table visible, and refuse to run.
             showAlert(checkAlert, "error",
                 `${data.mismatched}/${data.total} target(s) do not match the selected base editor profile(s). ` +
                 `Supported types: ${data.editor_types.join(", ")}. ` +
                 `Please choose a different profile or fix your input.`
             );
-            compatibilityInfo.textContent = `${data.matched}/${data.total} targets match the selected base editor profile(s)`;
+            compatibilityInfo.textContent = `0/${data.total} targets match the selected base editor profile(s)`;
             compatibilityInfo.style.color = "var(--danger)";
-            matchedBaseEditorCount = data.matched;
+            matchedBaseEditorCount = 0;
+            activeRawB64 = null;
+            if (currentMode !== "sequence" && uploadedPreview) {
+                // Restore the full table in case a previous mixed check had
+                // narrowed it to the acceptable subset.
+                inputPanel.innerHTML = renderTable(uploadedPreview, uploadedPreviewColumns);
+            }
             runBtn.disabled = true;
+            return;
         }
+
+        // At least one target matches. When some targets mismatch, replace
+        // the input table and the /run payload with the acceptable subset.
+        // In sequence mode the input panel shows a per-sequence preview card
+        // rather than the target rows, so leave it untouched there.
+        activeRawB64 = data.mismatched > 0 ? data.filtered_raw_b64 : uploadedRawB64;
+        matchedBaseEditorCount = data.matched;
+        if (data.mismatched > 0) {
+            if (currentMode !== "sequence") {
+                inputPanel.innerHTML = renderTable(data.filtered_preview, data.filtered_columns);
+            }
+            showAlert(checkAlert, "warning",
+                `${data.mismatched} of ${data.total} target(s) ` +
+                (data.mismatched === 1 ? "does" : "do") +
+                ` not have acceptable base changes for the selected base editor ` +
+                `profile(s) (supported: ${data.editor_types.join(", ")}) ` +
+                `and ${data.mismatched === 1 ? "was" : "were"} removed from the input. ` +
+                `The remaining ${data.matched} target(s) will be used for the run.`
+            );
+        } else {
+            if (currentMode !== "sequence" && uploadedPreview) {
+                // Everything matches again (e.g. the selection was broadened):
+                // restore the original, unfiltered table.
+                inputPanel.innerHTML = renderTable(uploadedPreview, uploadedPreviewColumns);
+            }
+            checkAlert.style.display = "none";
+        }
+        compatibilityInfo.textContent = `${data.matched}/${data.total} targets match the selected base editor profile(s)`;
+        compatibilityInfo.style.color = "var(--success)";
+        runBtn.disabled = false;
     } catch (err) {
         showToast("error", `Compatibility check failed: ${err}`);
     }
@@ -863,6 +911,9 @@ async function uploadTargetsFile(file) {
     if (!data.ok) {
         showAlert(inputAlert, "error", data.error);
         uploadedRawB64 = null;
+        activeRawB64 = null;
+        uploadedPreview = null;
+        uploadedPreviewColumns = null;
         matchedBaseEditorCount = 0;
         runBtn.disabled = true;
         compatibilityInfo.textContent = "";
@@ -873,6 +924,11 @@ async function uploadTargetsFile(file) {
 
     showAlert(inputAlert, "success", `Loaded ${data.row_count} rows from "${file.name}". Showing up to 100.`);
     uploadedRawB64 = data.raw_b64;
+    // Optimistic: show the full upload; runCompatibilityCheck (below) narrows
+    // the table to the acceptable subset when some targets mismatch.
+    activeRawB64 = data.raw_b64;
+    uploadedPreview = data.preview;
+    uploadedPreviewColumns = data.columns;
     inputPanel.innerHTML = renderTable(data.preview, data.columns);
     await runCompatibilityCheck();
 }
@@ -940,7 +996,9 @@ runBtn.addEventListener("click", async () => {
 
     // When parse just happened, re-run the compatibility check before
     // submitting so the user is alerted to any target/editor mismatches. On
-    // mismatch, route to the Input tab where the checkAlert is shown.
+    // mismatch, route to the Input tab where the checkAlert is shown. The
+    // check also derives activeRawB64 (the acceptable subset) which is what
+    // gets submitted below.
     if (parsedThisClick) {
         await runCompatibilityCheck();
         if (runBtn.disabled) {
@@ -948,6 +1006,7 @@ runBtn.addEventListener("click", async () => {
             return;
         }
     }
+    if (!activeRawB64) return;
 
     runBtn.disabled = true;
     setStatus("submitting");
@@ -956,6 +1015,9 @@ runBtn.addEventListener("click", async () => {
     resultsPanel.querySelectorAll(".results-table-wrap").forEach(n => n.remove());
     if (resultsPlaceholder) {
         resultsPlaceholder.style.display = "block";
+        // Reset the colour in case a previous run's "No results returned."
+        // message left the placeholder in the dark red "nothing found" tone.
+        resultsPlaceholder.style.color = "var(--muted)";
         resultsPlaceholder.textContent = "Waiting for pipeline to complete...";
     }
     resultsToolbar.style.display = "none";
@@ -982,7 +1044,7 @@ runBtn.addEventListener("click", async () => {
     document.getElementById("logTab").classList.add("active");
 
     const form = new FormData();
-    form.append("raw_b64", uploadedRawB64);
+    form.append("raw_b64", activeRawB64);
     form.append("base_editor", baseEditorSelectionValue());
     form.append("mode", currentMode);
     form.append("genome", selectedGenomeKey());
@@ -1829,6 +1891,8 @@ async function fetchResults(jobId) {
         currentRecords = [];
         if (resultsPlaceholder) {
             resultsPlaceholder.style.display = "block";
+            // "Nothing found" states stand out in dark red instead of grey.
+            resultsPlaceholder.style.color = "#b91c1c";
             resultsPlaceholder.textContent = data.message || "No results returned.";
         }
         resultsToolbar.style.display = "none";
@@ -1836,7 +1900,7 @@ async function fetchResults(jobId) {
             resultsSummary.innerHTML = "";
             resultsSummary.style.display = "none";
         }
-        setSummaryPlaceholder(true, data.message || "No results returned.");
+        setSummaryPlaceholder(true, data.message || "No results returned.", "danger");
         if (resultsGuideStatus) {
             resultsGuideStatus.textContent = "";
             resultsGuideStatus.style.display = "none";
@@ -2063,25 +2127,42 @@ function makeNoGuideRow(template) {
     return row;
 }
 
-// After filtering, append one placeholder row per target (unique
-// ``targetKey``) that has no surviving row. Mirrors
+// After filtering, order the rows by input order and interleave one
+// placeholder row per target (unique ``targetKey``) that has no surviving
+// row. The pre-filter records carry the pipeline's input order, so walking
+// them puts every target back at its original position — surviving rows keep
+// their current order within the target. Mirrors
 // ``beguided.filtering.filters._fill_missing_target_rows`` so the on-screen
 // table matches the downloaded file.
 function fillMissingTargets(filtered, preFilter) {
     if (!preFilter || preFilter.length === 0) return filtered;
-    const present = new Set(filtered.map(targetKey));
-    // First row per target in the pre-filter set is the template for the
-    // placeholder (it carries the identity/base info even when the target's
-    // guides were all removed).
-    const firstIndex = new Map();
-    for (let i = 0; i < preFilter.length; i++) {
-        const key = targetKey(preFilter[i]);
-        if (!firstIndex.has(key)) firstIndex.set(key, i);
+    // Group the surviving rows by target, preserving their current order.
+    const grouped = new Map();
+    for (const row of filtered) {
+        const key = targetKey(row);
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(row);
     }
-    const out = filtered.slice();
-    for (const [key, idx] of firstIndex) {
-        if (present.has(key)) continue;
-        out.push(makeNoGuideRow(preFilter[idx]));
+    const out = [];
+    const seen = new Set();
+    for (const row of preFilter) {
+        const key = targetKey(row);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const rows = grouped.get(key);
+        if (rows && rows.length) {
+            out.push(...rows);
+        } else {
+            // First pre-filter record of the target is the template for the
+            // placeholder (it carries the identity/base info even when the
+            // target's guides were all removed).
+            out.push(makeNoGuideRow(row));
+        }
+    }
+    // Safety net: never drop a surviving row whose target is absent from the
+    // pre-filter set (cannot normally happen).
+    for (const [key, rows] of grouped) {
+        if (!seen.has(key)) out.push(...rows);
     }
     return out;
 }
@@ -2152,7 +2233,7 @@ function renderResultsTable() {
     target.classList.toggle("condensed", condenseEnabled && condensed.length < currentRecords.length);
 
     if (filtered.length === 0) {
-        target.innerHTML = `<p style="color:var(--muted);padding:16px;">No guides match the current filters.</p>`;
+        target.innerHTML = `<p style="color:#b91c1c;padding:16px;">No guides match the current filters.</p>`;
     } else {
         const columns = Object.keys(filtered[0]);
         // With a screening snapshot every annotated row carries the verdict,
@@ -2581,11 +2662,14 @@ function renderOfftargetTable() {
 }
 
 // Toggle the Summary sub-tab placeholder text.
-function setSummaryPlaceholder(visible, text) {
+function setSummaryPlaceholder(visible, text, tone) {
     const ph = document.getElementById("summaryPlaceholder");
     if (!ph) return;
     if (visible) {
         ph.textContent = text || "Summary will appear here after the pipeline completes.";
+        // "Nothing found" states (no results / no guides match) render in
+        // dark red so they stand out; pending/idle states stay muted grey.
+        ph.style.color = tone === "danger" ? "#b91c1c" : "var(--muted)";
         ph.style.display = "block";
     } else {
         ph.style.display = "none";
@@ -2647,7 +2731,7 @@ function renderResultsSummary(filtered) {
         destroySummaryChart();
         resultsSummary.innerHTML = "";
         resultsSummary.style.display = "none";
-        setSummaryPlaceholder(true, "No guides match the current filters.");
+        setSummaryPlaceholder(true, "No guides match the current filters.", "danger");
         return;
     }
 
@@ -2658,7 +2742,7 @@ function renderResultsSummary(filtered) {
         destroySummaryChart();
         resultsSummary.innerHTML = "";
         resultsSummary.style.display = "none";
-        setSummaryPlaceholder(true, "No guides match the current filters.");
+        setSummaryPlaceholder(true, "No guides match the current filters.", "danger");
         return;
     }
 

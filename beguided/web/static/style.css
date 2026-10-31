@@ -332,6 +332,16 @@ body {
     margin-left: 12px;
 }
 
+/* Load example + Run pair at the right edge of the spreadsheet actions row.
+   The shared Run button is moved in here by app.js's setMode() when the
+   spreadsheet mode is active. */
+.input-actions-run-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
 /* Visually hide the native file input while keeping it focusable and
    activatable via its <label for="fileInput"> button. `display:none`
    would remove it from the tab order and break the label activation. */
@@ -352,12 +362,15 @@ body {
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
 }
 
-/* Genome selector group inside the spreadsheet actions row. */
+/* Genome selector group inside the spreadsheet actions row. Centered between
+   the left cluster (Choose file / Template) and the right-aligned run group:
+   the auto margins on both sides split the free space equally. */
 .genome-select-group {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-left: 12px;
+    margin-left: auto;
+    margin-right: auto;
 }
 
 .genome-select-group label {
@@ -495,15 +508,16 @@ body {
 }
 
 /* Rows for targets without a usable guide RNA ("**No guide possible**",
-   "**Base change incompatible**", "**Guides removed by filter**"). Muted so
-   placeholder rows recede behind real guides while staying distinguishable. */
+   "**Base change incompatible**", "**Guides removed by filter**"). Dark red
+   so "nothing found / removed by filtering" states stand out from real
+   guides; italic keeps them clearly distinct from data rows. */
 tr.no-guide td {
-    color: var(--muted);
+    color: #b91c1c;
     font-style: italic;
 }
 
 tr.no-guide td code {
-    color: var(--muted);
+    color: #b91c1c;
     font-style: italic;
 }
 

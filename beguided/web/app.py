@@ -1179,10 +1179,12 @@ def create_app() -> FastAPI:
         matched = 0
         mismatched = 0
         detail = []
+        matched_rows = []
         for _, row in df.iterrows():
             key = (str(row["target_base"]), str(row["desired_base"]))
             if key in expected_keys:
                 matched += 1
+                matched_rows.append(row)
                 detail.append(
                     f"{row['chromosome']}:{row['position']} "
                     f"({row['target_base']}→{row['desired_base']}) → matched"
@@ -1194,7 +1196,18 @@ def create_app() -> FastAPI:
                     f"({row['target_base']}→{row['desired_base']}) → NO matching base editor"
                 )
 
-        can_run = mismatched == 0
+        # A run is possible when at least one target matches: the mismatching
+        # targets are dropped from the input (the web UI shows a warning and
+        # only the acceptable rows). The filtered payload lets the frontend
+        # replace its input table and /run payload with the acceptable subset,
+        # keeping the original input order. Row-wise filtering (not key-wise)
+        # stays correct when the same chromosome+position appears twice with
+        # different base changes.
+        can_run = matched > 0
+        filtered_df = pd.DataFrame(matched_rows, columns=df.columns)
+        filtered_raw_b64 = base64.b64encode(
+            filtered_df.to_csv(sep="\t", index=False).encode()
+        ).decode("ascii")
         return {
             "ok": True,
             "can_run": can_run,
@@ -1203,6 +1216,10 @@ def create_app() -> FastAPI:
             "mismatched": mismatched,
             "editor_types": sorted({f"{k[0]}-to-{k[1]}" for k in expected_keys}),
             "detail": detail,
+            "filtered_raw_b64": filtered_raw_b64,
+            "filtered_row_count": matched,
+            "filtered_preview": filtered_df.head(100).to_dict(orient="records"),
+            "filtered_columns": df.columns.tolist(),
         }
 
     @app.post("/run")

@@ -287,7 +287,8 @@ def _fill_targets_without_guides(df, cfg):
 
     Returns:
         The input ``df`` with placeholder rows appended (converted to the
-        same column set) and re-sorted by ``chromosome``/``position``.
+        same column set). Row order is finalised by the caller, which
+        re-orders the table to match the input file order.
     """
     if df.empty and "chromosome" not in df.columns:
         return df
@@ -341,13 +342,44 @@ def _fill_targets_without_guides(df, cfg):
         columns=df.columns,
     )
     merged_df = pd.concat([df, new_rows], ignore_index=True)
-    if {"chromosome", "position"} <= set(merged_df.columns):
-        merged_df = merged_df.sort_values(
-            by=["chromosome", "position"],
-            ascending=[True, True],
-            kind="stable",
-        )
     return merged_df
+
+
+def _reorder_by_input_order(df, targets_path):
+    """Stable-sort *df* rows to follow the operator's input target order.
+
+    The pipeline computes results in lexicographic ``chromosome``/``position``
+    order (so ``chr10`` sorts before ``chr2``); this re-orders the final table
+    so targets appear in the order they have in the input file. All rows of
+    one target stay grouped, keeping their current relative order (editors
+    alphabetically, guides by editing position). Targets missing from the
+    input file (should not happen) keep their relative order at the end.
+
+    Returns *df* unchanged when the position columns are missing or the
+    targets file cannot be read/parsed.
+    """
+    if df.empty or not {"chromosome", "position"} <= set(df.columns):
+        return df
+    try:
+        targets_df = pd.read_csv(targets_path, sep="\t")
+        order: dict = {}
+        for _, row in targets_df.iterrows():
+            key = (str(row["chromosome"]), int(row["position"]))
+            if key not in order:
+                order[key] = len(order)
+        keys = list(zip(df["chromosome"].astype(str), df["position"].astype(int)))
+    except (ValueError, TypeError, KeyError, OSError) as exc:
+        logger.warning(
+            "Could not derive input target order from %s (%s); "
+            "keeping current row order", targets_path, exc,
+        )
+        return df
+    if not order:
+        return df
+    fallback = len(order)
+    ordered = df.assign(_input_order=[order.get(k, fallback) for k in keys])
+    ordered = ordered.sort_values("_input_order", kind="stable")
+    return ordered.drop(columns="_input_order").reset_index(drop=True)
 
 
 def _prepare_beguidedoff_input(df, output_path):
@@ -992,6 +1024,11 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
         if cfg["keep_targets_without_guides"]:
             merged = _fill_targets_without_guides(merged, cfg)
             merged = _apply_final_column_order(merged)
+
+        # Present the rows in the operator's input order (all rows of a target
+        # stay grouped) instead of the lexicographic chromosome/position order
+        # the pipeline computes in.
+        merged = _reorder_by_input_order(merged, cfg["targets"])
 
         merged.to_csv(final_output, sep="\t", index=False)
         size_mb = final_output.stat().st_size / (1024 * 1024)

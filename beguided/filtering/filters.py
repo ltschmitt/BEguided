@@ -239,8 +239,9 @@ def filter_guides(input_df, criteria, fill_missing_targets=False):
             is applied regardless of ``mode``).
         fill_missing_targets: When True, every target present in ``input_df``
             that has no surviving row after filtering gets one placeholder row
-            appended (identity + bases columns copied from the input, other
-            result fields empty). The ``guide_rna_sequence`` marker is
+            at its input position (identity + bases columns copied from the
+            input, other result fields empty); rows keep the target order of
+            ``input_df``. The ``guide_rna_sequence`` marker is
             preserved when the input row was already a placeholder (e.g.
             ``**No guide possible**``) and set to
             ``**Guides removed by filter**`` when the input row was a real
@@ -337,11 +338,13 @@ _PLACEHOLDER_IDENTITY_COLUMNS = (
 
 
 def _fill_missing_target_rows(df, source_df):
-    """Append one placeholder row per target that lost all its guides.
+    """Interleave one placeholder row per target that lost all its guides.
 
     ``source_df`` is the pre-filter frame and ``df`` the already-filtered
-    frame. For every distinct target key in ``source_df`` that has no
-    surviving row in ``df``, a placeholder row is appended:
+    frame. The returned frame keeps every surviving row of ``df`` and follows
+    the target order of ``source_df`` (which is the pipeline's input order):
+    each target keeps its surviving rows, and a target with no surviving row
+    gets one placeholder row at its input position:
 
     * identity columns (chromosome/sequence, position, target/desired bases)
       are copied from the first source row for that target;
@@ -363,10 +366,23 @@ def _fill_missing_target_rows(df, source_df):
         pos = row.get("position")
         return ("" if chrom is None else str(chrom), "" if pos is None else str(pos))
 
-    present = {_target_key(row) for _, row in df.iterrows()}
+    # First-appearance order of every target in the pre-filter frame (which
+    # follows the operator's input order), plus the first row per target as
+    # the placeholder template.
+    order: dict = {}
     templates: dict = {}
     for _, row in source_df.iterrows():
-        templates.setdefault(_target_key(row), row)
+        key = _target_key(row)
+        if key not in order:
+            order[key] = len(order)
+            templates[key] = row
+
+    # Surviving rows inherit their target's input position; keys missing from
+    # the source frame (should not happen) sort last, order preserved.
+    row_keys = [_target_key(row) for _, row in df.iterrows()]
+    present = set(row_keys)
+    fallback = len(order)
+    df = df.assign(_target_order=[order.get(k, fallback) for k in row_keys])
 
     placeholder_rows = []
     for key, template in templates.items():
@@ -383,10 +399,13 @@ def _fill_missing_target_rows(df, source_df):
             row["guide_rna_sequence"] = source_seq
         else:
             row["guide_rna_sequence"] = GUIDES_REMOVED_BY_FILTER
+        row["_target_order"] = order[key]
         placeholder_rows.append(row)
 
     if not placeholder_rows:
-        return df
+        return df.drop(columns="_target_order")
 
     new_rows = pd.DataFrame(placeholder_rows, columns=df.columns)
-    return pd.concat([df, new_rows], ignore_index=True)
+    merged = pd.concat([df, new_rows], ignore_index=True)
+    merged = merged.sort_values("_target_order", kind="stable")
+    return merged.drop(columns="_target_order").reset_index(drop=True)
