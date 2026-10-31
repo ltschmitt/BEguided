@@ -101,21 +101,62 @@ pytorch-cuda = ">=12.4,<13"
 numba = ">=0.65.1,<0.66"
 pysam = ">=0.24.0,<0.25"
 
-# Local editable BEguidedOFF (off-target search), sibling repo at ../BEguidedOFF
+# BEguidedOFF (off-target search) is installed from its public GitHub repo.
+# Its CPU FM-index binding is a native extension built at install time against
+# sdsl-lite; the required build tools come from the shared `beguidedoff-build`
+# feature below, and the build runs inside the pixi environment
+# (`no-build-isolation`), where BEguidedOFF's setup.py finds the conda
+# sdsl-lite via sys.prefix automatically. To hack on BEguidedOFF locally,
+# temporarily swap the git source for
+# `beguidedoff = { path = "../BEguidedOFF", editable = true }`.
 [tool.pixi.feature.cuda.pypi-dependencies]
-beguidedoff = { path = "../BEguidedOFF", editable = true }
+beguidedoff = { git = "https://github.com/ltschmitt/BEguidedOFF.git" }
 
 # BEguidedOFF fast mode (CPU FM-index off-target search) for GPU-less
-# environments such as the web server. Same sibling-repo editable install as
-# the cuda feature, but without torch/numba — BEguidedOFF's base install is
-# CPU-only by design.
+# environments such as the web server. Same GitHub install as the cuda
+# feature, but without torch/numba — BEguidedOFF's base install is CPU-only
+# by design.
 [tool.pixi.feature.fast.pypi-dependencies]
-beguidedoff = { path = "../BEguidedOFF", editable = true }
+beguidedoff = { git = "https://github.com/ltschmitt/BEguidedOFF.git" }
+
+# Build-time dependencies for BEguidedOFF's native FM-index extension
+# (conda-forge sdsl-lite + compiler toolchain). Shared by the cuda and web
+# environments via the `beguidedoff-build` feature. `zlib` is the link-time
+# library (the runtime comes in via `libzlib`).
+[tool.pixi.feature.beguidedoff-build.dependencies]
+sdsl-lite = "*"
+pybind11 = "*"
+setuptools = "*"
+zlib = "*"
+cxx-compiler = "*"
+
+# Build BEguidedOFF inside the pixi environment so its setup.py discovers the
+# conda-provided sdsl-lite via sys.prefix; an isolated build environment would
+# not see it.
+[tool.pixi.pypi-options]
+no-build-isolation = ["beguidedoff"]
+
+# ---------------------------------------------------------------------------
+# Activation environment (applies to pixi run/shell and to pypi installs)
+# ---------------------------------------------------------------------------
+[tool.pixi.activation.env]
+# BEguidedOFF's optional CUDA kernel extension is never part of these envs
+# (the extensive GPU mode ships without it, as before). Setting 0 makes the
+# skip deterministic on hosts where nvcc + CUDA happen to be visible to the
+# build, where the extension build would otherwise be attempted (and fail).
+BEGUIDEDOFF_CUDA = "0"
+# The FM-index binding must match the C++ ABI of conda-forge's libsdsl (the
+# C++11 ABI). If a build environment ever exposes torch/nvcc to BEguidedOFF's
+# setup.py, torch's BuildExtension would compile the binding against an
+# old-ABI default and it would fail to import against libsdsl with
+# "undefined symbol: sdsl::util::file_size". distutils appends $CFLAGS last,
+# so this define wins over any inherited default.
+CFLAGS = "-D_GLIBCXX_USE_CXX11_ABI=1"
 
 # ---------------------------------------------------------------------------
 # Environments
 # ---------------------------------------------------------------------------
 [tool.pixi.environments]
 default = { features = ["test"], solve-group = "default" }
-cuda = { features = ["cuda", "test"], solve-group = "default" }
-web = { features = ["web", "test", "fast"], solve-group = "default" }
+cuda = { features = ["cuda", "test", "beguidedoff-build"], solve-group = "default" }
+web = { features = ["web", "test", "fast", "beguidedoff-build"], solve-group = "default" }

@@ -36,7 +36,7 @@ The CUDA path uses the separate BEguidedOFF package for GPU-accelerated off-targ
 git clone https://github.com/ltschmitt/BEguided.git BEguided
 cd BEguided
 
-# Option A — Pixi with sibling BEguidedOFF at ../BEguidedOFF
+# Option A — Pixi installs BEguidedOFF from GitHub automatically
 pixi install --features cuda
 
 # Option B — pip + manual BEguidedOFF

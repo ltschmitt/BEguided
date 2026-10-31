@@ -4,7 +4,7 @@ This document provides guidelines for AI agents working on the BEguided codebase
 
 ## Project Overview
 
-BEguided is a Python package for generating Cas9 base editor guide RNA sequences. It is managed with Pixi (single `pyproject.toml` manifest) and uses BEguidedOFF (standalone sibling repo) for GPU-accelerated off-target search. All functionality lives in the `beguided/` package.
+BEguided is a Python package for generating Cas9 base editor guide RNA sequences. It is managed with Pixi (single `pyproject.toml` manifest) and uses BEguidedOFF (standalone repo, installed from GitHub) for off-target search (CPU fast mode / GPU extensive mode). All functionality lives in the `beguided/` package.
 
 ## Architecture
 
@@ -153,6 +153,7 @@ Dependency sources:
 | `web` | `fastapi`, `uvicorn`, `python-multipart`, `jinja2` | `pixi install --features web` |
 | `cuda` | `pytorch-cuda>=12.4` | `pixi install --features cuda` |
 | `test` | `pytest>=9.0.3`, `httpx` | Already in default |
+| `beguidedoff-build` | `sdsl-lite`, `pybind11`, `setuptools`, `zlib`, `cxx-compiler` — build deps for BEguidedOFF's native FM-index extension | Included in the `cuda` and `web` environments |
 
 ### Docker targets
 
@@ -168,8 +169,8 @@ Pixi resolves the environment by combining `[project.dependencies]` + `[tool.pix
 | Environment | Features | Use case |
 |---|---|---|
 | `default` | `test` | CLI / pipeline / testing |
-| `web` | `web`, `test` | Web server + testing |
-| `cuda` | `cuda`, `test` | GPU off-target search |
+| `web` | `web`, `test`, `fast`, `beguidedoff-build` | Web server + testing |
+| `cuda` | `cuda`, `test`, `beguidedoff-build` | GPU off-target search |
 
 Run a command in a specific environment:
 ```bash
@@ -242,9 +243,9 @@ python -m pytest tests/test_editing/test_presets.py::TestPAMToRegex -v
 
 ### BEguidedOFF Integration
 
-- BEguidedOFF is a **separate sibling repository** (`../BEguidedOFF` from BEguided).
-- Installed automatically into the `cuda` Pixi env via a pypi-dependencies path source (`beguidedoff = { path = "../BEguidedOFF", editable = true }` under `[tool.pixi.feature.cuda]`); the `default` and `web` envs do **not** include it.
-- Outside the `cuda` env: editable `pip install` or add to `PYTHONPATH`.
+- BEguidedOFF is a **separate repository** (`https://github.com/ltschmitt/BEguidedOFF`), installed from GitHub — no sibling checkout required. To develop BEguidedOFF locally, temporarily swap the git source for `beguidedoff = { path = "../BEguidedOFF", editable = true }` in `pyproject.toml`.
+- Installed automatically into the `cuda` and `web` Pixi envs via pypi-dependencies git sources (`beguidedoff = { git = "https://github.com/ltschmitt/BEguidedOFF.git" }` under `[tool.pixi.feature.cuda]` / `[tool.pixi.feature.fast]`); the `default` env does **not** include it. The native FM-index extension builds in-env against conda `sdsl-lite` (see the `beguidedoff-build` feature and `[tool.pixi.pypi-options]` in `pyproject.toml`).
+- Outside Pixi: `pip install "git+https://github.com/ltschmitt/BEguidedOFF.git"` or add to `PYTHONPATH`.
 - The genome must be **pre-encoded** to `.npz` format once via `python -m beguidedoff.cli encode-genome`.
 - Pipeline Step 4 calls `BEguidedOFF.search()` via Python API (no subprocess).
 - `n_top_offtargets=1` — only the single worst off-target per guide is returned.

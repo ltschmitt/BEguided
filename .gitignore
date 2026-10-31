@@ -16,6 +16,5 @@ results*
 config.yaml
 legal.yaml
 *.local.yaml
-pixi.lock
 beguided.egg-info/*
 

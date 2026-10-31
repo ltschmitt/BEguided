@@ -37,13 +37,13 @@ pixi install --features web
 pixi install --features cuda
 ```
 
-The `cuda` feature installs `BEguidedOFF` automatically from the sibling repo at `../BEguidedOFF` (editable). If you don't have that sibling repo, see the manual install instructions below.
+The `cuda` feature installs `BEguidedOFF` automatically from its public GitHub repo and builds its native FM-index extension against conda's `sdsl-lite` — no sibling checkout needed. (macOS/Windows: see the manual install instructions below.)
 
 ## Platform support
 
 | Platform | Core features | Off-target search | GPU acceleration |
 |---|---|---|---|
-| Linux | Yes | Yes (manual install) | Yes |
+| Linux | Yes | Yes (auto with Pixi) | Yes |
 | macOS | Yes | Yes (manual install) | CPU only |
 | Windows | Yes | Yes (manual install) | CPU only |
 
@@ -66,7 +66,7 @@ pixi install -e web
 pixi install --features cuda
 ```
 
-Both install `BEguidedOFF` editable from `../BEguidedOFF`. The `web` environment uses the CPU-only base install (no torch); the `cuda` environment additionally provides the GPU (`extensive`) mode.
+Both install `BEguidedOFF` from its public GitHub repo. The `web` environment uses the CPU-only base install (no torch); the `cuda` environment additionally provides the GPU (`extensive`) mode.
 
 Then provide an FM-index for fast mode via `--beguidedoff-index` or `BEGUIDED_BEGUIDEDOFF_INDEX` — the FM-index is the only search input fast mode needs. Alternatively, set `--beguidedoff-genome` / `BEGUIDED_BEGUIDEDOFF_GENOME` to the encoded genome `.npz`: fast mode then derives the index path from the `.npz` sibling (same basename, `.fmi` suffix). The `.npz` itself is only read by extensive (GPU) mode, which requires it.
 
