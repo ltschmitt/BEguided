@@ -45,6 +45,12 @@ from beguided.web.sequence_input import (
     records_to_fasta,
     records_to_targets_dataframe,
 )
+from beguided.web.single_input import (
+    TARGETS_COLUMNS,
+    SingleTargetError,
+    parse_single_target,
+    row_to_targets_dataframe,
+)
 from beguided.web.scheduler import (
     Cooldown,
     Job,
@@ -74,7 +80,7 @@ logger = logging.getLogger("beguided.web.app")
 
 REQUIRED_COLUMNS = {"chromosome", "position", "target_base", "desired_base"}
 VALID_FILTER_MODES = ("all", "none", "synonymous")
-VALID_INPUT_MODES = ("spreadsheet", "sequence")
+VALID_INPUT_MODES = ("spreadsheet", "sequence", "single")
 CUSTOM_EDITOR_KEY = "custom"
 CUSTOM_EDITOR_LABEL = "Custom (uploaded)"
 
@@ -1162,6 +1168,69 @@ def create_app() -> FastAPI:
             "custom_genome_b64": base64.b64encode(fasta_text.encode()).decode("ascii"),
         }
 
+    @app.post("/single/parse")
+    async def single_parse(
+        chromosome: Annotated[str, Form()] = "",
+        position: Annotated[str, Form()] = "",
+        edit: Annotated[str, Form()] = "",
+        genome: Annotated[str, Form()] = "",
+    ) -> dict:
+        """Validate one manually-entered target and return the upload payload.
+
+        Accepts the single-target form fields (chromosome, 1-based position,
+        editing direction ``X>Y``) and returns the same shape as ``/upload``
+        (a 1-row, 4-column TSV) so the existing ``/check`` and ``/run``
+        flows keep working unchanged.
+
+        The target refers to a position on the operator-configured reference
+        genome — no custom genome is produced — so the resulting job runs in
+        ``single`` mode, which behaves exactly like spreadsheet mode
+        downstream (bystander annotation and off-target screening available).
+        """
+        cfg = get_config()
+
+        genome_key = _resolve_genome_key(cfg, genome)
+        if genome_key is None:
+            return {"ok": False, "error": f"Unknown genome: {genome!r}"}
+
+        try:
+            row = parse_single_target(chromosome, position, edit)
+        except SingleTargetError as exc:
+            return {"ok": False, "error": str(exc)}
+
+        df = row_to_targets_dataframe(row)
+
+        # Best-effort chromosome check against the selected genome, mirroring
+        # /upload: skipped when the genome is still preloading or absent so
+        # the UI flow is not blocked (the /run endpoint re-checks).
+        chrom_keys = _genome_chromosome_keys(genome_key)
+        if chrom_keys:
+            invalid = validate_chromosomes(
+                df["chromosome"].astype(str).tolist(), chrom_keys
+            )
+            if invalid:
+                sample = ", ".join(sorted(set(invalid))[:5])
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Unknown chromosome for the loaded genome: {sample}. "
+                        "Check spelling (e.g. 'chr1' vs '1')."
+                    ),
+                }
+
+        preview = df.head(100).to_dict(orient="records")
+        targets_b64 = base64.b64encode(
+            df[TARGETS_COLUMNS].to_csv(sep="\t", index=False).encode()
+        ).decode("ascii")
+
+        return {
+            "ok": True,
+            "row_count": len(df),
+            "columns": df.columns.tolist(),
+            "preview": preview,
+            "raw_b64": targets_b64,
+        }
+
     @app.post("/check")
     async def check(
         raw_b64: Annotated[str, Form()],
@@ -1241,6 +1310,11 @@ def create_app() -> FastAPI:
         job runs in sequence-input mode: the supplied custom FASTA is used
         instead of the operator-configured genome, bystander analysis is
         skipped, and off-target search is disabled.
+
+        ``mode="single"`` (one manually-entered genomic target from the
+        single-target form) behaves exactly like spreadsheet mode: it uses
+        the selected reference genome, keeps bystander annotation and allows
+        off-target screening.
         """
         if mode not in VALID_INPUT_MODES:
             return JSONResponse(
@@ -1294,9 +1368,9 @@ def create_app() -> FastAPI:
                     status_code=400,
                 )
         else:
-            # Spreadsheet mode: validate chromosome names against the
-            # selected genome before queueing the job so the user gets an
-            # immediate 400 instead of a per-target pipeline error.
+            # Spreadsheet / single mode: validate chromosome names against
+            # the selected genome before queueing the job so the user gets
+            # an immediate 400 instead of a per-target pipeline error.
             chrom_keys = _genome_chromosome_keys(genome_key)
             if chrom_keys:
                 invalid = validate_chromosomes(

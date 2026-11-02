@@ -410,6 +410,26 @@ body {
     margin-left: auto;
 }
 
+/* Single-target input panel: the chromosome / position / editing-type
+   fields reuse the compact results-toolbar control style (see the shared
+   .single-field selectors on the .results-toolbar rules). The genome
+   selector intentionally keeps the wider .genome-select-group styling so
+   it looks the same as the spreadsheet panel's selector. */
+.single-fields-row {
+    flex-wrap: wrap;
+    row-gap: 8px;
+}
+
+/* Widths tuned to the content: chromosome tokens are short (1-22, X, Y,
+   chr1) and genomic positions are at most ~9 digits. */
+#singleChromosome {
+    width: 7ch;
+}
+
+#singlePosition {
+    width: 11ch;
+}
+
 /* Generic muted text color (also used by .info-row spans). */
 .muted {
     color: var(--muted);
@@ -539,7 +559,8 @@ tr.no-guide td code {
     gap: 8px;
 }
 
-.results-toolbar label {
+.results-toolbar label,
+.single-field label {
     font-weight: 600;
     font-size: 13px;
     color: var(--muted);
@@ -547,7 +568,9 @@ tr.no-guide td code {
 }
 
 .results-toolbar select,
-.results-toolbar input[type="number"] {
+.results-toolbar input[type="number"],
+.single-field input[type="text"],
+.single-field select {
     padding: 6px 8px;
     border: 1px solid var(--border);
     border-radius: 6px;

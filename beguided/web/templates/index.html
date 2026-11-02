@@ -9,6 +9,7 @@
         <label>Input mode</label>
         <div class="mode-switch" role="tablist" aria-label="Input mode">
             <button id="modeSequence" class="mode-switch-btn active" data-mode="sequence" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="sequencePanel">Sequence</button>
+            <button id="modeSingle" class="mode-switch-btn" data-mode="single" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="singlePanel">Single</button>
             <button id="modeSpreadsheet" class="mode-switch-btn" data-mode="spreadsheet" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="spreadsheetPanel">Spreadsheet</button>
         </div>
     </div>
@@ -61,6 +62,47 @@
             <button id="loadSpreadsheetExampleBtn" class="btn btn-secondary" type="button">Load example</button>
             <button id="runBtn" class="btn btn-primary" disabled>Run</button>
         </div>
+    </div>
+</div>
+
+<div id="singlePanel" class="input-panel" role="tabpanel" aria-labelledby="modeSingle" style="display:none;">
+    <div class="input-meta-row input-actions-row single-fields-row">
+        <div class="group single-field">
+            <label for="singleChromosome">Chromosome</label>
+            <input type="text" id="singleChromosome" placeholder="1"
+                title="Chromosome name as used by the reference genome (e.g. 1-22, X, Y or chr1)"
+                autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="group single-field">
+            <label for="singlePosition">Position (1-based)</label>
+            <input type="text" id="singlePosition" inputmode="numeric"
+                placeholder="25245350" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="group single-field">
+            <label for="singleEditType">Editing type</label>
+            <select id="singleEditType">
+                <option value="A>G">A to G</option>
+                <option value="C>T">C to T</option>
+                <option value="G>A">G to A</option>
+                <option value="T>C">T to C</option>
+            </select>
+        </div>
+        <div class="genome-select-group">
+            <label for="singleGenomeSelect">Genome reference</label>
+            <select id="singleGenomeSelect" aria-label="Genome reference">
+                {% for g in genomes %}
+                <option value="{{ g.key }}"{% if not g.available %} disabled{% endif %}{% if g.key == default_genome %} selected{% endif %}>{% if g.species %}{{ g.species }} ({{ g.label }}){% else %}{{ g.label }}{% endif %}{% if not g.available %} &mdash; unavailable{% endif %}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div id="singleRunGroup" class="input-actions-run-group">
+            <button id="loadSingleExampleBtn" class="btn btn-secondary" type="button">Load example</button>
+        </div>
+    </div>
+    <div class="input-meta-row">
+        <span class="muted">
+            One target at a time: the position is the 1-based genomic coordinate of the base you want to edit. Click <strong>Run</strong> to parse and start the pipeline.
+        </span>
     </div>
 </div>
 
@@ -164,6 +206,24 @@
             used as the chromosome name. In sequence mode the loaded
             reference genome and bystander annotation are not used &mdash;
             guides are designed directly on the provided sequence.
+        </p>
+
+        <h3>Single target input</h3>
+        <p>
+            For a single target you can skip file preparation entirely:
+            switch the input mode to <em>Single</em> and fill in the fields
+            &mdash; the <code>chromosome</code> (e.g. <code>chr1</code>,
+            <code>1</code>, <code>X</code>, <code>Y</code>), the 1-based
+            <code>position</code> of the base you want to edit, and the
+            editing direction (<code>A to G</code>, <code>C to T</code>,
+            <code>G to A</code>, <code>T to C</code>).
+        </p>
+        <p>
+            A single-target run behaves exactly like a spreadsheet run:
+            guides are designed against the selected reference genome, with
+            bystander annotation and the off-target check available. Target
+            bases not present in the genome are replaced with the target
+            base.
         </p>
 
         <h3>Available base editor profiles</h3>

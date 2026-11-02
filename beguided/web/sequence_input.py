@@ -43,7 +43,9 @@ _BRACKET_RE = re.compile(r"\[\s*([ACGTacgt])\s*>\s*([ACGTacgt])\s*\]")
 # Accepted editing directions. The pipeline's base editor profile loader
 # already creates sense + antisense complement entries automatically (see
 # editing/presets.py), so all four user-friendly spellings are valid input.
-_VALID_EDITS = {
+# Public so other input modes (e.g. the single-target web input) can reuse
+# the same set.
+VALID_EDITS = {
     ("A", "G"),
     ("T", "C"),
     ("C", "T"),
@@ -270,7 +272,7 @@ def parse_sequence_text(
         target_base = bracket_match.group(1).upper()
         desired_base = bracket_match.group(2).upper()
 
-        if (target_base, desired_base) not in _VALID_EDITS:
+        if (target_base, desired_base) not in VALID_EDITS:
             raise SequenceParseError(
                 f"Edit direction [{target_base}>{desired_base}] is not supported. "
                 "Allowed: [A>G], [T>C], [C>T], [G>A].",
@@ -399,6 +401,7 @@ __all__ = [
     "DEFAULT_CHROMOSOME",
     "MAX_SEQUENCE_LENGTH",
     "MIN_SEQUENCE_LENGTH",
+    "VALID_EDITS",
     "SequenceParseError",
     "SequenceRecord",
     "parse_sequence_text",

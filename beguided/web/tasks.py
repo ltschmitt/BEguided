@@ -325,11 +325,12 @@ def execute_job(
     browser.
 
     Args:
-        mode: ``"spreadsheet"`` (default) or ``"sequence"``. In sequence
-            mode the caller must also supply ``custom_genome_b64``; the job
-            then uses the supplied custom FASTA instead of the configured
-            genome, bypasses GTF loading, and forces bystander analysis
-            + off-target search off.
+        mode: ``"spreadsheet"`` (default), ``"single"`` (one manually-entered
+            genomic target; behaves exactly like spreadsheet mode) or
+            ``"sequence"``. In sequence mode the caller must also supply
+            ``custom_genome_b64``; the job then uses the supplied custom
+            FASTA instead of the configured genome, bypasses GTF loading,
+            and forces bystander analysis + off-target search off.
         genome_key: Which configured genome to use in spreadsheet mode
             (``"human"`` / ``"mouse"``). Ignored in sequence mode.
         custom_genome_b64: Base64-encoded FASTA text containing the user's

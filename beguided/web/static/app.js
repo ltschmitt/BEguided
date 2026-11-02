@@ -41,12 +41,20 @@ const subtabPanels = document.querySelectorAll(".subtab-panel");
 const toastContainer = document.getElementById("toastContainer");
 const modeSpreadsheetBtn = document.getElementById("modeSpreadsheet");
 const modeSequenceBtn = document.getElementById("modeSequence");
+const modeSingleBtn = document.getElementById("modeSingle");
 const spreadsheetPanel = document.getElementById("spreadsheetPanel");
 const sequencePanel = document.getElementById("sequencePanel");
+const singlePanel = document.getElementById("singlePanel");
 const sequenceInput = document.getElementById("sequenceInput");
 const loadSequenceExampleBtn = document.getElementById("loadSequenceExampleBtn");
 const loadSpreadsheetExampleBtn = document.getElementById("loadSpreadsheetExampleBtn");
+const loadSingleExampleBtn = document.getElementById("loadSingleExampleBtn");
 const genomeSelect = document.getElementById("genomeSelect");
+const singleGenomeSelect = document.getElementById("singleGenomeSelect");
+const singleChromosome = document.getElementById("singleChromosome");
+const singlePosition = document.getElementById("singlePosition");
+const singleEditType = document.getElementById("singleEditType");
+const singleRunGroup = document.getElementById("singleRunGroup");
 const defaultGenomeKey = genomeSelect ? genomeSelect.value : "human";
 const profilesUpload = document.getElementById("profilesUpload");
 const profilesAlert = document.getElementById("profilesAlert");
@@ -676,55 +684,90 @@ function switchSubTab(subtabId) {
     });
 }
 
-// Mode switcher: spreadsheet vs sequence input.
+// Mode switcher: sequence, single and spreadsheet input. Each entry
+// describes its tab button, input panel, where the shared Run button is
+// anchored, whether Run starts enabled, and the Input-tab empty-state text.
+const MODE_UI = {
+    sequence: {
+        button: modeSequenceBtn,
+        panel: sequencePanel,
+        runRow: () => sequencePanel.querySelector(".input-meta-row"),
+        runEnabled: true,
+        emptyState: "Paste sequences above and click Run to parse and start the pipeline.",
+    },
+    single: {
+        button: modeSingleBtn,
+        panel: singlePanel,
+        runRow: () => singleRunGroup,
+        runEnabled: true,
+        emptyState: "Fill in the target fields above and click Run to parse and start the pipeline.",
+    },
+    spreadsheet: {
+        button: modeSpreadsheetBtn,
+        panel: spreadsheetPanel,
+        runRow: () => document.getElementById("spreadsheetRunGroup"),
+        runEnabled: false,
+        emptyState: "Upload a targets file to preview input data.",
+    },
+};
+
 function setMode(mode) {
-    if (mode !== "spreadsheet" && mode !== "sequence") return;
+    const active = MODE_UI[mode];
+    if (!active) return;
     currentMode = mode;
-    modeSpreadsheetBtn.classList.toggle("active", mode === "spreadsheet");
-    modeSequenceBtn.classList.toggle("active", mode === "sequence");
-    modeSpreadsheetBtn.setAttribute("aria-selected", mode === "spreadsheet" ? "true" : "false");
-    modeSequenceBtn.setAttribute("aria-selected", mode === "sequence" ? "true" : "false");
-    modeSpreadsheetBtn.tabIndex = mode === "spreadsheet" ? 0 : -1;
-    modeSequenceBtn.tabIndex = mode === "sequence" ? 0 : -1;
-    spreadsheetPanel.style.display = mode === "spreadsheet" ? "" : "none";
-    sequencePanel.style.display = mode === "sequence" ? "" : "none";
+    for (const [key, entry] of Object.entries(MODE_UI)) {
+        const isActive = key === mode;
+        entry.button.classList.toggle("active", isActive);
+        entry.button.setAttribute("aria-selected", isActive ? "true" : "false");
+        entry.button.tabIndex = isActive ? 0 : -1;
+        entry.panel.style.display = isActive ? "" : "none";
+    }
 
     // Move the shared Run button into the active input panel's action row so
     // it stays visually anchored next to the input controls. In spreadsheet
     // mode it lives in the right-aligned run group next to Load example; in
-    // sequence mode it sits next to the Load example button, whose 'right'
-    // class pushes the pair to the far edge of the row.
-    const targetRow = mode === "spreadsheet"
-        ? document.getElementById("spreadsheetRunGroup")
-        : sequencePanel.querySelector(".input-meta-row");
+    // single mode it lives in the panel's run group next to the genome
+    // selector; in sequence mode it sits next to the Load example button,
+    // whose 'right' class pushes the pair to the far edge of the row.
+    const targetRow = active.runRow();
     if (targetRow) {
         targetRow.appendChild(runBtn);
     }
 
     // Reset state when switching modes: a previously uploaded file is
-    // irrelevant for sequence input and vice-versa. In sequence mode the Run
-    // button starts enabled because clicking it triggers the parse + check +
-    // run flow itself; in spreadsheet mode it stays disabled until a file is
-    // uploaded (handled by uploadTargetsFile → runCompatibilityCheck).
+    // irrelevant for other inputs and vice-versa. In sequence and single
+    // mode the Run button starts enabled because clicking it triggers the
+    // parse + check + run flow itself; in spreadsheet mode it stays
+    // disabled until a file is uploaded (handled by uploadTargetsFile →
+    // runCompatibilityCheck).
     uploadedRawB64 = null;
     activeRawB64 = null;
     uploadedPreview = null;
     uploadedPreviewColumns = null;
     customGenomeB64 = null;
     matchedBaseEditorCount = 0;
-    runBtn.disabled = (mode === "spreadsheet");
+    runBtn.disabled = !active.runEnabled;
     compatibilityInfo.textContent = "";
     checkAlert.style.display = "none";
     inputAlert.style.display = "none";
-    inputPanel.innerHTML = `<p style="color: var(--muted);padding:16px;">${
-        mode === "spreadsheet"
-            ? "Upload a targets file to preview input data."
-            : "Paste sequences above and click Run to parse and start the pipeline."
-    }</p>`;
+    inputPanel.innerHTML = `<p style="color: var(--muted);padding:16px;">${escapeHtml(active.emptyState)}</p>`;
 }
 
 modeSpreadsheetBtn.addEventListener("click", () => setMode("spreadsheet"));
 modeSequenceBtn.addEventListener("click", () => setMode("sequence"));
+modeSingleBtn.addEventListener("click", () => setMode("single"));
+
+// Pressing Enter in the single-target fields starts the run flow.
+for (const field of [singleChromosome, singlePosition]) {
+    if (field) {
+        field.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter" && !runBtn.disabled) {
+                ev.preventDefault();
+                runBtn.click();
+            }
+        });
+    }
+}
 
 async function runCompatibilityCheck() {
     if (!uploadedRawB64) return;
@@ -830,6 +873,40 @@ async function parseSequenceText() {
     };
 }
 
+// Single-mode parse helper. Posts the single-target form fields to
+// /single/parse and returns a structured result. No UI side effects —
+// callers decide how to surface errors and whether to switch tabs.
+async function parseSingleTarget() {
+    const chromosome = singleChromosome ? singleChromosome.value.trim() : "";
+    const position = singlePosition ? singlePosition.value.trim() : "";
+    const edit = singleEditType ? singleEditType.value : "";
+    if (!chromosome || !position || !edit) {
+        return { ok: false, error: "Fill in chromosome, position and editing type." };
+    }
+    const form = new FormData();
+    form.append("chromosome", chromosome);
+    form.append("position", position);
+    form.append("edit", edit);
+    form.append("genome", selectedGenomeKey());
+    let res, data;
+    try {
+        res = await fetch("/single/parse", { method: "POST", body: form });
+        data = await res.json();
+    } catch (err) {
+        return { ok: false, error: `Parse failed: ${err}` };
+    }
+    if (res.status === 413 || !data.ok) {
+        return { ok: false, error: data.error || "Parse failed." };
+    }
+    return {
+        ok: true,
+        raw_b64: data.raw_b64,
+        preview: data.preview,
+        columns: data.columns,
+        row_count: data.row_count,
+    };
+}
+
 // Sequence-mode "Load example" button. Populates the textarea with a small
 // multi-record FASTA (matches the example shown in the textarea's explanation
 // text). Parsing now happens on Run click, not here.
@@ -855,23 +932,27 @@ fileInput.addEventListener("change", async () => {
     fileInput.value = "";
 });
 
-// Return the genome key currently selected in the spreadsheet genome
-// selector, or the default when the selector is absent.
+// Return the genome key currently selected for the active input mode. The
+// spreadsheet and single panels each have their own genome selector; the
+// default is used when the selector is absent.
 function selectedGenomeKey() {
-    if (genomeSelect && genomeSelect.value) return genomeSelect.value;
+    const select = currentMode === "single" ? singleGenomeSelect : genomeSelect;
+    if (select && select.value) return select.value;
     return defaultGenomeKey || "human";
 }
 
-// If the server-rendered default genome is unavailable (its <option> is
+// If a server-rendered default genome is unavailable (its <option> is
 // disabled because the FASTA is missing on disk), fall back to the first
-// available genome so the selector never submits a reference the server
+// available genome so no selector ever submits a reference the server
 // cannot load.
 function ensureGenomeSelection() {
-    if (!genomeSelect) return;
-    const current = genomeSelect.selectedOptions && genomeSelect.selectedOptions[0];
-    if (current && !current.disabled) return;
-    const fallback = Array.from(genomeSelect.options).find(o => !o.disabled);
-    if (fallback) genomeSelect.value = fallback.value;
+    for (const select of [genomeSelect, singleGenomeSelect]) {
+        if (!select) continue;
+        const current = select.selectedOptions && select.selectedOptions[0];
+        if (current && !current.disabled) continue;
+        const fallback = Array.from(select.options).find(o => !o.disabled);
+        if (fallback) select.value = fallback.value;
+    }
 }
 
 // Reusable upload pipeline for spreadsheet-mode targets. Used by both the
@@ -962,6 +1043,29 @@ if (loadSpreadsheetExampleBtn) {
     });
 }
 
+// Single-mode "Load example" button. Fills the fields with the first target
+// of the spreadsheet example (human GRCh38) so the example is consistent
+// across modes. Like the sequence-mode example it only fills the input —
+// the run itself stays a separate Run click.
+const SINGLE_EXAMPLE = { chromosome: "12", position: "25245350", edit: "T>C" };
+
+if (loadSingleExampleBtn) {
+    loadSingleExampleBtn.addEventListener("click", () => {
+        if (currentMode !== "single") setMode("single");
+        singleChromosome.value = SINGLE_EXAMPLE.chromosome;
+        singlePosition.value = SINGLE_EXAMPLE.position;
+        singleEditType.value = SINGLE_EXAMPLE.edit;
+        // The example coordinates are human (GRCh38); force the panel's
+        // selector to human so validation uses the right reference even
+        // when the operator's default genome is mouse.
+        if (singleGenomeSelect) {
+            const humanOption = Array.from(singleGenomeSelect.options)
+                .find(o => o.value === "human");
+            if (humanOption) singleGenomeSelect.value = "human";
+        }
+    });
+}
+
 // Run pipeline
 runBtn.addEventListener("click", async () => {
     if (selectedEditors.size === 0) {
@@ -989,6 +1093,31 @@ runBtn.addEventListener("click", async () => {
         uploadedRawB64 = parsed.raw_b64;
         customGenomeB64 = parsed.custom_genome_b64;
         inputPanel.innerHTML = renderSequencePreview(parsed.preview);
+        parsedThisClick = true;
+    }
+
+    // Single mode: parse the form fields on every Run click (cheap for one
+    // row, and re-parsing avoids stale submissions after edits). Error
+    // handling mirrors the sequence path; success renders the standard
+    // 1-row target table into inputPanel.
+    if (currentMode === "single") {
+        inputAlert.style.display = "none";
+        checkAlert.style.display = "none";
+        compatibilityInfo.textContent = "";
+        inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">Parsing target\u2026</p>`;
+        const parsed = await parseSingleTarget();
+        if (!parsed.ok) {
+            switchTab("inputTab");
+            showAlert(inputAlert, "error", parsed.error);
+            inputPanel.innerHTML = `<p style="color:var(--muted);padding:16px;">${escapeHtml(parsed.error)}</p>`;
+            runBtn.disabled = false;
+            return;
+        }
+        uploadedRawB64 = parsed.raw_b64;
+        activeRawB64 = parsed.raw_b64;
+        uploadedPreview = parsed.preview;
+        uploadedPreviewColumns = parsed.columns;
+        inputPanel.innerHTML = renderTable(parsed.preview, parsed.columns);
         parsedThisClick = true;
     }
 
