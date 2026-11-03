@@ -1073,11 +1073,13 @@ runBtn.addEventListener("click", async () => {
         return;
     }
 
-    // Sequence mode: parse on Run if not already parsed. On parse error, route
-    // the user to the Input tab so the error is visible; on success, render
-    // the preview silently into inputPanel and continue without switching tabs.
+    // Sequence mode: parse the textarea on every Run click so the run always
+    // uses the current input (re-parsing avoids stale submissions after
+    // edits). On parse error, route the user to the Input tab so the error
+    // is visible; on success, render the preview silently into inputPanel
+    // and continue without switching tabs.
     let parsedThisClick = false;
-    if (currentMode === "sequence" && !customGenomeB64) {
+    if (currentMode === "sequence") {
         inputAlert.style.display = "none";
         checkAlert.style.display = "none";
         compatibilityInfo.textContent = "";
@@ -1092,6 +1094,11 @@ runBtn.addEventListener("click", async () => {
         }
         uploadedRawB64 = parsed.raw_b64;
         customGenomeB64 = parsed.custom_genome_b64;
+        // Fresh input invalidates any previously derived (possibly filtered)
+        // subset; runCompatibilityCheck below recomputes it. Resetting here
+        // also guarantees a failed check aborts the run instead of letting a
+        // stale subset from a previous run slip through.
+        activeRawB64 = null;
         inputPanel.innerHTML = renderSequencePreview(parsed.preview);
         parsedThisClick = true;
     }
