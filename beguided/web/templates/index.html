@@ -207,6 +207,16 @@
             reference genome and bystander annotation are not used &mdash;
             guides are designed directly on the provided sequence.
         </p>
+        <p>
+            Off-target checking is opt-in for sequence results: pick the
+            reference genome in the Off-target check controls on the Results
+            tab. Because the pasted sequence's location in that genome is
+            unknown, the on-target site cannot be excluded from the search
+            &mdash; if your sequence comes from the searched genome, the
+            worst hit found would in many cases be the on-target itself (a
+            perfect match), while for plasmids or inserts that are not in
+            the genome all reported hits are genuine off-targets.
+        </p>
 
         <h3>Single target input</h3>
         <p>
@@ -349,12 +359,20 @@
             <button id="screenOfftargetBtn" class="btn btn-primary" type="button" disabled>
                 Check severe off-targets (0)
             </button>
-            <span id="offtargetHint" class="muted ot-hint" aria-live="polite"></span>
         </div>
         <div class="group">
             <label for="otHideFailedToggle" title="Enabled after the off-target check has run for this job; hides guides that failed it.">Hide failing guides</label>
             <input type="checkbox" id="otHideFailedToggle" disabled />
         </div>
+        <div id="otGenomeGroup" class="ot-genome-group" style="display:none;">
+            <label for="otGenomeSelect">Reference genome</label>
+            <select id="otGenomeSelect" aria-label="Reference genome for the off-target search">
+                {% for g in genomes %}
+                <option value="{{ g.key }}"{% if not g.available %} disabled{% endif %}{% if g.key == default_genome %} selected{% endif %}>{% if g.species %}{{ g.species }} ({{ g.label }}){% else %}{{ g.label }}{% endif %}{% if not g.available %} &mdash; unavailable{% endif %}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <span id="offtargetHint" class="muted ot-hint" aria-live="polite" style="display:none;"></span>
     </div>
     <div class="subtabs" role="tablist" aria-label="Results view">
         <button id="guidesSubtabBtn" class="subtab-button active" data-subtab="guidesSubtab" type="button" role="tab" aria-selected="true" tabindex="0" aria-controls="guidesSubtab">Guides</button>

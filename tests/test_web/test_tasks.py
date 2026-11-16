@@ -23,7 +23,6 @@ import pytest
 from beguided.web.tasks import (  # noqa: E402
     SEQUENCE_MODE_DROP_COLUMNS,
     _df_to_records,
-    _merge_target_desired,
     execute_job as _real_execute_job,
 )
 
@@ -117,8 +116,12 @@ class TestSequenceModeDropColumnsConstant:
     """Sanity-check the module-level drop list so that adding/removing a
     column here is a deliberate, visible change in the test suite."""
 
-    def test_constant_lists_the_three_expected_columns(self):
-        assert SEQUENCE_MODE_DROP_COLUMNS == ("position", "genome_base", "strand_used")
+    def test_constant_lists_the_expected_column(self):
+        # Only ``genome_base`` is dropped: it equals ``target_base`` by
+        # construction. Everything else stays in the records so the
+        # off-target screening row keys and the BEguidedOFF step-4 input
+        # keep working for sequence-mode parents.
+        assert SEQUENCE_MODE_DROP_COLUMNS == ("genome_base",)
 
     def test_constant_is_tuple(self):
         assert isinstance(SEQUENCE_MODE_DROP_COLUMNS, tuple)
@@ -139,16 +142,10 @@ def _python_target_key(record: dict) -> str:
 class TestDistinctTargetsMath:
     """Regression coverage for the "Found guides for X/N targets" count.
 
-    The frontend counts distinct (chromosome, position) pairs across the
-    returned records. In spreadsheet mode that key uses ``chromosome`` +
-    ``position`` directly. In sequence mode the backend renames
-    ``chromosome`` -> ``sequence`` and drops ``position``, leaving only the
-    ``sequence`` value to discriminate targets. Because the parser enforces
-    unique sequence headers, each input target has a unique ``sequence``
-    value and the count math must still return the correct total.
-
-    Without the ``targetKey`` fallback in JS, every sequence-mode record
-    collapses to the same key and the count is always 1.
+    The frontend counts distinct ``(chromosome, position)`` pairs across the
+    returned records. Sequence-mode records keep both fields (only
+    ``genome_base`` is dropped), so the key discriminates targets exactly
+    like spreadsheet mode.
     """
 
     def _write_two_distinct_targets(self, path: Path) -> Path:
@@ -179,67 +176,22 @@ class TestDistinctTargetsMath:
     def test_sequence_mode_distinct_targets_count_is_two(self, tmp_path):
         path = self._write_two_distinct_targets(tmp_path / "results.tsv")
         records = _df_to_records(path, drop_columns=SEQUENCE_MODE_DROP_COLUMNS)
-        for record in records:
-            record["sequence"] = record.pop("chromosome")
-        records = _merge_target_desired(records)
         assert len({_python_target_key(r) for r in records}) == 2
 
-    def test_sequence_mode_records_lack_position_and_chromosome(self, tmp_path):
+    def test_sequence_mode_records_keep_screening_fields(self, tmp_path):
+        """Off-target screening keys and the BEguidedOFF step-4 input need
+        chromosome/position/target_base/desired_base/strand_used; only
+        ``genome_base`` is dropped in sequence mode."""
         path = self._write_two_distinct_targets(tmp_path / "results.tsv")
         records = _df_to_records(path, drop_columns=SEQUENCE_MODE_DROP_COLUMNS)
         for record in records:
-            record["sequence"] = record.pop("chromosome")
-        records = _merge_target_desired(records)
-        for record in records:
-            assert "position" not in record
-            assert "chromosome" not in record
-            assert "sequence" in record
-
-
-class TestMergeTargetDesired:
-    """Unit tests for the sequence-mode ``target_base``+``desired_base``
-    merge that backs both the on-screen table and the downloaded files."""
-
-    def test_basic_merge(self):
-        records = [
-            {"chromosome": "chr1", "position": 5, "target_base": "A", "desired_base": "G", "base_editor": "ABE8e"},
-            {"chromosome": "chr1", "position": 7, "target_base": "T", "desired_base": "C", "base_editor": "ABE8e"},
-        ]
-        out = _merge_target_desired(records)
-        assert len(out) == 2
-        assert out[0]["desired_edit"] == "A>G"
-        assert out[1]["desired_edit"] == "T>C"
-        assert "target_base" not in out[0]
-        assert "desired_base" not in out[0]
-
-    def test_preserves_column_order(self):
-        records = [{"chromosome": "chr1", "position": 5, "target_base": "A", "desired_base": "G", "base_editor": "ABE8e"}]
-        out = _merge_target_desired(records)
-        keys = list(out[0].keys())
-        assert keys.index("desired_edit") == keys.index("position") + 1
-
-    def test_missing_target_base_passes_through(self):
-        records = [{"chromosome": "chr1", "desired_base": "G", "base_editor": "ABE8e"}]
-        out = _merge_target_desired(records)
-        assert "desired_edit" not in out[0]
-        assert "desired_base" not in out[0]
-
-    def test_missing_desired_base_passes_through(self):
-        records = [{"chromosome": "chr1", "target_base": "A", "base_editor": "ABE8e"}]
-        out = _merge_target_desired(records)
-        assert "desired_edit" not in out[0]
-        assert "target_base" not in out[0]
-
-    def test_empty_string_treated_as_missing(self):
-        records = [{"chromosome": "chr1", "target_base": "", "desired_base": "G", "base_editor": "ABE8e"}]
-        out = _merge_target_desired(records)
-        assert "desired_edit" not in out[0]
-
-    def test_empty_list(self):
-        assert _merge_target_desired([]) == []
-
-    def test_none_row_preserved(self):
-        assert _merge_target_desired([None]) == [None]
+            assert "genome_base" not in record
+            for field in (
+                "chromosome", "position", "target_base", "desired_base",
+                "strand_used", "editing_position", "guide_rna_sequence",
+                "base_editor",
+            ):
+                assert field in record, f"{field} must survive in sequence mode"
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +339,7 @@ class TestExecuteJobColumnDrops:
             custom_genome_b64=custom_genome_b64 if mode == "sequence" else None,
         )
 
-    def test_sequence_mode_drops_three_columns(self, monkeypatch, tmp_path):
+    def test_sequence_mode_keeps_screening_fields(self, monkeypatch, tmp_path):
         result = self._run_execute_job("sequence", monkeypatch, tmp_path)
         assert result["status"] == "complete", result
         records = result["records"]
@@ -395,26 +347,28 @@ class TestExecuteJobColumnDrops:
         rec = records[0]
         for col in SEQUENCE_MODE_DROP_COLUMNS:
             assert col not in rec, f"{col} should be dropped in sequence mode"
-        # target_base and desired_base are merged into desired_edit.
-        assert "target_base" not in rec
-        assert "desired_base" not in rec
-        assert rec["desired_edit"] == "A>G"
-        # chromosome is renamed to sequence; it must not be present under
-        # its old key in sequence mode.
-        assert "chromosome" not in rec
-        assert rec["sequence"] == "custom"
+        # The screening-relevant fields survive untouched so the shared
+        # row-key logic and the BEguidedOFF step-4 input work for
+        # sequence-mode parents.
+        assert rec["chromosome"] == "custom"
+        assert rec["position"] == 17
+        assert rec["target_base"] == "A"
+        assert rec["desired_base"] == "G"
+        assert rec["strand_used"] == "-"
         assert rec["base_editor"] == "ABE8e"
+        # No sequence-mode-specific display keys are emitted server-side;
+        # the client synthesizes them for display.
+        assert "sequence" not in rec
+        assert "desired_edit" not in rec
 
-    def test_sequence_mode_target_count_survives_column_rename(
+    def test_sequence_mode_target_count_keys_are_distinct(
         self, monkeypatch, tmp_path
     ):
         """Regression: with N input targets the "Found guides for X/N"
         count must reach X=N when every target produces a guide. The
-        frontend counts distinct ``(chromosome, position)`` keys; in
-        sequence mode ``position`` is dropped and ``chromosome`` is
-        renamed to ``sequence``, so the JS code falls back to
-        ``sequence`` only. This test confirms the record shape supports
-        that fallback."""
+        frontend counts distinct ``(chromosome, position)`` keys; this
+        test confirms sequence-mode records carry both fields so the
+        count math stays correct."""
         from beguided.web import tasks as tasks_mod
 
         def _fake_pipeline_two_targets(config, **_kwargs):
@@ -473,10 +427,10 @@ class TestExecuteJobColumnDrops:
         assert result["status"] == "complete", result
         records = result["records"]
         assert len(records) == 2
-        # The frontend's targetKey falls back to r.sequence when r.position
-        # is missing — each record's sequence value must therefore differ.
-        sequences = {r.get("sequence") for r in records}
-        assert sequences == {"t1", "t2"}
+        # The frontend's targetKey is (chromosome, position); each record
+        # must carry its own chromosome value.
+        chromosomes = {r.get("chromosome") for r in records}
+        assert chromosomes == {"t1", "t2"}
 
     def test_spreadsheet_mode_keeps_all_columns(self, monkeypatch, tmp_path):
         result = self._run_execute_job("spreadsheet", monkeypatch, tmp_path)

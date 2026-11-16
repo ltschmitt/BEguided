@@ -323,10 +323,9 @@ def filter_guides(input_df, criteria, fill_missing_targets=False):
 
 # Columns that identify a target row. These are copied verbatim from the
 # source row when building a placeholder; every other result column is
-# emptied. The list covers both spreadsheet mode (chromosome/position,
-# target_base/desired_base) and sequence mode (sequence instead of
-# chromosome, desired_edit instead of the two separate base columns,
-# position absent).
+# emptied. The list covers spreadsheet mode and sequence mode alike
+# (chromosome/position, target_base/desired_base); ``sequence`` and
+# ``desired_edit`` are legacy display aliases kept as harmless fallbacks.
 _PLACEHOLDER_IDENTITY_COLUMNS = (
     "chromosome",
     "sequence",

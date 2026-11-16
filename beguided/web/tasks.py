@@ -24,14 +24,15 @@ from beguided.web.config import get_config
 logger = logging.getLogger("beguided.web.tasks")
 
 # Columns that are dropped from the records returned to the web UI for
-# sequence-mode jobs. ``position`` and ``genome_base`` are redundant with the
-# user-supplied input (the bracket parser places the edit position, and
-# ``genome_base == target_base`` by construction). ``strand_used`` references
-# the genomic strand concept that has no analogue in sequence input.
+# sequence-mode jobs. ``genome_base`` is redundant with the user-supplied
+# input (``genome_base == target_base`` by construction). Everything else —
+# including ``position`` and ``strand_used`` — is kept so the records stay
+# structurally identical to spreadsheet-mode records and can be screened
+# for off-targets with the shared row-key logic; the sequence-mode results
+# table hides the sequence-relative columns client-side. The on-disk TSV is
+# left untouched.
 SEQUENCE_MODE_DROP_COLUMNS: tuple[str, ...] = (
-    "position",
     "genome_base",
-    "strand_used",
 )
 
 
@@ -237,12 +238,10 @@ def _df_to_records(path: Path, drop_columns: tuple[str, ...] = ()) -> list[dict]
     """Read a TSV from ``path`` and return JSON-safe records.
 
     ``drop_columns`` lists columns that should be removed from each record
-    before it is returned. Used by sequence-mode jobs to hide columns that
-    carry no information beyond what the user supplied on the input side
-    (``position`` and ``genome_base`` are equal to the user's input by
-    construction; ``strand_used`` references the genomic strand concept
-    that has no analogue in sequence input). The on-disk TSV is left
-    untouched.
+    before it is returned. Used by sequence-mode jobs to hide the one column
+    that carries no information beyond what the user supplied on the input
+    side (``genome_base`` is equal to the target base by construction). The
+    on-disk TSV is left untouched.
     """
     if not path.exists():
         return []
@@ -258,45 +257,6 @@ def _df_to_records(path: Path, drop_columns: tuple[str, ...] = ()) -> list[dict]
         if isinstance(score, (int, float)) and not isinstance(score, bool):
             record["guide_score"] = round(float(score), 3)
         out.append(record)
-    return out
-
-
-def _merge_target_desired(records: list[dict]) -> list[dict]:
-    """Merge ``target_base`` and ``desired_base`` into a single
-    ``desired_edit`` column formatted as ``"target>desired"`` (e.g.
-    ``"A>G"``, ``"T>C"``).
-
-    Used by sequence-mode jobs where the two columns always co-vary and the
-    merged column is easier to read both on screen and in downloaded files.
-    ``desired_edit`` is inserted at the slot where ``target_base`` used to
-    sit (preserving column order); rows missing either input are passed
-    through unchanged.
-    """
-    out = []
-    for row in records:
-        if row is None:
-            out.append(row)
-            continue
-        tb = row.get("target_base")
-        db = row.get("desired_base")
-        has_both = (
-            tb is not None and tb != ""
-            and db is not None and db != ""
-        )
-        next_row: dict = {}
-        inserted = False
-        for k, v in row.items():
-            if k == "target_base":
-                if has_both:
-                    next_row["desired_edit"] = f"{tb}>{db}"
-                    inserted = True
-                continue
-            if k == "desired_base":
-                continue
-            next_row[k] = v
-        if has_both and not inserted:
-            next_row["desired_edit"] = f"{tb}>{db}"
-        out.append(next_row)
     return out
 
 
@@ -552,12 +512,12 @@ def execute_job(
                 final_output,
                 drop_columns=SEQUENCE_MODE_DROP_COLUMNS if sequence_mode else (),
             )
-            if sequence_mode:
-                records = _merge_target_desired(records)
-                # Rename 'chromosome' to 'sequence' for display consistency in sequence mode
-                for record in records:
-                    if 'chromosome' in record:
-                        record['sequence'] = record.pop('chromosome')
+            # Sequence mode keeps the spreadsheet record shape (chromosome /
+            # position / target_base / desired_base) minus ``genome_base``:
+            # the off-target screening row keys and the BEguidedOFF step-4
+            # input need those fields. The sequence-specific display (the
+            # "sequence" first column, the merged desired-edit column, the
+            # hidden sequence-relative coordinates) is applied client-side.
             if not records:
                 return {
                     "job_id": job_id,
@@ -649,6 +609,7 @@ def execute_screen_job(
     rows: list,
     parent_records: list,
     screen_meta: dict,
+    genome_key_override: Optional[str] = None,
     cancel_event: Optional[threading.Event] = None,
 ) -> dict:
     """Run BEguidedOFF off-target screening on a filtered subset of a job.
@@ -659,6 +620,12 @@ def execute_screen_job(
     the removal rule disabled — every screened row is kept and the client
     renders the off-target verdict from the operator-configured thresholds.
 
+    Sequence-mode parents are supported with an explicit acknowledgment
+    from the client (validated in the /offtarget endpoint): the on-target
+    site cannot be excluded because the input sequence's location in the
+    searched reference genome is unknown, so a perfect-match hit may be
+    the on-target itself.
+
     Args:
         job_id: This (child) job's id.
         parent_job_id: The completed pipeline job the rows belong to.
@@ -667,6 +634,10 @@ def execute_screen_job(
         parent_records: The parent job's result records (fetched by the
             worker from the scheduler's result store).
         screen_meta: The parent job's ``_screen_meta`` (profiles, genome key).
+        genome_key_override: Reference genome to search instead of the
+            parent's ``_screen_meta.genome_key``. Sequence-mode jobs let
+            the user pick it next to the search button; when set, the
+            genome FASTA/GTF paths are re-resolved for the chosen genome.
         cancel_event: Cooperative cancel event.
 
     Returns:
@@ -676,8 +647,15 @@ def execute_screen_job(
 
     sse = get_sse_handler()
     cfg = get_config()
-    meta = screen_meta or {}
+    # Work on a copy: the parent result's ``_screen_meta`` is shared state
+    # and must not be mutated when an override re-resolves the paths.
+    meta = dict(screen_meta or {})
     genome_key = meta.get("genome_key") or "human"
+    if genome_key_override:
+        genome_key = genome_key_override
+        option = cfg.genome_option(genome_key)
+        meta["genome_fasta"] = option.genome_fasta if option is not None else ""
+        meta["gtf_path"] = option.gtf_path if option is not None else ""
 
     if not parent_records:
         return {

@@ -1459,7 +1459,9 @@ def create_app() -> FastAPI:
                 {"chromosome": "chr1", "position": 50, "target_base": "T",
                  "desired_base": "C", "base_editor": "ABE8e"},
                 ...
-              ]
+              ],
+              "acknowledge_missing_on_target": true,
+              "genome_key": "mouse"
         }
 
         The rows are the user-filtered guide rows of the *parent* job (as
@@ -1467,6 +1469,13 @@ def create_app() -> FastAPI:
         steps (4-5) on exactly those rows, with the removal rule disabled —
         every screened row is kept and the UI renders the verdict from the
         operator's thresholds. The parent job's results stay immutable.
+
+        Sequence-mode parents are accepted only with
+        ``acknowledge_missing_on_target=true``: the input sequence's location
+        in the reference genome is unknown, so the on-target site cannot be
+        excluded from the search (the worst hit may be the on-target itself).
+        For those jobs ``genome_key`` optionally overrides the reference
+        genome the search runs against; it is ignored for other modes.
         """
         cfg = get_config()
         scheduler = current_scheduler()
@@ -1523,13 +1532,18 @@ def create_app() -> FastAPI:
                 },
                 status_code=409,
             )
-        if screen_meta.get("mode") == "sequence":
+        is_sequence = screen_meta.get("mode") == "sequence"
+        if is_sequence and not body.get("acknowledge_missing_on_target"):
             return JSONResponse(
                 {
                     "ok": False,
                     "error": (
-                        "Off-target screening is only available for spreadsheet "
-                        "jobs with genomic coordinates."
+                        "Off-target screening in sequence mode requires "
+                        "acknowledge_missing_on_target=true: the input "
+                        "sequence's location in the reference genome is "
+                        "unknown, so the on-target site cannot be excluded "
+                        "from the search (the worst hit may be the on-target "
+                        "itself)."
                     ),
                 },
                 status_code=400,
@@ -1587,6 +1601,14 @@ def create_app() -> FastAPI:
             )
 
         genome_key = screen_meta.get("genome_key") or cfg.default_genome
+        # Sequence-mode jobs let the user pick the reference genome the
+        # search runs against (selector next to the search button); the
+        # override is ignored for every other mode.
+        genome_override = ""
+        if is_sequence:
+            genome_override = str(body.get("genome_key") or "").strip()
+            if genome_override:
+                genome_key = genome_override
         availability = cfg.offtarget_availability().get(genome_key)
         if availability is None:
             return JSONResponse(

@@ -29,6 +29,8 @@ const downloadResultsXlsx = document.getElementById("downloadResultsXlsx");
 // Off-target screening (search off-targets for the filtered guide subset).
 const screenOfftargetBtn = document.getElementById("screenOfftargetBtn");
 const offtargetHint = document.getElementById("offtargetHint");
+const otGenomeGroup = document.getElementById("otGenomeGroup");
+const otGenomeSelect = document.getElementById("otGenomeSelect");
 const otHideFailedToggle = document.getElementById("otHideFailedToggle");
 const offtargetPanel = document.getElementById("offtargetPanel");
 const offtargetPlaceholder = document.getElementById("offtargetPlaceholder");
@@ -105,6 +107,14 @@ let screenRecords = [];
 let screening = false;
 let currentFilteredGuideRows = [];
 let currentJobGenomeKey = null;
+// Input mode of the loaded job (not the currently selected input mode):
+// drives the sequence-mode results display adaptation and the off-target
+// search opt-in. Set when a run is submitted, alongside currentJobGenomeKey.
+let currentJobMode = null;
+// Whether the latest screening run was a sequence-mode search (whose
+// on-target caveat is permanently shown below the search button); the
+// off-target report repeats the caveat then.
+let sequenceScreenAcknowledged = false;
 // Verdicts of the latest off-target check: JSON screenRowKey ->
 // {verdict: "pass"|"fail", reason}. Drives the Guides-table verdict column,
 // the "hide failing guides" filter and the toggle title. Cleared together
@@ -1225,9 +1235,13 @@ runBtn.addEventListener("click", async () => {
 
     currentJobId = data.job_id;
     currentRevokeToken = data.revoke_token;
-    // Remember which genome this job runs against so the off-target
-    // screening button can check availability for the right index.
+    // Remember which genome this job runs against (so the off-target
+    // screening button can check availability for the right index) and
+    // which input mode it came from (drives the sequence-mode results
+    // display and the screening opt-in, even if the user switches input
+    // modes while the results are open).
     currentJobGenomeKey = selectedGenomeKey();
+    currentJobMode = currentMode;
     updateSearchInfo();
     cancelBtn.style.display = "inline-flex";
     setStatus("queued");
@@ -1264,6 +1278,15 @@ clearLogsBtn.addEventListener("click", clearLogs);
 // subset of guides (button in the Results-tab filter bar).
 if (screenOfftargetBtn) {
     screenOfftargetBtn.addEventListener("click", runScreening);
+}
+
+// Sequence-mode reference-genome selector: availability (and the info
+// tooltip on the section title) depend on the chosen genome.
+if (otGenomeSelect) {
+    otGenomeSelect.addEventListener("change", () => {
+        updateScreenButton();
+        updateSearchInfo();
+    });
 }
 
 function clearLogs() {
@@ -1674,7 +1697,7 @@ function applyFilterTooltips() {
 }
 
 function columnLabel(name) {
-    if (currentMode === "sequence"
+    if (currentJobMode === "sequence"
         && Object.prototype.hasOwnProperty.call(SEQUENCE_MODE_COLUMN_LABELS, name)) {
         return SEQUENCE_MODE_COLUMN_LABELS[name];
     }
@@ -2235,9 +2258,10 @@ const PLACEHOLDER_MARKERS = new Set([
     GUIDES_REMOVED_BY_FILTER,
 ]);
 // Identity/base columns copied verbatim onto a placeholder row; every other
-// result column is emptied. Covers spreadsheet mode (chromosome/position,
-// target_base/desired_base) and sequence mode (sequence, desired_edit, no
-// position). Mirrors filters._PLACEHOLDER_IDENTITY_COLUMNS.
+// result column is emptied. Records keep the spreadsheet identity fields
+// (chromosome/position, target_base/desired_base) in every mode;
+// ``sequence`` and ``desired_edit`` are legacy display aliases kept as
+// harmless fallbacks. Mirrors filters._PLACEHOLDER_IDENTITY_COLUMNS.
 const PLACEHOLDER_IDENTITY_COLUMNS = new Set([
     "chromosome", "sequence", "position", "target_base", "desired_base", "desired_edit",
 ]);
@@ -2378,10 +2402,26 @@ function renderResultsTable() {
         if (screenRecords.length && !columns.includes("offtarget_verdict")) {
             columns.unshift("offtarget_verdict");
         }
-        // Move 'sequence' column to the front in sequence mode
-        const finalColumns = currentMode === "sequence"
-            ? reorderColumns(columns, "sequence")
-            : columns;
+        // Sequence-mode display adaptation. The records keep the raw
+        // screening-relevant fields (chromosome, position, target_base,
+        // desired_base) so off-target screening keys match, but the table
+        // mirrors the input-oriented view: the sequence name first, the
+        // edit shown as a single "desired edit" column, and coordinates
+        // that only exist relative to the pasted sequence hidden.
+        let finalColumns;
+        if (currentJobMode === "sequence") {
+            let cols = columns.filter(
+                c => c !== "position" && c !== "strand_used" && c !== "genome_base"
+            );
+            if (cols.includes("target_base")) {
+                const at = cols.indexOf("target_base");
+                cols = cols.filter(c => c !== "target_base" && c !== "desired_base");
+                cols.splice(at, 0, "desired_edit");
+            }
+            finalColumns = reorderColumns(cols, "chromosome");
+        } else {
+            finalColumns = columns;
+        }
         const displayColumns = finalColumns.map(columnLabel);
         target.innerHTML = renderTable(
             filtered,
@@ -2390,6 +2430,9 @@ function renderResultsTable() {
             targetKey,
             (row, column, value) => {
                 if (column === "offtarget_verdict") return formatVerdictCell(row);
+                if (column === "desired_edit") {
+                    return escapeHtml(`${row.target_base ?? ""}>${row.desired_base ?? ""}`);
+                }
                 const seqProps = formatSequencePropsCell(row, column, value);
                 if (seqProps !== null) return seqProps;
                 const otCell = formatOfftargetCell(row, column, value);
@@ -2488,6 +2531,7 @@ function resetScreeningState() {
     screenRevokeToken = null;
     screenRecords = [];
     screening = false;
+    sequenceScreenAcknowledged = false;
     currentFilteredGuideRows = [];
     otVerdictMap = new Map();
     otHideFailed = false;
@@ -2563,7 +2607,7 @@ function updateSearchInfo() {
     const glyph = titleEl.querySelector(".th-info");
     const fs = offtargetConfig && offtargetConfig.fast_search;
     const genomes = (offtargetConfig && offtargetConfig.genomes) || {};
-    const key = currentJobGenomeKey || defaultGenomeKey;
+    const key = screeningGenomeKey();
     const mode = genomes[key] && genomes[key].mode;
     if (!fs || mode !== "fast") {
         titleEl.removeAttribute("title");
@@ -2574,12 +2618,30 @@ function updateSearchInfo() {
     if (glyph) glyph.style.display = "";
 }
 
+// The genome the off-target search will run against: in sequence mode the
+// user picks it in the selector at the right of the Off-target check
+// controls; otherwise it is the genome the job ran with.
+function screeningGenomeKey() {
+    if (currentJobMode === "sequence" && otGenomeSelect && otGenomeSelect.value) {
+        return otGenomeSelect.value;
+    }
+    return currentJobGenomeKey || defaultGenomeKey;
+}
+
+// Sequence-mode caveat, shown below the search button: without genomic
+// coordinates the on-target site cannot be excluded from the search.
+const SEQUENCE_OFFTARGET_NOTE =
+    "Sequence mode: the on-target site cannot be excluded because the " +
+    "input sequence's location in the reference genome is unknown. If " +
+    "your sequence comes from the searched genome, the worst hit may be " +
+    "the on-target itself (a perfect match). For plasmids or inserts " +
+    "that are not in the genome, all hits are genuine off-targets.";
+
 // Why the screening button cannot be used right now (null = it can).
 function screeningBlockReason(nGuides) {
     if (!offtargetConfig) return "server configuration unavailable";
-    if (currentMode === "sequence") return "sequence-mode results have no genomic coordinates";
     const thresholdsAvail = offtargetConfig.genomes || {};
-    const key = currentJobGenomeKey || defaultGenomeKey;
+    const key = screeningGenomeKey();
     const avail = thresholdsAvail[key];
     if (avail && !avail.available) {
         return avail.reason || "off-target search not configured for this genome";
@@ -2595,13 +2657,21 @@ function screeningBlockReason(nGuides) {
 // Reflect N = number of filtered guides + all disabled reasons on the button.
 function updateScreenButton() {
     if (!screenOfftargetBtn) return;
+    // The reference-genome selector only applies to sequence jobs (the
+    // other modes inherit the genome chosen in the input panel).
+    if (otGenomeGroup) {
+        otGenomeGroup.style.display = currentJobMode === "sequence" ? "" : "none";
+    }
     if (screening) {
         screenOfftargetBtn.disabled = true;
         screenOfftargetBtn.classList.add("btn-loading");
         screenOfftargetBtn.setAttribute("aria-busy", "true");
         screenOfftargetBtn.textContent = "Screening\u2026";
         screenOfftargetBtn.title = "Off-target check is running.";
-        if (offtargetHint) offtargetHint.textContent = "";
+        if (offtargetHint) {
+            offtargetHint.textContent = "";
+            offtargetHint.style.display = "none";
+        }
         return;
     }
     screenOfftargetBtn.classList.remove("btn-loading");
@@ -2610,7 +2680,20 @@ function updateScreenButton() {
     const reason = screeningBlockReason(rows.length);
     screenOfftargetBtn.textContent = `Check severe off-targets (${rows.length})`;
     screenOfftargetBtn.disabled = Boolean(reason);
-    if (offtargetHint) offtargetHint.textContent = reason || "";
+    if (offtargetHint) {
+        if (reason) {
+            offtargetHint.textContent = reason;
+            offtargetHint.style.display = "";
+        } else if (currentJobMode === "sequence") {
+            // No blocker: keep the sequence-mode caveat permanently visible
+            // below the button so the on-target limitation is never missed.
+            offtargetHint.textContent = SEQUENCE_OFFTARGET_NOTE;
+            offtargetHint.style.display = "";
+        } else {
+            offtargetHint.textContent = "";
+            offtargetHint.style.display = "none";
+        }
+    }
     if (reason) {
         screenOfftargetBtn.title = reason;
     } else {
@@ -2635,13 +2718,28 @@ async function runScreening() {
         showToast("warning", `Cannot start off-target search: ${reason}.`);
         return;
     }
+    const body = { job_id: currentJobId, rows };
+    if (currentJobMode === "sequence") {
+        // Sequence mode: the on-target site cannot be excluded (the input
+        // sequence's location in the reference genome is unknown). The
+        // caveat is permanently shown below the search button, so starting
+        // the search implies acceptance; the flag also keeps the server-side
+        // guard happy, and the report repeats the caveat after the run.
+        body.acknowledge_missing_on_target = true;
+        if (otGenomeSelect && otGenomeSelect.value) {
+            body.genome_key = otGenomeSelect.value;
+        }
+        sequenceScreenAcknowledged = true;
+    } else {
+        sequenceScreenAcknowledged = false;
+    }
     screening = true;
     updateScreenButton();
     try {
         const res = await fetch("/offtarget", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ job_id: currentJobId, rows }),
+            body: JSON.stringify(body),
         });
         const data = await res.json();
         if (!data.ok) {
@@ -2719,7 +2817,17 @@ async function fetchScreenResults(jobId) {
     }
     if (offtargetPlaceholder) offtargetPlaceholder.style.display = "none";
     if (offtargetStatus) {
-        showAlert(offtargetStatus, "success", data.message || "Off-target screening complete.");
+        if (sequenceScreenAcknowledged) {
+            // Sequence-mode screening ran with the on-target caveat
+            // acknowledged; repeat it so the report is read correctly.
+            showAlert(offtargetStatus, "warning",
+                (data.message || "Off-target screening complete.") +
+                " Sequence-mode caveat: the on-target site could not be " +
+                "excluded — a perfect-match hit (worst score 0.0) may be " +
+                "the on-target itself rather than a true off-target.");
+        } else {
+            showAlert(offtargetStatus, "success", data.message || "Off-target screening complete.");
+        }
     }
     renderOfftargetTable();
     if (downloadOfftargetResults && screenJobId) {

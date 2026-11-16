@@ -619,15 +619,27 @@ tr.no-guide td code {
 }
 
 /* Off-target screening controls live in the results filter toolbar
-   (the search acts on exactly the filtered subset). The hint sits next
-   to the button and is clamped so long reasons don't stretch the row. */
+   (the search acts on exactly the filtered subset). The hint sits on its
+   own full-width line below the controls so longer explanations — e.g.
+   the sequence-mode on-target caveat — can wrap freely. The element is
+   hidden entirely (via JS) whenever it has nothing to say. */
 .results-toolbar .ot-hint {
+    width: 100%;
     margin-left: 0;
     font-size: 13px;
-    max-width: 320px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 1.45;
+}
+
+/* Reference-genome selector for sequence-mode off-target searches. Sits
+   at the far right of the Off-target check controls row (margin-left:
+   auto, same pattern as the "Showing x of y" counter). Only shown for
+   sequence jobs (the input-mode genome selectors cover the other modes);
+   inherits the compact results-toolbar control style. */
+.results-toolbar .ot-genome-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
 }
 
 /* Spinner shown on the screening button while its job is running. */

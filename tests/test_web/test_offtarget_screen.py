@@ -561,7 +561,11 @@ class TestOfftargetEndpoint:
             "status"
         ] == "complete"
 
-    def test_offtarget_rejects_sequence_mode(self, screening_cfg, monkeypatch):
+    def test_offtarget_sequence_mode_requires_acknowledgment(
+        self, screening_cfg, monkeypatch
+    ):
+        """Sequence-mode parents are screened only after the client
+        acknowledges that the on-target site cannot be excluded."""
         ns = screening_cfg
         client = _client()
         _patch_parent_result(
@@ -570,9 +574,109 @@ class TestOfftargetEndpoint:
         parent = _run_parent(client)
         body = _screen_body()
         body["job_id"] = parent
+
+        # Without the flag the request is rejected with the reason spelled out.
         res = client.post("/offtarget", json=body)
         assert res.status_code == 400
-        assert "spreadsheet" in res.json()["error"]
+        assert "acknowledge_missing_on_target" in res.json()["error"]
+        assert "on-target" in res.json()["error"]
+
+        # With the flag the screening job is accepted and runs to completion
+        # against the configured (mini fixture) reference genome.
+        body["acknowledge_missing_on_target"] = True
+        res = client.post("/offtarget", json=body)
+        assert res.status_code == 200, res.text
+        assert res.json()["ok"] is True
+        screen_job = res.json()["job_id"]
+        deadline = time.time() + 30.0
+        while time.time() < deadline:
+            status = client.get(
+                "/status", params={"job_id": screen_job}
+            ).json()["status"]
+            if status in ("complete", "error", "cancelled"):
+                assert status == "complete", status
+                return
+            time.sleep(0.05)
+        raise AssertionError("screening job did not finish in time")
+
+    def test_offtarget_sequence_mode_genome_override(
+        self, screening_cfg, monkeypatch
+    ):
+        """Sequence-mode parents honour the reference-genome selection made
+        next to the search button; the override reaches the screening job."""
+        ns = screening_cfg
+        # Make the mouse genome available (the fixture engine files) so the
+        # override passes the availability check.
+        monkeypatch.setenv(
+            "BEGUIDED_BEGUIDEDOFF_GENOME_MOUSE", str(ns.npz)
+        )
+        monkeypatch.setenv("BEGUIDED_BEGUIDEDOFF_INDEX_MOUSE", str(ns.fmi))
+        client = _client()
+        _patch_parent_result(
+            ns, monkeypatch, PARENT_RECORDS, screen_meta={"mode": "sequence"}
+        )
+        parent = _run_parent(client)
+
+        captured = {}
+
+        def fake_screen(**kwargs):
+            captured.update(kwargs)
+            return {
+                "job_id": kwargs["job_id"],
+                "status": "complete",
+                "message": "fake screen ok",
+                "records": [],
+            }
+
+        monkeypatch.setattr(ns.sched_mod, "execute_screen_job", fake_screen)
+
+        body = _screen_body()
+        body["job_id"] = parent
+        body["acknowledge_missing_on_target"] = True
+        body["genome_key"] = "mouse"
+        res = client.post("/offtarget", json=body)
+        assert res.status_code == 200, res.text
+        deadline = time.time() + 10.0
+        while "job_id" not in captured and time.time() < deadline:
+            time.sleep(0.05)
+        assert captured.get("genome_key_override") == "mouse"
+
+    def test_offtarget_ignores_override_for_spreadsheet_mode(
+        self, screening_cfg, monkeypatch
+    ):
+        """A genome_key override only applies to sequence-mode parents; for
+        spreadsheet jobs it must not change the screened genome."""
+        ns = screening_cfg
+        client = _client()
+        _patch_parent_result(ns, monkeypatch, PARENT_RECORDS)
+        parent = _run_parent(client)
+
+        captured = {}
+
+        def fake_screen(**kwargs):
+            captured.update(kwargs)
+            return {
+                "job_id": kwargs["job_id"],
+                "status": "complete",
+                "message": "fake screen ok",
+                "records": [],
+            }
+
+        monkeypatch.setattr(ns.sched_mod, "execute_screen_job", fake_screen)
+
+        body = _screen_body()
+        body["job_id"] = parent
+        body["genome_key"] = "mouse"
+        res = client.post("/offtarget", json=body)
+        assert res.status_code == 200, res.text
+        deadline = time.time() + 10.0
+        while "job_id" not in captured and time.time() < deadline:
+            time.sleep(0.05)
+        # The scheduler passes the payload's resolved genome key, which for
+        # a spreadsheet parent is still the parent's own genome ("human").
+        assert captured.get("genome_key_override") == "human"
+        # The parent's _screen_meta is passed through unmutated.
+        assert captured["screen_meta"].get("genome_key") == "human"
 
     def test_offtarget_rejects_empty_rows(self, screening_cfg, monkeypatch):
         ns = screening_cfg
@@ -810,6 +914,90 @@ class TestExecuteScreenJob:
             # copy (perfect match, editable) is reported.
             assert counts[0] >= 1
             assert counts[-1] >= 1
+        finally:
+            offtarget_index_cache._reset_for_test()
+
+    def test_sequence_mode_reports_perfect_match(self, tmp_path):
+        """Sequence-mode screening runs against the reference genome with
+        the on-target exclusion effectively inactive (the custom sequence
+        name does not exist there), so the guide's perfect match in the
+        genome IS reported as the worst off-target — the documented caveat
+        the UI's acknowledgment covers. The spreadsheet-style counterpart
+        (matching chromosome) excludes that same site — see
+        ``test_offtarget_hits_reported``."""
+        from beguidedoff.genome_converter import convert
+        from beguidedoff.fast.fmindex import build_index
+        from beguided.web.config import WebConfig, set_config
+        from beguided.web.tasks import execute_screen_job
+        from beguided.web import offtarget_index_cache
+
+        fasta = tmp_path / "one_site.fa"
+        # Exactly one guide (20 nt) + PAM TGG site in the genome.
+        block = "ACGTACGTACGTACGTACGTTGG"
+        fasta.write_text(">chr1\n" + block + "AAAAAA\n")
+        npz = tmp_path / "one_site.npz"
+        convert(str(fasta), str(npz), verbose=False)
+        build_index(str(fasta), str(tmp_path / "one_site.fmi"))
+
+        presets = tmp_path / "presets.tsv"
+        presets.write_text(
+            "name\tediting\tgeneral_edit_start\tgeneral_edit_end\t"
+            "high_edit_start\thigh_edit_end\tpam\tcas\tsource\n"
+            "ABE8e\tABE\t2\t13\t3\t8\tNGG\tSpCas9\tNature2022\n"
+        )
+        set_config(WebConfig(
+            base_editor_profiles_file=str(presets),
+            genome_fasta=str(fasta),
+            gtf_path="/nonexistent",
+            beguidedoff_genome=str(npz),
+            beguidedoff_index=str(tmp_path / "one_site.fmi"),
+            beguidedoff_mode="fast",
+            max_input_targets=10,
+            cooldown_seconds=0,
+            usage_stats_enabled=False,
+        ))
+        offtarget_index_cache._reset_for_test()
+        try:
+            record = {
+                "chromosome": "custom", "position": 5,
+                "target_base": "A", "desired_base": "G",
+                "genome_base": "A", "base_editor": "ABE8e",
+                "strand_used": "+", "editing_position": 5,
+                "guide_rna_sequence": "ACGTACGTACGTACGTACGT",
+                "pam_sequence": "TGG", "bystander_effect": "none",
+            }
+            result = execute_screen_job(
+                job_id="screen-test",
+                parent_job_id="parent",
+                rows=[
+                    {
+                        "chromosome": "custom", "position": 5,
+                        "target_base": "A", "desired_base": "G",
+                        "base_editor": "ABE8e",
+                    }
+                ],
+                parent_records=[record],
+                screen_meta={
+                    "mode": "sequence",
+                    "genome_key": "human",
+                    "base_editor_names": ["ABE8e"],
+                    "use_custom_profiles": False,
+                },
+            )
+            assert result["status"] == "complete", result.get("message")
+            assert len(result["records"]) == 1
+            row = result["records"][0]
+            # The single genome site is a perfect match for the guide. The
+            # on-target exclusion cannot match (chromosome "custom" is not
+            # in the searched genome), so the site is reported with the
+            # best (most severe) score 0.0.
+            assert float(row["worst_offtarget_score"]) == 0.0
+            assert int(row["offtarget_count"]) >= 1
+            assert row["worst_offtarget_chr"] == "chr1"
+            # The custom chromosome name survives into the output rows, so
+            # the client-side verdict join (row keys) still matches the
+            # parent row.
+            assert row["chromosome"] == "custom"
         finally:
             offtarget_index_cache._reset_for_test()
 

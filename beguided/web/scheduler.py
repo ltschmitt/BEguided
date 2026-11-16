@@ -566,6 +566,8 @@ class Scheduler:
         The parent job's records and ``_screen_meta`` (profiles / genome
         selection the parent ran with) are read from the result store here
         so the tasks layer never needs to reach back into the scheduler.
+        A payload-level ``genome_key`` (sequence-mode reference-genome
+        selection) overrides the parent's genome for the search.
         """
         parent_id = job.payload.get("parent_job_id") or ""
         parent_result = self.get_result(parent_id) if parent_id else None
@@ -577,6 +579,7 @@ class Scheduler:
             rows=job.payload.get("rows") or [],
             parent_records=parent_records,
             screen_meta=screen_meta,
+            genome_key_override=job.payload.get("genome_key") or None,
             cancel_event=job.cancel,
         )
 
