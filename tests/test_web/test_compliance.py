@@ -534,13 +534,57 @@ def test_last_submit_is_ttl_pruned(tmp_path):
         # is nested: cooldown kind -> IP -> last submit time.
         sch.submit("10.0.0.1", {"dummy": True})
         assert "10.0.0.1" in sch._last_submit["pipeline"]
-        # Roll the monotonic clock back far enough for the prune to
-        # consider the entry stale.
-        sch._last_submit["pipeline"]["10.0.0.1"] = 0.0
-        sch._prune_last_submit(now=time.monotonic())
+        # Roll the entry far enough into the past for the prune to consider
+        # it stale. Must be computed relative to the real clock: a literal
+        # 0.0 is only stale when the runner has been up longer than the
+        # 60 s prune floor — freshly booted CI machines are not.
+        now = time.monotonic()
+        sch._last_submit["pipeline"]["10.0.0.1"] = now - 61.0
+        sch._prune_last_submit(now=now)
         assert "10.0.0.1" not in sch._last_submit.get("pipeline", {})
     finally:
         sch.stop()
+
+
+def test_first_submit_passes_on_fresh_monotonic_clock(monkeypatch, tmp_path):
+    """The cooldown must not reject a client's very first submit.
+
+    ``time.monotonic()`` starts near zero on a freshly booted machine, so
+    the "never submitted" sentinel must not be ``0.0``: with a 60 s window
+    and a 30 s-old clock the first submit would look like a cooldown
+    violation. This test pins the clock to a small value to reproduce the
+    just-booted-runner situation on any machine (this exact bug only
+    surfaced on CI; workstations with long uptimes always passed).
+    """
+    import time as time_module
+
+    from beguided.web.scheduler import Cooldown, Scheduler
+
+    clock = {"now": 30.0}  # runner booted ~30 s ago
+
+    def fake_monotonic():
+        return clock["now"]
+
+    monkeypatch.setattr(time_module, "monotonic", fake_monotonic)
+
+    sch = Scheduler(
+        db_path=str(tmp_path / "jobs.db"), queue_max=8, cooldown_seconds=60.0
+    )
+    sch._init_db()  # schema only; no worker threads for this test
+
+    # First-ever submit must pass although the clock reads < cooldown.
+    sch.submit("10.0.0.1", {"dummy": True})
+
+    # An immediate second submit is inside the window and must be rejected.
+    with pytest.raises(Cooldown):
+        sch.submit("10.0.0.1", {"dummy": True})
+
+    # After the window has elapsed on the (faked) clock, submits pass again.
+    clock["now"] += 61.0
+    sch.submit("10.0.0.1", {"dummy": True})
+
+    # A different IP is independent: its first submit passes too.
+    sch.submit("10.0.0.2", {"dummy": True})
 
 
 def test_job_retention_hours_env_knob(monkeypatch):

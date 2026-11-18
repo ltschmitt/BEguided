@@ -231,8 +231,13 @@ class Scheduler:
         )
         self._prune_last_submit(now=time.monotonic())
         per_ip = self._last_submit.setdefault(cooldown_key, {})
-        last = per_ip.get(ip, 0.0)
+        # An IP that never submitted is treated as if it last submitted a
+        # full window ago — NOT as ``0.0``. ``time.monotonic()`` starts near
+        # zero on a freshly booted machine, so a 0.0 sentinel would make the
+        # very first submit look like it happened "in the future" and trip
+        # the cooldown for ``now < cooldown`` seconds after boot.
         now = time.monotonic()
+        last = per_ip.get(ip, now - cooldown)
         remaining = cooldown - (now - last)
         if remaining > 0:
             raise Cooldown(retry_after=remaining)
