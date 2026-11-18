@@ -956,6 +956,72 @@ def test_download_results_applies_dynamic_filters(cfg_and_db):
     assert bad.status_code == 400
 
 
+def test_download_results_gc_filter_tiers(cfg_and_db):
+    """/download/results accepts the canonical gc_content_filter tiers
+    (high = 40-60%, medium = 30-70%) and the deprecated good/acceptable
+    aliases; unknown tiers are rejected with 400."""
+    import beguided.web.scheduler as sched_mod
+
+    records = [
+        {"chromosome": "chr1", "position": 50, "guide_score": 0.9,
+         "gc_content": 50.0, "bystander_positions": "",
+         "guide_rna_sequence": "AAAAAAAAAAAAAAAAAAAA"},
+        {"chromosome": "chr1", "position": 80, "guide_score": 0.9,
+         "gc_content": 80.0, "bystander_positions": "",
+         "guide_rna_sequence": "CCCCCCCCCCCCCCCCCCCC"},
+        {"chromosome": "chr2", "position": 30, "guide_score": 0.9,
+         "gc_content": 35.0, "bystander_positions": "",
+         "guide_rna_sequence": "GGGGGGGGGGGGGGGGGGGG"},
+    ]
+
+    def fake_execute_job(**kwargs):
+        return {
+            "job_id": kwargs["job_id"], "status": "complete",
+            "message": "ok", "records": records,
+        }
+
+    sched_mod.execute_job = fake_execute_job
+    client = _client(cfg_and_db)
+    submit = client.post(
+        "/run",
+        data={"raw_b64": _targets_tsv_b64(), "base_editor": "ABE8e"},
+    ).json()
+    for _ in range(40):
+        s = client.get("/status", params={"job_id": submit["job_id"]}).json()
+        if s["status"] in ("complete", "error", "cancelled"):
+            break
+        time.sleep(0.1)
+
+    def real_positions(params):
+        """Positions whose row is a real (non-placeholder) guide."""
+        res = client.get("/download/results", params=params)
+        assert res.status_code == 200
+        header = res.text.strip().split("\n")[0].split("\t")
+        seq_idx = header.index("guide_rna_sequence")
+        pos_idx = header.index("position")
+        rows = [l.split("\t") for l in res.text.strip().split("\n")[1:]]
+        return sorted(
+            int(r[pos_idx]) for r in rows
+            if not r[seq_idx].startswith("**")
+        )
+
+    job = {"job_id": submit["job_id"]}
+    # high (40-60%): only the 50.0 GC guide survives; the others are kept
+    # as placeholder rows for their targets.
+    assert real_positions({**job, "gc_content_filter": "high"}) == [50]
+    # medium (30-70%): the 50.0 and 35.0 guides survive.
+    assert real_positions({**job, "gc_content_filter": "medium"}) == [30, 50]
+    # Deprecated aliases behave identically to their canonical names.
+    assert real_positions({**job, "gc_content_filter": "good"}) == [50]
+    assert real_positions({**job, "gc_content_filter": "acceptable"}) == [30, 50]
+    # Unknown tier -> 400.
+    bad = client.get(
+        "/download/results",
+        params={**job, "gc_content_filter": "bogus"},
+    )
+    assert bad.status_code == 400
+
+
 def test_download_results_synonymous_without_bystander_column(cfg_and_db):
     """Sequence-mode jobs skip bystander analysis and their records have no
     ``bystander_effect`` column. Requesting filter_mode=synonymous must keep

@@ -18,12 +18,6 @@ input:
   # Default: configs/base_editor_profiles.tsv
   base_editor_profiles: "configs/base_editor_profiles.tsv"
 
-  # Optional custom trinucleotide edit-context table (TSV format) overriding
-  # the bundled copy. The bundled table is derived from Marquart et al. 2021
-  # (ABE8e, normalised). Leave unset to use the bundled default; set to an
-  # empty string ("") to disable the trinuc_edit_score column entirely.
-  # edit_context_table: "path/to/custom_context.tsv"
-
   # GFF/GTF annotation file for transcript/CDS information
   # Required for bystander analysis (unless keep_bystanders=none)
   gff_file: "path/to/annotation.gtf"
@@ -70,7 +64,7 @@ use_base_editors: "all"
 # =============================================================================
 # Filter mode for guide selection:
 #   "all"         -> keep all guides
-#   "none"        -> only guides with zero bystander edits (skips bystander scanner)
+#   "none"        -> only guides with zero bystander edits
 #   "synonymous"  -> guides with synonymous bystanders or no bystanders
 keep_bystanders: "all"
 
@@ -83,8 +77,10 @@ guide_score_threshold: 0.5
 # GC content filter for the 20-nt protospacer.
 # Options:
 #   "off"         -> do not filter by GC content (default; returns every guide)
-#   "good"        -> keep guides with GC between 40% and 60%
-#   "acceptable"  -> keep guides with GC between 30% and 70%
+#   "high"        -> keep guides with GC between 40% and 60%
+#   "medium"      -> keep guides with GC between 30% and 70%
+# The deprecated names "good" (= high) and "acceptable" (= medium) are still
+# accepted.
 # Guides with a missing GC value are always kept.
 gc_content_filter: "off"
 
@@ -102,18 +98,33 @@ filter_homopolymers: false
 trinuc_edit_score_min: null
 
 # =============================================================================
-# OFF-TARGET SCREENING (Steps 4-6)
+# OFF-TARGET SCREENING (Steps 4-5)
 # =============================================================================
 # Set to false to skip BEguidedOFF off-target search
 search_offtargets: true
 
 offtargets:
-  # Path to the BEguidedOFF-encoded genome (.npz file)
+  # Search mode: "extensive" (GPU brute force; the default for CLI configs)
+  # or "fast" (CPU FM-index filter, no GPU needed — this is what the web
+  # server uses). In fast mode the search cutoff is derived from
+  # remove_guides_score / count_threshold_score; max_mismatches is ignored.
+  # mode: "extensive"
+
+  # Path to the BEguidedOFF-encoded genome (.npz file).
+  # Required for "extensive" mode. In "fast" mode it is only used to derive
+  # the default FM-index path (same basename, .fmi suffix) when index_path
+  # is empty.
   # Encode once with: python -m beguidedoff.cli encode-genome --fasta genome.fa --output genome.npz
   beguidedoff_genome: "path/to/genome.npz"
 
-  # Maximum mismatches allowed in the 20-nt guide region
-  mismatch_tolerance: 5
+  # FM-index (.fmi) for "fast" mode. Empty/unset = derived from the .npz
+  # path (same basename, .fmi suffix).
+  # Build once with: python -m beguidedoff.cli build-index genome.fa genome.fmi
+  # index_path: "path/to/genome.fmi"
+
+  # Maximum mismatches allowed in the 20-nt guide region ("extensive" mode
+  # only). "mismatch_tolerance" is still accepted as a legacy alias.
+  max_mismatches: 5
 
   # CCTOP score threshold for COUNTING off-targets.
   # Only off-targets with score <= this value are included in offtarget_count.
@@ -125,6 +136,7 @@ offtargets:
   # Default: 5.0 (guides with very likely off-targets are discarded)
   remove_guides_score: 5.0
 
-  # Maximum off-target count to KEEP a guide (null = no limit)
-  # Guides with more off-targets than this are removed.
+  # Maximum off-target count to KEEP a guide (null = no limit).
+  # NOTE: the code default when this key is omitted is 100; the explicit
+  # null here disables the count limit.
   remove_guides_n_offtargets: null

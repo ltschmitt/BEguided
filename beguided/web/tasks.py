@@ -88,9 +88,10 @@ def _build_config(
             to ``work_dir / merged_profiles.tsv`` and used as the profiles
             file for this job (with ``base_editor_names`` controlling which
             profiles are considered).
-        gc_content_filter: One of ``"off"``, ``"good"`` (40-60%) or
-            ``"acceptable"`` (30-70%). When ``None`` the operator-configured
-            default (``cfg.gc_content_filter``) is used.
+        gc_content_filter: One of ``"off"``, ``"high"`` (40-60%) or
+            ``"medium"`` (30-70%); the deprecated names ``"good"`` /
+            ``"acceptable"`` are accepted as aliases. When ``None`` the
+            operator-configured default (``cfg.gc_content_filter``) is used.
         filter_homopolymers: When True, drop guides with a >=4-mer
             homopolymer run. When ``None`` the operator-configured default
             (``cfg.filter_homopolymers``) is used.

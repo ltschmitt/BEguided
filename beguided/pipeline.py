@@ -8,7 +8,7 @@ import pandas as pd
 
 from beguided.genome.coordinates import guide_coordinates
 from beguided.genome.io import load_genome
-from beguided.editing.context import EditContextTable, load_edit_context_table
+from beguided.editing.context import load_edit_context_table
 from beguided.editing.presets import (
     load_base_editor_profiles,
     get_available_base_editor_names,
@@ -18,7 +18,11 @@ from beguided.editing.presets import (
 from beguided.guidefinder.core import run_genome_wide as run_guidefinder, results_to_dataframe
 from beguided.bystander.annotation import load_gtf_to_interval_tree
 from beguided.bystander.analysis import run_all as run_bystander
-from beguided.filtering.filters import load_filter_criteria, filter_guides
+from beguided.filtering.filters import (
+    load_filter_criteria,
+    filter_guides,
+    normalize_gc_filter,
+)
 from beguided.off_target.merger import aggregate_beguidedoff_results, merge_with_input
 from beguided.logging_config import get_logger
 from beguided.models import (
@@ -155,12 +159,14 @@ def _read_new_style_config(config):
     result["guide_score_threshold"] = guide_score_threshold
 
     # --- gc_content_filter ---
+    # Canonical values: "off" (no filter), "high" (keep 40-60%) and
+    # "medium" (keep 30-70%). The deprecated names "good"/"acceptable"
+    # are accepted and mapped to "high"/"medium".
     gc_content_filter = config.get("gc_content_filter", "off")
-    if gc_content_filter not in ("off", "good", "acceptable"):
-        raise PipelineError(
-            f"gc_content_filter must be one of off|good|acceptable, "
-            f"got {gc_content_filter!r}"
-        )
+    try:
+        gc_content_filter = normalize_gc_filter(gc_content_filter)
+    except ValueError as exc:
+        raise PipelineError(str(exc)) from exc
     result["gc_content_filter"] = gc_content_filter
 
     # --- filter_homopolymers ---
@@ -187,16 +193,6 @@ def _read_new_style_config(config):
                 f"got {trinuc_min}"
             )
         result["trinuc_edit_score_min"] = trinuc_min
-
-    # --- edit_context_table ---
-    # Optional path to a custom trinucleotide context TSV overriding the
-    # bundled copy. ``None`` (default) uses the bundled table. An empty
-    # string disables the lookup entirely (every guide's
-    # ``trinuc_edit_score`` will be NaN).
-    raw_table_path = config.get("edit_context_table", None)
-    if raw_table_path == "":
-        raw_table_path = ""  # explicit opt-out
-    result["edit_context_table"] = raw_table_path
 
     # --- search_offtargets ---
     result["search_offtargets"] = config.get("search_offtargets", True)
@@ -465,7 +461,8 @@ def _run_beguidedoff(filter_file, presets_file, genome_npz, max_mismatches,
             raise PipelineError(
                 "fast mode requires an FM-index path (offtargets.index_path). "
                 "Build one from a reference FASTA with: "
-                "python -m beguidedoff.cli build-index <genome.fa> <genome.fmi>"
+                "python -m beguidedoff.cli build-index "
+                "--fasta <genome.fa> --output <genome.fmi>"
             )
         finder = beguidedoff(
             mode="fast",
@@ -639,27 +636,19 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
         base_editor_names = _resolve_base_editor_names(profiles, cfg["base_editor_arg"])
         logger.info(f"Using base editors: {', '.join(base_editor_names)}")
 
-        # Load the trinucleotide edit-context table (Marquart et al. 2021,
-        # ABE8e, normalised). Empty string => explicit opt-out; None =>
-        # bundled default. CBE rows leave ``trinuc_edit_score`` at NaN.
-        edit_context_table: EditContextTable | None
-        table_path = cfg["edit_context_table"]
-        if table_path == "":
-            edit_context_table = None
-            logger.info("Edit-context table disabled (trinuc_edit_score will be NaN)")
-        else:
-            try:
-                edit_context_table = load_edit_context_table(
-                    table_path if table_path is not None else None
-                )
-                logger.info(
-                    "Loaded edit-context table (%s). "
-                    "Note: scores are ABE8e-derived and approximate for other ABE editors; "
-                    "CBE rows will be NaN.",
-                    edit_context_table.source_label,
-                )
-            except FileNotFoundError as exc:
-                raise PipelineError(str(exc)) from exc
+        # Load the bundled trinucleotide edit-context table (Marquart et al.
+        # 2021, ABE8e, normalised). There is no config override; CBE rows
+        # leave ``trinuc_edit_score`` at NaN.
+        try:
+            edit_context_table = load_edit_context_table()
+        except FileNotFoundError as exc:
+            raise PipelineError(str(exc)) from exc
+        logger.info(
+            "Loaded edit-context table (%s). "
+            "Note: scores are ABE8e-derived and approximate for other ABE editors; "
+            "CBE rows will be NaN.",
+            edit_context_table.source_label,
+        )
 
         genome_file = cfg["genome"]
         if genome is None:
@@ -901,8 +890,8 @@ def run_pipeline(config, start_step=1, end_step=5, cancel_event=None, genome=Non
                 raise PipelineError(
                     f"FM-index not found: {index_path}. Build it from the "
                     f"reference FASTA with `python -m beguidedoff.cli "
-                    f"build-index <genome.fa> {index_path}` or point "
-                    f"offtargets.index_path at an existing index."
+                    f"build-index --fasta <genome.fa> --output {index_path}` "
+                    f"or point offtargets.index_path at an existing index."
                 )
             logger.info(f"BEguidedOFF index: {index_path}")
             search_cutoff = _resolve_fast_search_cutoff(cfg)

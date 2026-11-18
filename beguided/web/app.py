@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader
 
-from beguided.filtering.filters import filter_guides, VALID_GC_FILTERS
+from beguided.filtering.filters import filter_guides, normalize_gc_filter
 from beguided.logging_config import setup_logging
 from beguided.web.condense import condense_df
 from beguided.web.config import (
@@ -1788,7 +1788,7 @@ def create_app() -> FastAPI:
         ] = 0.0,
         gc_content_filter: Annotated[
             str,
-            Query(description="GC content tier: off | good | acceptable"),
+            Query(description="GC content tier: off | high (40-60%) | medium (30-70%); legacy aliases: good, acceptable"),
         ] = "off",
         filter_homopolymers: Annotated[
             bool,
@@ -1817,12 +1817,10 @@ def create_app() -> FastAPI:
                 f"Expected one of: {', '.join(VALID_FILTER_MODES)}.",
                 status_code=400,
             )
-        if gc_content_filter not in VALID_GC_FILTERS:
-            return PlainTextResponse(
-                f"Invalid gc_content_filter: {gc_content_filter!r}. "
-                f"Expected one of: {', '.join(VALID_GC_FILTERS)}.",
-                status_code=400,
-            )
+        try:
+            gc_content_filter = normalize_gc_filter(gc_content_filter)
+        except ValueError as exc:
+            return PlainTextResponse(str(exc), status_code=400)
         if format not in ("tsv", "xlsx"):
             return PlainTextResponse(
                 f"Invalid format: {format!r}. Expected one of: tsv, xlsx.",

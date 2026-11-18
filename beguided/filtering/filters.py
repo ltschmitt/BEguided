@@ -15,11 +15,46 @@ from beguided.models import (
 logger = logging.getLogger("beguided.filtering")
 
 
-VALID_GC_FILTERS = ("off", "good", "acceptable")
+VALID_GC_FILTERS = ("off", "high", "medium")
 _GC_RANGES = {
-    "good": (40.0, 60.0),
-    "acceptable": (30.0, 70.0),
+    "high": (40.0, 60.0),
+    "medium": (30.0, 70.0),
 }
+# Deprecated pre-rename names, kept working for existing configs and API
+# callers. ``good`` and ``acceptable`` had the same GC ranges as ``high``
+# and ``medium`` respectively.
+_GC_ALIASES = {
+    "good": "high",
+    "acceptable": "medium",
+}
+
+
+def normalize_gc_filter(mode):
+    """Map a ``gc_content_filter`` value to its canonical name.
+
+    Accepts the canonical values (``"off"``, ``"high"``, ``"medium"``) and
+    the deprecated aliases (``"good"`` → ``"high"``, ``"acceptable"`` →
+    ``"medium"``, logged as deprecated).
+
+    Raises:
+        ValueError: for any other value.
+    """
+    if mode is None or mode == "":
+        return "off"
+    if mode in _GC_ALIASES:
+        canonical = _GC_ALIASES[mode]
+        logger.warning(
+            "gc_content_filter=%r is deprecated; use %r instead (same GC range).",
+            mode, canonical,
+        )
+        return canonical
+    if mode in VALID_GC_FILTERS:
+        return mode
+    raise ValueError(
+        f"Invalid gc_content_filter: {mode!r}. "
+        f"Expected one of: {', '.join(VALID_GC_FILTERS)}"
+        f" (deprecated aliases: {', '.join(sorted(_GC_ALIASES))})."
+    )
 
 
 def load_filter_criteria(
@@ -93,12 +128,7 @@ def load_filter_criteria(
         criteria["guide_score_threshold"] = guide_score_threshold
 
     if gc_content_filter is not None:
-        if gc_content_filter not in VALID_GC_FILTERS:
-            raise ValueError(
-                f"Invalid gc_content_filter: {gc_content_filter!r}. "
-                f"Expected one of: {', '.join(VALID_GC_FILTERS)}."
-            )
-        criteria["gc_content_filter"] = gc_content_filter
+        criteria["gc_content_filter"] = normalize_gc_filter(gc_content_filter)
 
     if filter_homopolymers is not None:
         criteria["filter_homopolymers"] = bool(filter_homopolymers)
@@ -149,19 +179,16 @@ def _apply_threshold(df, threshold):
 def _apply_gc_filter(df, mode):
     """Restrict guides by GC content (percent 0-100).
 
-    ``mode`` is one of ``"off"`` (no filter, the default), ``"good"`` (keep
-    40-60%) or ``"acceptable"`` (keep 30-70%). Rows with a missing
-    ``gc_content`` value are kept, matching the guide-score policy of
-    favouring recall over silent dropouts.
+    ``mode`` is one of ``"off"`` (no filter, the default), ``"high"`` (keep
+    40-60%) or ``"medium"`` (keep 30-70%). The deprecated aliases
+    ``"good"``/``"acceptable"`` are accepted and mapped to
+    ``"high"``/``"medium"``. Rows with a missing ``gc_content`` value are
+    kept, matching the guide-score policy of favouring recall over silent
+    dropouts.
     """
-    if not mode or mode == "off":
+    mode = normalize_gc_filter(mode)
+    if mode == "off":
         return df
-
-    if mode not in VALID_GC_FILTERS:
-        raise ValueError(
-            f"Invalid gc_content_filter: {mode!r}. "
-            f"Expected one of: {', '.join(VALID_GC_FILTERS)}."
-        )
 
     if "gc_content" not in df.columns:
         logger.info(

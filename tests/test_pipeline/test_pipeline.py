@@ -1082,10 +1082,11 @@ class TestPipelineTrinucEditScore:
         if len(abe_rows) > 0:
             assert (abe_rows["trinuc_edit_score"] >= 1.0).all()
 
-    def test_edit_context_table_empty_string_disables_column(
+    def test_edit_context_table_config_key_is_ignored(
         self, tmp_path, sample_fasta_file, valid_preset_tsv
     ):
-        """edit_context_table='' disables the lookup; every score is NaN."""
+        """The edit_context_table config key was removed: setting it must
+        have no effect — the bundled ABE8e table is always used."""
         from beguided.pipeline import run_pipeline
         import pandas as pd
 
@@ -1093,13 +1094,17 @@ class TestPipelineTrinucEditScore:
             tmp_path, sample_fasta_file, valid_preset_tsv,
             "chromosome\tposition\ttarget_base\tdesired_base\nchr1\t75\tA\tG\n",
         )
-        config["edit_context_table"] = ""
-        run_pipeline(config, start_step=1, end_step=1)
+        config["edit_context_table"] = ""  # historically disabled the column
+        run_pipeline(config, start_step=1, end_step=5)
 
-        step1 = pd.read_csv(tmp_path / "out" / "step1_guidefinder.tsv", sep="\t")
-        assert "trinuc_edit_score" in step1.columns
-        # Every value should be NaN (column disabled).
-        assert step1["trinuc_edit_score"].isna().all()
+        final = pd.read_csv(tmp_path / "out" / "beguided_results.tsv", sep="\t")
+        valid = final[~final["guide_rna_sequence"].str.startswith("**", na=False)]
+        if len(valid) > 0:
+            # The bundled table is always used: ABE guides keep their scores.
+            assert valid["trinuc_edit_score"].notna().any(), (
+                "ABE guides should still get trinuc_edit_score values from the "
+                "bundled table (the override key is ignored)"
+            )
 
     def test_trinuc_edit_score_min_invalid_value_raises(
         self, tmp_path, sample_fasta_file, valid_preset_tsv

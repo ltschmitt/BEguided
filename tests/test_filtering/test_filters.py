@@ -3,7 +3,11 @@
 import pytest
 import pandas as pd
 
-from beguided.filtering.filters import load_filter_criteria, filter_guides
+from beguided.filtering.filters import (
+    load_filter_criteria,
+    filter_guides,
+    normalize_gc_filter,
+)
 
 
 class TestLoadFilterCriteria:
@@ -285,19 +289,31 @@ class TestGCFilter:
         result = filter_guides(df, {"mode": "all", "gc_content_filter": "off"})
         assert len(result) == 5
 
-    def test_good_keeps_only_40_to_60(self):
+    def test_high_keeps_only_40_to_60(self):
         df = self._make_df([20.0, 39.9, 40.0, 50.0, 60.0, 60.1, 90.0])
-        result = filter_guides(df, {"mode": "all", "gc_content_filter": "good"})
+        result = filter_guides(df, {"mode": "all", "gc_content_filter": "high"})
         assert sorted(result["gc_content"].tolist()) == [40.0, 50.0, 60.0]
 
-    def test_acceptable_keeps_30_to_70(self):
+    def test_medium_keeps_30_to_70(self):
         df = self._make_df([20.0, 29.9, 30.0, 55.0, 70.0, 70.1, 90.0])
-        result = filter_guides(df, {"mode": "all", "gc_content_filter": "acceptable"})
+        result = filter_guides(df, {"mode": "all", "gc_content_filter": "medium"})
         assert sorted(result["gc_content"].tolist()) == [30.0, 55.0, 70.0]
+
+    def test_deprecated_good_alias_maps_to_high(self):
+        df = self._make_df([20.0, 39.9, 40.0, 50.0, 60.0, 60.1, 90.0])
+        legacy = filter_guides(df, {"mode": "all", "gc_content_filter": "good"})
+        canonical = filter_guides(df, {"mode": "all", "gc_content_filter": "high"})
+        assert legacy.index.tolist() == canonical.index.tolist()
+
+    def test_deprecated_acceptable_alias_maps_to_medium(self):
+        df = self._make_df([20.0, 29.9, 30.0, 55.0, 70.0, 70.1, 90.0])
+        legacy = filter_guides(df, {"mode": "all", "gc_content_filter": "acceptable"})
+        canonical = filter_guides(df, {"mode": "all", "gc_content_filter": "medium"})
+        assert legacy.index.tolist() == canonical.index.tolist()
 
     def test_nan_is_kept(self):
         df = self._make_df([float("nan"), 50.0, 25.0])
-        result = filter_guides(df, {"mode": "all", "gc_content_filter": "good"})
+        result = filter_guides(df, {"mode": "all", "gc_content_filter": "high"})
         assert len(result) == 2  # NaN + 50.0
         assert set(result["gc_content"].dropna().tolist()) == {50.0}
 
@@ -306,13 +322,34 @@ class TestGCFilter:
             "chromosome": ["chr1"],
             "guide_rna_sequence": ["g1"],
         })
-        result = filter_guides(df, {"mode": "all", "gc_content_filter": "good"})
+        result = filter_guides(df, {"mode": "all", "gc_content_filter": "high"})
         assert len(result) == 1
 
     def test_invalid_mode_raises(self):
         df = self._make_df([50.0])
         with pytest.raises(ValueError):
             filter_guides(df, {"mode": "all", "gc_content_filter": "bogus"})
+
+
+class TestNormalizeGcFilter:
+    """Tests for the canonical/alias gc_content_filter name mapping."""
+
+    def test_canonical_values_pass_through(self):
+        assert normalize_gc_filter("off") == "off"
+        assert normalize_gc_filter("high") == "high"
+        assert normalize_gc_filter("medium") == "medium"
+
+    def test_deprecated_aliases_map(self):
+        assert normalize_gc_filter("good") == "high"
+        assert normalize_gc_filter("acceptable") == "medium"
+
+    def test_none_and_empty_map_to_off(self):
+        assert normalize_gc_filter(None) == "off"
+        assert normalize_gc_filter("") == "off"
+
+    def test_unknown_raises(self):
+        with pytest.raises(ValueError):
+            normalize_gc_filter("bogus")
 
 
 class TestHomopolymerFilter:
@@ -381,10 +418,14 @@ class TestLoadFilterCriteriaNewKeys:
 
     def test_kwargs_override_defaults(self):
         criteria = load_filter_criteria(
-            gc_content_filter="good", filter_homopolymers=True
+            gc_content_filter="high", filter_homopolymers=True
         )
-        assert criteria["gc_content_filter"] == "good"
+        assert criteria["gc_content_filter"] == "high"
         assert criteria["filter_homopolymers"] is True
+
+    def test_deprecated_alias_is_normalized(self):
+        criteria = load_filter_criteria(gc_content_filter="good")
+        assert criteria["gc_content_filter"] == "high"
 
 
 class TestFilterCombination:
@@ -401,7 +442,7 @@ class TestFilterCombination:
         criteria = {
             "mode": "all",
             "guide_score_threshold": 0.5,
-            "gc_content_filter": "good",
+            "gc_content_filter": "high",
             "filter_homopolymers": True,
         }
         result = filter_guides(df, criteria)

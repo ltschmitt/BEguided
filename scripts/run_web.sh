@@ -75,6 +75,9 @@ if [ "$BEGUIDED_BEGUIDEDOFF_MODE" = "fast" ]; then
     elif [ ! -r "$BEGUIDED_BEGUIDEDOFF_INDEX.meta" ]; then
         echo "Warning: FM-index sidecar not found: $BEGUIDED_BEGUIDEDOFF_INDEX.meta" >&2
         echo "         an .fmi cannot load without its .meta file; off-target screening will show as unavailable." >&2
+    elif [ ! -r "$BEGUIDED_BEGUIDEDOFF_INDEX.nmask" ]; then
+        echo "Warning: FM-index N-run sidecar not found: $BEGUIDED_BEGUIDEDOFF_INDEX.nmask" >&2
+        echo "         N positions inside the guide window will not count as mismatches (historical behaviour); rebuild the index for Cas-OFFinder-matching N semantics." >&2
     fi
 fi
 

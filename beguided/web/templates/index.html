@@ -316,7 +316,7 @@
             <label for="bystanderFilter">Bystander</label>
             <select id="bystanderFilter">
                 <option value="all">all</option>
-                <option value="none">none</option>
+                <option value="none">no bystanders</option>
                 <option value="synonymous" selected>synonymous</option>
             </select>
         </div>
@@ -324,16 +324,16 @@
             <label for="scoreFilter">Guide score</label>
             <select id="scoreFilter">
                 <option value="all">all</option>
-                <option value="acceptable" selected>acceptable (score &gt; 0.5)</option>
-                <option value="good">good (score &gt; 0.75)</option>
+                <option value="medium" selected>medium (score &ge; 0.5)</option>
+                <option value="high">high (score &ge; 0.75)</option>
             </select>
         </div>
         <div class="group">
             <label for="gcFilter">GC content</label>
             <select id="gcFilter">
                 <option value="all">all</option>
-                <option value="acceptable" selected>acceptable (30-70%)</option>
-                <option value="good">good (40-60%)</option>
+                <option value="medium" selected>medium (30-70%)</option>
+                <option value="high">high (40-60%)</option>
             </select>
         </div>
         <div class="group">
@@ -344,9 +344,9 @@
             <label for="trinucFilter">Context edit score</label>
             <select id="trinucFilter">
                 <option value="all" selected>all</option>
-                <option value="acceptable">acceptable (&gt;0.25)</option>
-                <option value="good">good (&gt;0.5)</option>
-                <option value="very_good">very good (&gt;0.75)</option>
+                <option value="low">low (score &ge; 0.25)</option>
+                <option value="medium">medium (score &ge; 0.5)</option>
+                <option value="high">high (score &ge; 0.75)</option>
             </select>
         </div>
         <div class="group">

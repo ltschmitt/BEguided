@@ -2095,9 +2095,10 @@ async function fetchResults(jobId) {
 }
 
 // Map the Guide score filter dropdown value to a numeric on-target score
-// threshold. "all" disables the score filter (0.0 keeps every guide); the
-// "acceptable" / "good" presets match the legacy slider defaults.
-const SCORE_FILTER_THRESHOLDS = { all: 0.0, acceptable: 0.5, good: 0.75 };
+// threshold. "all" disables the score filter (0.0 keeps every guide);
+// "medium" (>= 0.5) and "high" (>= 0.75) match the on-target quality
+// classes used in the BEguided publication.
+const SCORE_FILTER_THRESHOLDS = { all: 0.0, medium: 0.5, high: 0.75 };
 
 // Map the Context edit score filter dropdown value to a numeric threshold.
 // Mirrors the trinucleotide edit-context score (Marquart et al. 2021, ABE8e,
@@ -2105,19 +2106,19 @@ const SCORE_FILTER_THRESHOLDS = { all: 0.0, acceptable: 0.5, good: 0.75 };
 // always kept, mirroring the server's ``df.isna() | (df >= threshold)`` mask.
 const CONTEXT_EDIT_SCORE_THRESHOLDS = {
     all: 0.0,
-    acceptable: 0.25,
-    good: 0.5,
-    very_good: 0.75,
+    low: 0.25,
+    medium: 0.5,
+    high: 0.75,
 };
 
 // GC content tier ranges (percent 0-100). "all" disables the filter;
-// "acceptable" keeps guides with GC in 30-70%, "good" narrows to 40-60%.
+// "medium" keeps guides with GC in 30-70%, "high" narrows to 40-60%.
 // The frontend uses "all" for consistency with the other dropdown filters;
 // it's translated to "off" before being sent to the server.
 const GC_FILTER_RANGES = {
     all: null,
-    good: [40, 60],
-    acceptable: [30, 70],
+    high: [40, 60],
+    medium: [30, 70],
 };
 
 // Dynamic filtering for the Results tab. Mirrors beguided.filtering.filters.
