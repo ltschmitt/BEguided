@@ -112,7 +112,7 @@ beguided --config my_run.yaml
 
 See [`docs/cli-usage.md`](docs/cli-usage.md) for the full config reference, [`docs/input-output.md`](docs/input-output.md) for file formats, and [`docs/pipeline-steps.md`](docs/pipeline-steps.md) for what each of the five steps does.
 
-Need target lists from sources other than COSMIC? OncoDB, Cancer Hotspots, DORM, ClinVar, and cBioPortal are supported via the companion repo [`BEguided-datasets`](https://github.com/ltschmitt/BEguided-datasets), which holds the download/converter scripts, ready-made full-run and smoke configs, and a dataset version manifest. BEguided consumes the generated TSVs through the standard input contract — see [`docs/alternative-mutation-sources.md`](docs/alternative-mutation-sources.md) for the pointer.
+Need target lists from sources other than COSMIC? ClinVar and cBioPortal are supported via the companion repo [`BEguided-datasets`](https://github.com/ltschmitt/BEguided-datasets), which holds the download/converter scripts, ready-made full-run and smoke configs, and a dataset version manifest. BEguided consumes the generated TSVs through the standard input contract — see [`docs/alternative-mutation-sources.md`](docs/alternative-mutation-sources.md) for the pointer.
 
 ## Quick start — web UI
 

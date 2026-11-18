@@ -6,8 +6,8 @@ them into BEguided-ready target lists (`chromosome`, `position`,
 **BEguided-datasets** (<https://github.com/ltschmitt/BEguided-datasets>),
 a sibling checkout of this repo.
 
-Supported sources: COSMIC (BEguided's reference inputs), OncoDB, Cancer
-Hotspots, DORM, ClinVar, and cBioPortal.
+Supported sources: COSMIC (BEguided's reference inputs), ClinVar, and
+cBioPortal.
 
 Everything related lives there:
 
