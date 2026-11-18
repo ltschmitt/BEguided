@@ -7,6 +7,11 @@ Two entry points:
 - **`beguided`** — CLI pipeline driven by a YAML config. **Primary entry point** — this README focuses on it.
 - **`beguided-web`** — FastAPI server with a browser UI. For interactive use; see [`docs/web-deployment.md`](docs/web-deployment.md).
 
+## Related repositories
+
+- [BEguidedOFF](https://github.com/ltschmitt/BEguidedOFF) — the off-target search backend (GPU extensive / CPU fast) used by pipeline step 4; also runs standalone on any guide set.
+- [BEguided-datasets](https://github.com/ltschmitt/BEguided-datasets) — ready-to-use mutation target lists (COSMIC, ClinVar, cBioPortal), run configs, and the pre-computed guide sets behind the preprint.
+
 ## Install
 
 Pick one of the following.
