@@ -1,6 +1,6 @@
 # Pipeline steps
 
-The BEguided pipeline is a sequence of five steps. Steps 1–3 always run. Steps 4–5 only run if `BEguidedOFF` is installed and `search_offtargets: true` is set; step 5 performs the off-target filtering and the final merge inline.
+The BEguided pipeline is a sequence of five steps. Steps 1–3 always run. Steps 4–5 only run if `search_offtargets: true` is set, which requires `BEguidedOFF` to be installed (the run aborts with an error otherwise). Step 5 performs the off-target filtering and the final merge inline.
 
 ```
 inputs (TSV + FASTA + GTF + base editor profiles)
@@ -30,8 +30,8 @@ inputs (TSV + FASTA + GTF + base editor profiles)
         ▼
 ┌─────────────────────────────────────┐
 │ Step 4: off-target search           │  ← BEguidedOFF + CCTOP scoring
-│   in : step3                        │     (optional, GPU-accelerated)
-│   out: step4_offtarget.tsv          │
+│   in : step3                        │     (optional; CPU "fast" mode or
+│   out: step4_offtarget.tsv          │     GPU "extensive" mode)
 └─────────────────────────────────────┘
         │
         ▼
@@ -50,7 +50,7 @@ For every target row in the input TSV and every base editor profile, this step:
 2. Searches both strands for valid PAM sites matching any profile's PAM (IUPAC-aware).
 3. For each PAM hit, takes the 20-nt (or profile-specific) protospacer on the PAM-proximal side.
 4. Inserts the desired base at the editing position implied by the profile's editing window, producing a hypothetical edited sequence.
-5. Filters to guides where the desired edit lies inside the profile's *high-efficiency* window (else the guide is generated but the editing efficiency would be too low).
+5. Keeps only guides whose desired edit lies inside the profile's *high-activity* window (`high_edit_start`–`high_edit_end`); a target outside this window is not reported as editable by that profile.
 6. Computes the CRISPRater on-target activity score (`guide_score`) for 20-nt guides.
 7. Computes `gc_content`, `homopolymer`, `trinuc_edit_score` for every guide length.
 
@@ -60,10 +60,25 @@ Output row count: targets × guides per target × sense+antisense variants of ea
 
 For every guide produced in step 1, this step:
 
-1. Determines the protospacer sequence and the editing window implied by the base editor profile.
+1. Determines the protospacer sequence and the *general* editing window (`general_edit_start`–`general_edit_end`) implied by the base editor profile.
 2. Slides every other editable base within the window (per the profile's editing chemistry) and checks the codon context using the supplied GTF annotation.
 3. Classifies each bystander by its protein-level consequence: synonymous (same amino acid) or nonsynonymous (any amino-acid change). Missense and nonsense (stop-gain) are collapsed into this single class — the finer distinction is not maintained.
 4. Attaches per-bystander metadata: position (1-based from the 5' end of the guide), original codon, edited codon, original amino acid, edited amino acid, classification, transcript / exon context.
+
+The per-guide `bystander_effect` column carries one of the following labels:
+
+| Label | Meaning |
+|---|---|
+| `none` | No editable bystander positions |
+| `synonymous` | All bystander edits are synonymous |
+| `nonsynonymous` | At least one bystander changes the amino acid (missense and nonsense/stop-gain collapsed) |
+| `multi-transcript` | The guide overlaps CDS annotations of several transcripts, so a single per-transcript consequence cannot be assigned |
+| `editing_position_non_coding` | The target base lies outside an annotated CDS |
+| `no_cds_overlap` | The guide overlaps no annotated CDS |
+| `bystander_outside_cds` | A bystander falls outside the CDS exon the guide overlaps |
+| `cds_reconstruction_failed` | A codon spans an exon junction and could not be reconstructed from the available data |
+
+`none`, `synonymous` and `nonsynonymous` are the coding consequences; the remaining labels mark cases where no codon-level consequence could be assigned (non-coding or ambiguous context).
 
 Step 2 only runs when the genome FASTA and GTF annotation are both available. The `keep_bystanders` config knob controls which guides step 3 keeps:
 - `all` — keep every guide regardless of bystander status
@@ -75,7 +90,7 @@ Step 2 only runs when the genome FASTA and GTF annotation are both available. Th
 Applies the filters configured under the pipeline config:
 
 1. `guide_score_threshold` — drop guides below the threshold
-2. `gc_content_filter` — drop by GC bucket
+2. `gc_content_filter` — drop by GC bucket (`high` = 40–60%, `medium` = 30–70%)
 3. `filter_homopolymers` — drop guides with ≥4-mer homopolymer runs
 4. `trinuc_edit_score_min` — drop ABE guides below the trinucleotide context threshold (CBE guides unaffected)
 
@@ -83,12 +98,14 @@ Every filter that drops guides is logged at INFO so you can see why a guide disa
 
 ## Step 4 — Off-target search (`step4_offtarget.tsv`)
 
-**Optional.** Skipped if `BEguidedOFF` is not installed or `search_offtargets: false`.
+**Optional.** Runs only when `search_offtargets: true` — and fails with a clear error if `BEguidedOFF` is not installed. Skipped entirely when `search_offtargets: false`.
 
 For every guide that survives step 3, this step:
 
-1. Encodes the guide against the pre-built BEguidedOFF `.npz` genome.
-2. Hamming-distance search up to `mismatch_tolerance` mismatches in the 20-nt guide region.
+1. Prepares the BEguidedOFF input with on-target exclusion positions (`step4_offtarget_input.tsv`).
+2. Searches the reference genome with BEguidedOFF:
+   - `extensive` mode (GPU): Hamming-distance search up to `offtargets.max_mismatches` mismatches in the 20-nt guide region against the pre-encoded `.npz` genome.
+   - `fast` mode (CPU): FM-index search that enumerates exactly the sites with CCTOP score ≤ the search cutoff (derived from `remove_guides_score` / `count_threshold_score`; no GPU needed).
 3. Scores every off-target with CCTOP (penalty model that weighs mismatches by PAM proximity).
 4. Keeps the top-1 (worst) off-target per guide to minimise output size.
 

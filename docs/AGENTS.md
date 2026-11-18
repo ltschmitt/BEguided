@@ -10,9 +10,10 @@ BEguided is a Python package for generating Cas9 base editor guide RNA sequences
 
 ```
 beguided/                  # Main package
-├── cli.py                   # Single CLI entry with argparse subcommands
+├── cli.py                   # CLI entry point (--config, --from-step, passthrough flags)
 ├── pipeline.py              # Pipeline orchestrator (function calls, no subprocess)
 ├── models.py                # Shared dataclasses (BaseEditorConfig, GuideResult, etc.)
+├── logging_config.py        # Logging setup (setup_logging, get_logger)
 ├── genome/                  # Shared genome I/O and sequence operations
 │   ├── io.py                # FASTA loading
 │   ├── sequence.py          # Reverse complement, mutation helpers
@@ -26,27 +27,45 @@ beguided/                  # Main package
 │   └── data/
 │       └── edit_context_norm_proportion.tsv  # Bundled X-A-Y proportion table
 ├── guidefinder/             # Step 1: Guide generation
-│   └── core.py              # process_target, run_genome_wide, results_to_dataframe
+│   ├── core.py              # process_target, run_genome_wide, results_to_dataframe
+│   ├── crisprater.py        # CRISPRater on-target score model
+│   └── sequence_props.py    # GC content, homopolymer flag
 ├── bystander/               # Step 2: Bystander analysis
 │   ├── annotation.py        # GTF parsing, interval trees
 │   ├── protein.py           # Translation, genetic code
 │   └── analysis.py          # analyze_guide, run_all
-├── off_target/              # Step 4-6: BEguidedOFF integration
+├── off_target/              # Step 4-5: BEguidedOFF integration
 │   └── merger.py            # Aggregate BEguidedOFF results + merge with input
 ├── filtering/               # Step 3
 │   └── filters.py           # Guide filtering logic
 └── web/                     # FastAPI web interface
     ├── app.py               # FastAPI routes
-    ├── config.py            # Web config and base editor groups
+    ├── cli.py               # beguided-web entry point (argparse)
+    ├── config.py            # WebConfig, genome options, base editor groups
+    ├── scheduler.py         # Job queue, worker threads, retention sweeper
+    ├── tasks.py             # Pipeline task wrapper (job execution)
     ├── sse_logger.py        # SSE log streaming handler
-    ├── tasks.py             # Async pipeline task wrapper
     ├── sequence_input.py    # Sequence-mode parser ([X>Y] bracket syntax)
+    ├── single_input.py      # Single-target parser (one manual genomic target)
+    ├── condense.py          # "Condense results" grouping for the results table
+    ├── genome_cache.py      # Keyed FASTA preload registry (/genome/status)
+    ├── gtf_cache.py         # Keyed GTF preload registry (/gtf/status)
+    ├── offtarget_index_cache.py  # Shared FM-index handles for screening jobs
+    ├── profiles_store.py    # In-memory custom base editor profile store
+    ├── legal_config.py      # Legal YAML loading/rendering (Impressum, etc.)
+    ├── safety.py            # Operator path validation
+    ├── usage_stats.py       # Anonymous monthly usage CSV
     ├── templates/
     │   ├── base.html
-    │   └── index.html
+    │   ├── index.html
+    │   └── impressum.html, datenschutz.html, agb.html,
+    │       accessibility.html, legal_header.html
     └── static/
+        ├── app.js
         ├── style.css
-        └── app.js
+        ├── favicon.svg, logo_*.svg
+        └── vendor/
+            └── chart.umd.min.js   # self-hosted Chart.js
 ```
 
 ### Removed modules
@@ -91,13 +110,15 @@ beguided-web             [--host 0.0.0.0] [--port 8000] [--reload] \
                          [--preload-genome | --no-preload-genome] \
                          [--preload-gtf | --no-preload-gtf] \
                          [--genome-label ...] \
+                         [--db-path /var/lib/beguided/jobs.db] \
                          [--queue-max N] [--cooldown-seconds S] \
                          [--max-upload-mb N] [--max-input-targets N] \
                          [--workers N] \
                          [--job-retention-hours 24] \
                          [--trusted-proxy-ips 127.0.0.1,::1] \
                          [--log-ip-salt ...] [--admin-token ...] \
-                         [--legal-config /etc/beguided/legal.yaml]
+                         [--legal-config /etc/beguided/legal.yaml] \
+                         [--usage-stats-path ...] [--no-usage-stats]
                          # Requires web extra: pixi run --environment web beguided-web
 ```
 
@@ -231,7 +252,7 @@ python -m pytest tests/test_editing/test_presets.py::TestPAMToRegex -v
 ### Test Fixtures
 - `tests/fixtures/sample_targets.tsv`: Small test input
 - `tests/fixtures/sample_genome.fasta`: Test genome
-- `tests/fixtures/mini_genome.npz`: BEguidedOFF-encoded mini genome for off-target tests; `tests/fixtures/mini_genome.fmi` (+`.meta`, source `mini_genome.fa`) is the matching fast-mode FM-index, which the web server's default config resolves too
+- `tests/fixtures/mini_genome.npz`: BEguidedOFF-encoded mini genome for off-target tests; `tests/fixtures/mini_genome.fmi` (+ `.meta` sidecar, source `mini_genome.fa`) is the matching fast-mode FM-index, which the web server's default config resolves too
 - `configs/base_editor_profiles.tsv`: Bundled base editor profile configurations (20-nt guides)
 
 ## Important Implementation Details
@@ -302,11 +323,13 @@ Screening submits use `cooldown_key="screen"` (2 s default,
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `beguidedoff_genome` | — | Path to `.npz` genome |
-| `mismatch_tolerance` | 5 | Max mismatches in guide |
+| `beguidedoff_genome` | — | Path to `.npz` genome (required for `extensive`; in `fast` mode only used to derive the default `.fmi` path when `index_path` is empty) |
+| `mode` | `extensive` | `extensive` (GPU brute force; the CLI default) or `fast` (CPU FM-index filter) |
+| `index_path` | — | FM-index `.fmi` for `fast` mode; empty = derived from the `.npz` sibling (same basename, `.fmi` suffix) |
+| `max_mismatches` | 5 | Max mismatches in guide (`extensive` mode only; `mismatch_tolerance` is accepted as a legacy alias) |
 | `count_threshold_score` | 15.0 | CCTOP max for counting |
 | `remove_guides_score` | 5.0 | CCTOP min to keep guide |
-| `remove_guides_n_offtargets` | null | Max count to keep guide |
+| `remove_guides_n_offtargets` | 100 | Max count to keep guide (`null` disables the count limit) |
 
 ### Pipeline Output Layout
 
@@ -315,7 +338,8 @@ Screening submits use `cooldown_key="screen"` (2 s default,
     step1_guidefinder.tsv
     step2_bystander.tsv
     step3_filtered.tsv
-    step4_offtargets.tsv      (if search_offtargets)
+    step4_offtarget_input.tsv (step 4's BEguidedOFF input, if search_offtargets)
+    step4_offtarget.tsv       (if search_offtargets)
     beguided_results.tsv
 ```
 
@@ -325,15 +349,14 @@ Screening submits use `cooldown_key="screen"` (2 s default,
 2. **bystander** — Analyze bystander effects
 3. **filter** — Filter guides
 4. **BEguidedOFF** — Off-target search (Python API call)
-5. *(integrated)* — BEguidedOFF returns scored results
-6. **merge** — Aggregate BEguidedOFF output and merge into final TSV
+5. **merge** — Off-target filter (removal rules) + final merge into `beguided_results.tsv`; runs inline, no separate filter file
 
 ### Output Column Names (final TSV)
 
 - `worst_offtarget_score` — lowest CCTOP score (most dangerous; blank/`NaN` if none)
 - `offtarget_count` — number of off-targets ≤ `count_threshold_score`
 - `worst_offtarget_chr`, `worst_offtarget_pos`, `worst_offtarget_sequence`
-- `trinuc_edit_score` — Marquart et al. 2021 normalised ABE8e proportion for the local `X-A-Y` trinucleotide context (0..1, `NaN` for CBE guides). Bundled table at `beguided/editing/data/edit_context_norm_proportion.tsv`; override with `input.edit_context_table`. Filterable via `trinuc_edit_score_min`.
+- `trinuc_edit_score` — Marquart et al. 2021 normalised ABE8e proportion for the local `X-A-Y` trinucleotide context (0..1, `NaN` for CBE guides). Always looked up in the bundled table at `beguided/editing/data/edit_context_norm_proportion.tsv` (no config override). Filterable via `trinuc_edit_score_min`.
 
 ### CCTOP Score Semantics
 - **Lower = more concerning** (fewer mismatches, or mismatches far from the PAM)
@@ -376,15 +399,19 @@ Screening submits use `cooldown_key="screen"` (2 s default,
 - `BEGUIDED_LEGAL_CONFIG` / `--legal-config` — path to the operator's `web-legal.yaml` with institution / DPO / DPA. Default `/etc/beguided/legal.yaml`. See `configs/web-legal.yaml` (template, committed empty).
 - `BEGUIDED_USAGE_STATS_PATH` / `--usage-stats-path` and `BEGUIDED_USAGE_STATS_ENABLED` / `--no-usage-stats` — anonymous web-usage CSV (one row per finished job: date, mode, target count, base-editor count, duration, status; no IP/user-agent). Enabled by default; see `beguided/web/usage_stats.py` and `scripts/summarize_usage.py`.
 
-### Sequence input mode
+### Web input modes
 
-The web UI has two input modes, switched at the top of the page:
+The web UI has three input modes, switched at the top of the page:
 
 - **Spreadsheet** (default): upload a TSV/CSV/XLSX with columns
   `chromosome, position, target_base, desired_base`.
 - **Sequence**: paste raw sequence text. Each sequence must contain
   exactly one edit bracket, e.g. `ATAGAGT...[A>G]...CCTATCC` to mark an
   A→G edit.
+- **Single**: one target entered manually as chromosome, 1-based position,
+  target base and desired base; processed exactly like a one-row
+  spreadsheet upload (`POST /single/parse`, parser
+  `beguided/web/single_input.py`).
 
 Accepted bracket directions: `[A>G]`, `[T>C]`, `[C>T]`, `[G>A]`
 (the four directions actually supported by BEguided base editor profiles including

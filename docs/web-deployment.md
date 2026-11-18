@@ -116,9 +116,10 @@ Mandatory for any German-public web presence. The audit + remediation history li
 
 | Concern | Mitigation |
 |---|---|
-| **Impressum** (TMG/DDG §5) | `/impressum` route renders from `configs/web-legal.yaml` |
+| **Impressum** (TMG/DDG §5) | `/impressum` route renders from the operator's legal YAML (`BEGUIDED_LEGAL_CONFIG`) |
 | **Datenschutzerklärung** (GDPR Art. 13) | `/datenschutz` route renders from the same YAML |
 | **Terms of Use** | `/agb` route renders from the same YAML |
+| **Accessibility statement** | `/accessibility` route renders from the same YAML |
 | **Cookie banner** | Not needed — the service sets no cookies |
 | **Data minimisation** | Pipeline only reads the columns it needs; uploads auto-deleted after 24h; custom profiles persist only in the uploader's browser `localStorage` and the server's RAM |
 | **Right to erasure** | `POST /admin/purge-all` with `X-Admin-Token` header purges every job immediately |
@@ -156,15 +157,22 @@ dpo_block:
 dpa_block:
   - "Saxon Data Protection and Transparency Officer"
   - "Postfach 11 01 32, 01330 Dresden"
+
+access_contact_block:
+  - "Accessibility contact: mailto:{{ contact_email }}"
+
+enforcement_body_block:
+  - "Saxon Data Protection and Transparency Officer"
+  - "Postfach 11 01 32, 01330 Dresden"
 ```
 
 Block lines are HTML-escaped for output; tokens starting with `mailto:`, `http://` or `https://` are turned into hyperlinks (mailto links display without the `mailto:` prefix). A reference to a variable that is not defined anywhere in the file aborts startup.
 
 Tell the app where to find it (any of):
 
-- env: `BEGUIDED_LEGAL_CONFIG=/etc/beguided/web-legal.yaml`
-- CLI flag: `beguided-web --legal-config /etc/beguided/web-legal.yaml`
-- docker-compose: `BEGUIDED_LEGAL_CONFIG: "/etc/beguided/web-legal.yaml"` + a bind mount for the file
+- env: `BEGUIDED_LEGAL_CONFIG=/etc/beguided/legal.yaml`
+- CLI flag: `beguided-web --legal-config /etc/beguided/legal.yaml`
+- docker-compose: `BEGUIDED_LEGAL_CONFIG: "/etc/beguided/legal.yaml"` + a bind mount for the file
 
 Behaviour:
 - File missing, path empty, or path is a directory → WARNING logged, pages render with empty values. (The directory case covers the docker bind-mount footgun: if the host `legal.yaml` does not exist, Docker creates an empty directory at the mount target inside the container.)

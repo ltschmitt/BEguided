@@ -27,7 +27,11 @@ The web UI accepts `.tsv`, `.csv`, and `.xlsx/.xls`. The CLI only reads `.tsv`. 
 
 ### Sequence input mode (web UI only)
 
-The web UI also accepts pasted sequences with a bracket marker for the desired edit, e.g. `ATAG[T>C]GACGTACGT…`. See [`web-deployment.md`](web-deployment.md) for details.
+The web UI also accepts pasted sequences with a bracket marker for the desired edit, e.g. `ATAG[T>C]GACGTACGT…`. The pasted sequence serves as the reference, so guide scoring runs on the user's sequence; bystander analysis, which requires a genomic transcript annotation, is not performed and results carry no genomic coordinates. See [`web-deployment.md`](web-deployment.md) for details.
+
+### Single-target input (web UI only)
+
+In the web UI's *single* mode, one target is entered manually as chromosome, 1-based position, target base and desired base. It is processed exactly like a one-row spreadsheet upload (`POST /single/parse` normalises it to the same payload).
 
 ## Output: file layout
 
@@ -38,11 +42,12 @@ results/
 ├── step1_guidefinder.tsv     ← step 1: candidate guide RNAs
 ├── step2_bystander.tsv       ← step 2: bystander analysis
 ├── step3_filtered.tsv        ← step 3: filtered guides
+├── step4_offtarget_input.tsv ← step 4: BEguidedOFF input (optional)
 ├── step4_offtarget.tsv       ← step 4: BEguidedOFF off-targets (optional)
 └── beguided_results.tsv      ← step 5: final merged output
 ```
 
-Set `keep_intermediates: false` to delete the per-step files after the final merge.
+The `keep_intermediates` config key is accepted, but per-step cleanup is not implemented yet — the intermediate step files are always kept on disk.
 
 ## Output: column reference (final `beguided_results.tsv`)
 
@@ -75,17 +80,17 @@ The final TSV contains the merged guide + off-target summary. The exact column s
 
 | Column | Description |
 |---|---|
-| `worst_offtarget_score` | Lowest CCTOP score (most dangerous; `inf` if no off-targets) |
+| `worst_offtarget_score` | Lowest CCTOP score (most dangerous; blank/`NaN` if no off-targets) |
 | `offtarget_count` | Number of off-targets with CCTOP score ≤ `count_threshold_score` |
 | `worst_offtarget_chr` | Chromosome of the worst off-target |
 | `worst_offtarget_pos` | 1-based position of the worst off-target |
 | `worst_offtarget_sequence` | Sequence of the worst off-target |
 
-CCTOP score semantics: **lower = more concerning** (mismatches near PAM). Perfect match = 0.0. No off-targets = `inf` (always passes `worst_offtarget_score >= X` filters).
+CCTOP score semantics: **lower = more concerning** (mismatches near PAM). Perfect match = 0.0. No off-targets = blank (`NaN`; always passes `worst_offtarget_score >= X` filters).
 
 ### Bystander columns (from step 2)
 
-Step 2 attaches one row per *guide × base_editor* (since each editor has its own bystander window). Columns include the predicted bystander positions, the resulting codon changes, the amino-acid substitutions and whether the bystander is synonymous or nonsynonymous (any amino-acid change, including nonsense/stop-gain). See [`pipeline-steps.md`](pipeline-steps.md) for details.
+Step 2 attaches one row per *guide × base_editor* (since each editor has its own bystander window). Columns include the predicted bystander positions, the resulting codon changes, the amino-acid substitutions and the `bystander_effect` classification: `none`, `synonymous`, or `nonsynonymous` (any amino-acid change, including nonsense/stop-gain), plus the labels `multi-transcript`, `editing_position_non_coding`, `no_cds_overlap`, `bystander_outside_cds` and `cds_reconstruction_failed` for cases where no codon-level consequence can be assigned. See [`pipeline-steps.md`](pipeline-steps.md) for the full label reference.
 
 ### Passthrough columns
 

@@ -49,7 +49,7 @@ The `cuda` feature installs `BEguidedOFF` automatically from its public GitHub r
 
 ## BEguidedOFF integration
 
-Off-target search is optional. When `BEguidedOFF` is missing, the pipeline skips step 4 silently and the off-target columns in `beguided_results.tsv` are `NaN`.
+Off-target search is optional. Set `search_offtargets: false` in the pipeline config to skip steps 4–5's off-target handling entirely — the final `beguided_results.tsv` then contains no off-target columns. When `search_offtargets: true` and `BEguidedOFF` is not installed, the pipeline aborts with an error pointing at the install instructions (it does not skip silently).
 
 BEguidedOFF has two search modes (pipeline config key `offtargets.mode`):
 
@@ -106,7 +106,7 @@ Before running the pipeline with off-targets, encode the reference genome once:
 
 ```bash
 python -m beguidedoff.cli encode-genome \
-    --fasta genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa \
+    --fasta genome/Homo_sapiens.GRCh38.116.fa \
     --output genome_otbe.npz \
     --include-rc \
     --include-n-mask
@@ -116,11 +116,11 @@ For fast mode, build the FM-index from the same reference FASTA:
 
 ```bash
 python -m beguidedoff.cli build-index \
-    genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa \
-    genome_otbe.fmi
+    --fasta genome/Homo_sapiens.GRCh38.116.fa \
+    --output genome_otbe.fmi
 ```
 
-Reference the resulting `.npz` in your pipeline config under `offtargets.beguidedoff_genome`, or pass `--beguidedoff-genome /path/to/genome_otbe.npz` on the CLI. Fast mode reads the `.fmi` (default location: next to the `.npz`; it cannot load without the `.meta` sidecar written next to it — keep the pair together when copying); `extensive` mode reads the `.npz`.
+Reference the resulting `.npz` in your pipeline config under `offtargets.beguidedoff_genome`, or pass `--beguidedoff-genome /path/to/genome_otbe.npz` on the CLI. Fast mode reads the `.fmi` (default location: next to the `.npz`; it cannot load without its `.meta` sidecar and needs the `.nmask` sidecar for the N-mismatch semantics — keep the trio together when copying); `extensive` mode reads the `.npz`.
 
 Note: in fast mode the off-target count (`offtarget_count`) covers sites with score ≤ the search cutoff. A configured `offtargets.count_threshold_score` above that cutoff is clamped to it (with a warning), because deeper thresholds would need a shorter exact anchor whose genome-wide hit count exceeds the engine's per-anchor cap and would make counts incomplete.
 
@@ -162,14 +162,16 @@ docker run -p 8000:8000 \
 
 The `web` image ships BEguidedOFF (fast/CPU mode) from
 `github.com/ltschmitt/BEguidedOFF`, but **not** the genome index files —
-they are operator data (the human FM-index alone is ~2 GB) and are mounted
+they are operator data (the human FM-index alone is ~1.7 GB) and are mounted
 at `/app/genome`. Fast mode is configured with the FM-index alone: place
-the `.fmi` and its `.fmi.meta` sidecar (which must stay next to it) in the
-mounted genome directory, e.g. for human:
+the `.fmi` and its sidecars (`.fmi.meta` chromosome table, required to load;
+`.fmi.nmask` N runs, required for the N-mismatch semantics — all three files
+must stay together) in the mounted genome directory, e.g. for human:
 
 ```
 genome/hg38_beguidedoff.fmi        # FM-index (fast mode)
-genome/hg38_beguidedoff.fmi.meta   # sidecar, must stay next to the .fmi
+genome/hg38_beguidedoff.fmi.meta   # chromosome-table sidecar
+genome/hg38_beguidedoff.fmi.nmask  # N-run sidecar (N-mismatch semantics)
 ```
 
 Build them once from the reference FASTA with BEguidedOFF's CLI (see

@@ -102,7 +102,7 @@ cp configs/cli.yaml my_run.yaml
 
 # 2. Encode the genome once for off-target search (optional)
 python -m beguidedoff.cli encode-genome \
-    --fasta genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa \
+    --fasta genome/Homo_sapiens.GRCh38.116.fa \
     --output genome_otbe.npz --include-rc --include-n-mask
 
 # 3. Run the pipeline
@@ -121,6 +121,8 @@ Need target lists from sources other than COSMIC? ClinVar and cBioPortal are sup
 beguided-web
 # → http://localhost:8000
 ```
+
+A public instance is available at <https://beguided.buchholzlab.org/>.
 
 Open the URL, paste sequences (or upload a targets TSV), pick base editor profiles, hit **Run**. Results stream in via Server-Sent Events and can be downloaded as TSV or XLSX with dynamic filters.
 
@@ -161,8 +163,8 @@ The operator's real legal YAML is gitignored and pointed at via `BEGUIDED_LEGAL_
 
 ```bash
 pixi run test                    # full suite
-python -m pytest tests/test_pipeline_steps/ -v   # one module
-python -m pytest tests/test_pipeline_steps/test_filtering.py::test_x -v   # one test
+python -m pytest tests/test_pipeline/ -v   # one module
+python -m pytest tests/test_filtering/test_filters.py::test_x -v   # one test
 ```
 
 ## License

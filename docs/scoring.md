@@ -15,7 +15,7 @@ BEguided produces four scores per guide. This page explains what each one means,
 - **Range:** 0–100 (percent).
 - **When:** step 1, every guide length.
 - **How:** `(G + C) / length * 100` of the 20-nt (or profile-specific) protospacer.
-- **Filter:** `gc_content_filter` (`off` / `good` / `acceptable`). `good` keeps 40–60%, `acceptable` keeps 30–70%. Guides with a missing GC value (shouldn't happen with DNA input) are always kept.
+- **Filter:** `gc_content_filter` (`off` / `high` / `medium`). `high` keeps 40–60%, `medium` keeps 30–70%. The deprecated names `good` (= `high`) and `acceptable` (= `medium`) are still accepted. Guides with a missing GC value (shouldn't happen with DNA input) are always kept.
 
 ## `homopolymer` — ≥4-mer run flag
 
@@ -29,23 +29,22 @@ BEguided produces four scores per guide. This page explains what each one means,
 - **Range:** 0–1, higher = more likely to edit. `CAC` = 1.0, `AAA` ≈ 0.02.
 - **When:** step 1, every ABE guide. CBE guides are always `NaN`.
 - **How:** Lookup in the bundled, normalised Marquart et al. 2021 (ABE8e) `X-A-Y` trinucleotide table. The lookup uses the mRNA-sense context: for `-` strand guides the genomic 3-mer is reverse-complemented before lookup.
-- **Caveat:** The bundled table is derived from ABE8e spCas9 data and is applied to every ABE profile as an approximation. Actual editing efficiencies will differ between ABE8e, ABE9, ABE-Umax, etc. CBE profiles always produce `NaN` because the table is ABE-only.
-- **Override:** `input.edit_context_table` in the pipeline config lets you supply your own TSV. Empty string (`""`) disables the column entirely.
+- **Caveat:** The bundled table is derived from ABE8e spCas9 data and is applied to every ABE profile as an approximation. Actual editing efficiencies will differ between ABE8e, ABE9, ABE-Umax, etc. CBE profiles always produce `NaN` because the table is ABE-only. There is no config override — the bundled table is always used.
 - **Filter:** `trinuc_edit_score_min` (default `null`) drops ABE guides below this threshold. CBE guides unaffected.
 
 ## `worst_offtarget_score` — CCTOP penalty score
 
-- **Range:** 0 (perfect match) to large positive (unconcerning). No off-targets = `inf`.
+- **Range:** 0 (perfect match) to large positive (unconcerning). No off-targets = blank (`NaN`).
 - **When:** step 4, only when `BEguidedOFF` is installed and `search_offtargets: true`.
 - **How:** CCTOP penalty model. Mismatches near the PAM are penalised more than mismatches at the PAM-distal end of the guide. The score is unbiased across PAM families.
-- **Filter:** `remove_guides_score` (default `5.0`) drops guides whose worst off-target score is below this value (i.e. too concerning). The semantics are "lower = worse", so a threshold of `5.0` keeps guides whose worst off-target scores `5.0` or higher.
+- **Filter:** `remove_guides_score` (default `5.0`) drops guides whose worst off-target score is below this value (i.e. too concerning). The semantics are "lower = worse", so a threshold of `5.0` keeps guides whose worst off-target scores `5.0` or higher. Guides with no off-targets (blank score) always pass.
 
 ## `offtarget_count` — concerning off-target count
 
 - **Range:** non-negative integer. 0 = no concerning off-targets.
 - **When:** step 4.
 - **How:** Number of off-targets with CCTOP score ≤ `count_threshold_score` (default `15.0`).
-- **Filter:** `remove_guides_n_offtargets` (default `null` = no limit) drops guides whose count exceeds this number.
+- **Filter:** `remove_guides_n_offtargets` (default `100`; `null` = no limit) drops guides whose count exceeds this number.
 
 ## Score ranges cheat sheet
 
@@ -57,4 +56,4 @@ BEguided produces four scores per guide. This page explains what each one means,
 | `worst_offtarget_score` | higher | `>= 5.0` |
 | `offtarget_count` | lower | `<= 100` (if set) |
 
-> **Putting it together:** for an ABE guide against a typical target, a "good" result is `guide_score >= 0.75`, `gc_content in [40, 60]`, `homopolymer == false`, `trinuc_edit_score >= 0.5`, and `worst_offtarget_score >= 10`. Use the dynamic filters in the web UI to explore the trade-offs without re-running the pipeline.
+> **Putting it together:** for an ABE guide against a typical target, a high-quality result is `guide_score >= 0.75`, `gc_content in [40, 60]`, `homopolymer == false`, `trinuc_edit_score >= 0.5`, and `worst_offtarget_score >= 10`. Use the dynamic filters in the web UI to explore the trade-offs without re-running the pipeline.
