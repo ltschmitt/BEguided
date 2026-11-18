@@ -28,6 +28,31 @@ cd BEguided
 pixi install
 ```
 
+### CLI — Pixi global install (no clone)
+
+The repo is also a pixi *source package*: pixi builds it straight from GitHub and puts both entry points on your `PATH` (needs pixi ≥ 0.81; uses the `pixi-build` preview feature):
+
+```bash
+pixi global install --git https://github.com/ltschmitt/BEguided.git
+beguided --help
+```
+
+This ships the **core CLI only** — no web-server framework, no off-target search:
+
+- Web server: add the framework to the same environment with `--with fastapi --with uvicorn --with jinja2 --with python-multipart`.
+- Off-target search (BEguidedOFF) is a separate package with a native build — install it in a pixi workspace instead, see [docs/installation.md](docs/installation.md#beguided-as-a-dependency-in-your-own-pixi-workspace).
+
+### CLI — as a dependency in your own Pixi workspace
+
+In any pixi workspace (`preview = ["pixi-build"]` required):
+
+```toml
+[tool.pixi.dependencies]
+beguided = { git = "https://github.com/ltschmitt/BEguided.git" }
+```
+
+or `pixi add --git https://github.com/ltschmitt/BEguided.git beguided`. Combined with BEguidedOFF this gives a full no-clone install including off-target search — see [docs/installation.md](docs/installation.md#beguided-as-a-dependency-in-your-own-pixi-workspace).
+
 ### CLI + CUDA off-target search
 
 The CUDA path uses the separate BEguidedOFF package for GPU-accelerated off-target search.

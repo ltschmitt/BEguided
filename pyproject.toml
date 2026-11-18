@@ -55,6 +55,7 @@ include = ["beguided*"]
 channels = ["pytorch", "conda-forge", "bioconda"]
 name = "beguided"
 platforms = ["linux-64"]
+preview = ["pixi-build"]
 
 [tool.pixi.tasks]
 beguided = "python -m beguided"
@@ -69,6 +70,31 @@ pandas = ">=3.0.2,<4"
 intervaltree = ">=3.1.0,<4"
 pyyaml = ">=6.0.3,<7"
 openpyxl = ">=3.1.0"
+
+# ---------------------------------------------------------------------------
+# Pixi package recipe (pixi-build — preview feature)
+# ---------------------------------------------------------------------------
+# Makes this repository installable as a conda source package, so other pixi
+# workspaces (and `pixi global install`) can consume it straight from GitHub:
+#
+#     pixi add --git https://github.com/ltschmitt/BEguided.git beguided
+#     pixi global install --git https://github.com/ltschmitt/BEguided.git
+#
+# `ignore-pypi-mapping = false` turns [project.dependencies] into the built
+# package's conda run-dependencies (numpy, biopython, pandas, intervaltree,
+# pyyaml, openpyxl — all standard conda-forge names) via the prefix.dev
+# PyPI→conda mapping, so the list is not duplicated here a third time. Name
+# and version are likewise taken from [project].
+#
+# The package ships the core CLI only: the [project.optional-dependencies]
+# (web/gpu/test) and BEguidedOFF are not part of it. Off-target search stays
+# opt-in — see the `fast`/`cuda` features below.
+[tool.pixi.package.build]
+backend = { name = "pixi-build-python", version = "0.*", channels = [
+    "https://prefix.dev/pixi-build-backends",
+    "https://prefix.dev/conda-forge",
+] }
+config = { ignore-pypi-mapping = false }
 
 # ---------------------------------------------------------------------------
 # Optional Pixi features
@@ -88,6 +114,18 @@ httpx = ">=0.27.0"
 
 # CUDA support for GPU-accelerated off-target search (Linux only)
 # Install with: pixi install --features cuda
+#
+# The CUDA stack deliberately stays on the `pytorch` conda channel (pytorch
+# 2.5.1 + CUDA 12.4): those builds are the only ones that do NOT depend on
+# the `__cuda` virtual package. conda-forge's CUDA builds (`pytorch-gpu`)
+# hard-require `__cuda`, which pixi's solver only sees when it is declared
+# in the workspace platform spec — and such a declaration makes the whole
+# workspace refuse to run on GPU-less machines (CI, CPU-only web servers).
+# The pytorch channel stopped publishing Linux builds after the 2.5.1/py3.12
+# era, so this feature pins the workspace to CPython 3.12 when it is
+# installed — functional, but bump to a conda-forge `pytorch-gpu` stack (in
+# a GPU-only workspace) if you ever need a newer torch. For no-clone GPU
+# setups see docs/installation.md ("GPU (extensive mode)").
 #
 # `pytorch-cuda` is the CUDA runtime meta-package; the actual `pytorch`
 # Python wheel (with CUDA bindings) must also be listed or `beguidedoff`

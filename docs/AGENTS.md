@@ -203,6 +203,14 @@ pixi run --environment web beguided-web
 - `pytorch-cuda` is **not** included in the default environment.
 - Add it with `pixi install --features cuda` for GPU-accelerated off-target search.
 - PyTorch with CUDA reports `torch.cuda.is_available() == True` and CUDA 12.4.
+- The CUDA stack intentionally stays on the `pytorch` conda channel (pytorch 2.5.1 /
+  CUDA 12.4, workspace pinned to CPython 3.12 by that stack): conda-forge's CUDA
+  builds (`pytorch-gpu`) hard-require the `__cuda` virtual package, which pixi's
+  solver only sees when declared in the workspace platform spec — and that
+  declaration would make the whole workspace refuse to run on GPU-less machines
+  (CI, CPU-only web servers). The pytorch channel stopped publishing Linux builds
+  after 2.5.1/py3.12; if a newer torch is ever needed, move to a `pytorch-gpu`
+  stack in a GPU-only workspace — see docs/installation.md ("GPU (extensive mode)").
 
 ## Code Style Guidelines
 

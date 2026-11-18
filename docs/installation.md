@@ -21,6 +21,8 @@ Core functionality works out of the box. Off-target search requires the separate
 
 ## Pixi
 
+Run from a checkout — the recommended setup for development and for the CUDA/web features:
+
 ```bash
 git clone https://github.com/ltschmitt/BEguided.git BEguided
 cd BEguided
@@ -38,6 +40,79 @@ pixi install --features cuda
 ```
 
 The `cuda` feature installs `BEguidedOFF` automatically from its public GitHub repo and builds its native FM-index extension against conda's `sdsl-lite` — no sibling checkout needed. (macOS/Windows: see the manual install instructions below.)
+
+## Pixi global install (no clone)
+
+The repository doubles as a pixi **source package** (the `pixi-build` preview feature). Pixi ≥ 0.81 builds it straight from GitHub and exposes both entry points system-wide:
+
+```bash
+pixi global install --git https://github.com/ltschmitt/BEguided.git
+beguided --help
+```
+
+Scope of the global install:
+
+- Ships the **core CLI** (`beguided` and `beguided-web` entry points) with all runtime dependencies from conda-forge.
+- No web-server framework. Add it to the same global environment with:
+
+  ```bash
+  pixi global install --git https://github.com/ltschmitt/BEguided.git beguided \
+      --with fastapi --with uvicorn --with jinja2 --with python-multipart
+  ```
+
+- No off-target search. BEguidedOFF is a separate package with a native extension and build-time requirements (`sdsl-lite`, a C++ toolchain) that don't fit a one-line global install — use the workspace setup below instead.
+
+## BEguided as a dependency in your own Pixi workspace
+
+Both repos are pixi source packages, so a workspace of your own can consume them directly from GitHub — no BEguided checkout. In your `pyproject.toml`:
+
+```toml
+[tool.pixi.workspace]
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+preview = ["pixi-build"]   # source packages require the pixi-build preview flag
+
+[tool.pixi.dependencies]
+beguided = { git = "https://github.com/ltschmitt/BEguided.git" }
+
+# Off-target search (fast CPU mode):
+beguidedoff = { git = "https://github.com/ltschmitt/BEguidedOFF.git" }
+```
+
+or via the CLI: `pixi add --git https://github.com/ltschmitt/BEguided.git beguided` (same for `beguidedoff`). Pixi builds each package on your machine (pure Python for BEguided; C++ FM-index extension against conda's `sdsl-lite` for BEguidedOFF) and resolves all runtime dependencies — `bioconda` is needed for `pysam`.
+
+Notes:
+
+- BEguidedOFF's FM-index binding is built for one CPython ABI; the recipe caps the build at CPython < 3.15 because bioconda does not ship py3.15 `pysam` builds yet. Bump that ceiling in BEguidedOFF's recipe when bioconda catches up.
+- Fast mode then needs its FM-index exactly as in a checkout — see [BEguidedOFF integration](#beguidedoff-integration) for `encode-genome` / `build-index` and the `BEGUIDED_BEGUIDEDOFF_INDEX*` variables.
+
+### GPU (extensive mode) in your own workspace
+
+Add a CUDA-enabled PyTorch from conda-forge (the `pytorch` conda channel has stopped publishing Linux builds after the 2.5.1/py3.12 era, so it cannot be combined with current CPython builds):
+
+```toml
+[tool.pixi.workspace]
+channels = ["conda-forge", "bioconda"]
+# pixi's solver only sees the CUDA driver if it is declared here — the
+# detected `__cuda` virtual package is not visible to the solve otherwise.
+# This makes the workspace GPU-only, which is what you want in a dedicated
+# GPU workspace (and impossible to combine with CPU-only use of the same
+# workspace).
+platforms = [{ platform = "linux-64", __cuda = "12" }]
+preview = ["pixi-build"]
+
+[tool.pixi.dependencies]
+beguided = { git = "https://github.com/ltschmitt/BEguided.git" }
+beguidedoff = { git = "https://github.com/ltschmitt/BEguidedOFF.git" }
+pytorch-gpu = ">=2.5.1,<3"   # conda-forge CUDA build + CUDA runtime libraries
+numba = ">=0.65.1,<0.66"     # BEguidedOFF's GPU kernels run through numba.cuda
+cuda-nvvm = "*"              # NVVM + libdevice that numba.cuda JIT-compiles against
+```
+
+Runtime-verified on an RTX 3060 (driver CUDA 13.4): torch 2.14.1 (cuda129 build), `numba.cuda` JIT against conda-forge `cuda-nvvm` 12.9, and the `beguidedoff` FM-index binding — all on CPython 3.14, all packages pulled from Git. `pytorch-gpu` depends on the `__cuda` virtual package, so this workspace only runs on machines with an NVIDIA driver — expected for a GPU workspace, but don't merge these platform lines into a workspace that must also run CPU-only.
+
+BEguided's own `cuda` feature (checkout route above) stays on the `pytorch` channel's pytorch 2.5.1/CUDA 12.4 stack on purpose: those are the only CUDA builds that do not depend on `__cuda`, so the shared workspace keeps working on GPU-less machines (CI, CPU servers). A fresh `pixi lock` of that stack is verified to still solve.
+
 
 ## Platform support
 
