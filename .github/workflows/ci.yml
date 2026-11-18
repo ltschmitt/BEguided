@@ -1,0 +1,89 @@
+name: CI
+
+# Test suites and the pixi source-package recipes. The `recipe` job builds
+# both packages the way external consumers do (pixi build + install into a
+# scratch workspace from a local checkout) and smoke-tests the entry points
+# and the native FM-index binding without needing a GPU.
+#
+# pixi is pinned to the version the recipes were verified with; the
+# `pixi-build` preview feature evolves, so bump deliberately (and run the
+# recipe job locally first: `pixi build` + a scratch `pixi add --path`).
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Test suite (default env)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          pixi-version: v0.81.0
+          cache: true
+      - run: pixi run test -q
+
+  web-tests:
+    name: Test suite (web env)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          pixi-version: v0.81.0
+          cache: true
+          environments: web
+      # Installs BEguidedOFF from GitHub (pypi git source) per the lockfile,
+      # exercising that integration path on CI.
+      - run: pixi run -e web python -m pytest tests/test_web -q
+
+  recipe:
+    name: Pixi recipe smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ltschmitt/BEguidedOFF
+          path: BEguidedOFF
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          pixi-version: v0.81.0
+          run-install: false
+      - name: Build conda packages
+        run: |
+          pixi build -o dist
+          cd BEguidedOFF && pixi build -o ../dist && cd ..
+      - name: Install into a scratch consumer workspace
+        run: |
+          mkdir -p /tmp/consumer
+          cd /tmp/consumer
+          cat > pyproject.toml <<'EOF'
+          [project]
+          name = "smoke-consumer"
+          version = "0.0.1"
+          requires-python = ">=3.10"
+
+          [tool.pixi.workspace]
+          channels = ["conda-forge", "bioconda"]
+          platforms = ["linux-64"]
+          preview = ["pixi-build"]
+          EOF
+          pixi add --path "$GITHUB_WORKSPACE" beguided
+          pixi add --path "$GITHUB_WORKSPACE/BEguidedOFF" beguidedoff
+      - name: Smoke-test entry points and FM-index binding
+        run: |
+          cd /tmp/consumer
+          pixi run beguided --help
+          pixi run beguidedoff --help
+          pixi run python -c "import beguidedoff._fmindex; print('fm-index binding imports')"
+      - name: Smoke-test pixi global install
+        run: |
+          pixi global install --path "$GITHUB_WORKSPACE" beguided
+          "$HOME/.pixi/bin/beguided" --help

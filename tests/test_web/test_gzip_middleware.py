@@ -9,10 +9,17 @@ from __future__ import annotations
 import asyncio
 import gzip
 
-from starlette.requests import Request
-from starlette.responses import Response
+import pytest
 
-from beguided.web.safety import SelectiveGZipMiddleware
+# The default pixi environment has no starlette/fastapi (web feature only);
+# skip cleanly there instead of erroring at collection time — same pattern as
+# test_head_requests.py.
+pytest.importorskip("starlette")
+
+from starlette.requests import Request  # noqa: E402
+from starlette.responses import Response  # noqa: E402
+
+from beguided.web.safety import SelectiveGZipMiddleware  # noqa: E402
 
 PATHS = ("/results", "/download/results")
 

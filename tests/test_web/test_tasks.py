@@ -2,8 +2,11 @@
 
 Covers the TSV→records conversion used to feed the results UI and the
 TSV/XLSX download, with a focus on the sequence-mode column-drop behaviour.
-None of these tests require fastapi/uvicorn — they exercise pure helpers
-and ``execute_job`` directly, so they run in the default pixi env.
+Most of these tests require no fastapi/uvicorn — they exercise pure helpers
+and ``execute_job`` directly, so they run in the default pixi env. The
+spreadsheet-mode integration tests do need starlette (``execute_job``
+imports ``beguided.web.safety.validate_chromosomes`` lazily), so they skip
+there via ``importorskip`` and run in the web env.
 """
 
 from __future__ import annotations
@@ -508,6 +511,9 @@ def test_build_config_gtf_override(tmp_path):
 def test_execute_job_spreadsheet_uses_selected_genome(monkeypatch, tmp_path):
     """Selecting the mouse genome loads its FASTA + Ensembl_canonical GTF and
     feeds those paths into the pipeline config."""
+    # execute_job lazily imports beguided.web.safety (→ starlette); not
+    # available in the default pixi env — runs in the web env instead.
+    pytest.importorskip("starlette")
     import beguided.web.tasks as tasks_mod
     from beguided.web.config import WebConfig, set_config
 
@@ -595,6 +601,8 @@ def test_execute_job_rejects_unknown_chromosome_for_selected_genome(
     monkeypatch, tmp_path
 ):
     """A human-style chromosome name must be rejected when mouse is selected."""
+    # Same lazy starlette dependency as the spreadsheet test above.
+    pytest.importorskip("starlette")
     import beguided.web.tasks as tasks_mod
     from beguided.web.config import WebConfig, set_config
 
