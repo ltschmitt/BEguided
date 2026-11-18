@@ -60,7 +60,14 @@ Scope of the global install:
       --with fastapi --with uvicorn --with jinja2 --with python-multipart
   ```
 
-- No off-target search. BEguidedOFF is a separate package with a native extension and build-time requirements (`sdsl-lite`, a C++ toolchain) that don't fit a one-line global install — use the workspace setup below instead.
+- No off-target search by default. BEguidedOFF installs globally too — its native FM-index extension is built on your machine by its recipe — but it needs the bioconda channel for `pysam` (global environments default to conda-forge only):
+
+  ```bash
+  pixi global install --channel conda-forge --channel bioconda \
+      --git https://github.com/ltschmitt/BEguidedOFF.git
+  ```
+
+  For the full fast-mode setup with both packages in one workspace, see the next section.
 
 ## BEguided as a dependency in your own Pixi workspace
 
